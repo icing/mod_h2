@@ -16,8 +16,8 @@ body {
     position: fixed;
     float: left;
     width: 272px;
-    height: 400px;
-    top: 260px;
+    padding-top: 400px;
+    top: 200px;
 }
 
 .wrapper {
