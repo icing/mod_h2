@@ -4,7 +4,7 @@ body {
     background-color: white;
     font-family: "american typewriter", "palatino linotype", Courier, serif;
     font-weight: normal;
-    border-top: solid 84px #444;
+    border-top: solid 84px #222;
 }
 
 .wrapper {
@@ -27,7 +27,8 @@ body {
 
 h1 {
     font-weight: normal;
-    color: #d0d0d0;
+    color: #bd8047;
+/*    color: #d0d0d0;*/
 }
 h2, h3, h4 {
     font-weight: normal;
