@@ -1,4 +1,4 @@
-body {
+.backlogo {
  background: transparent url(../images/greenbg.jpg) center -0px repeat-x;
  filter: blur(12px);
  -webkit-filter: blur(12px);
