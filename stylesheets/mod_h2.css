@@ -1,7 +1,39 @@
+body {
+    margin: 0;
+    padding: 0px 0 30px 0;
+    background-color: white;
+    font-family: "american typewriter", "palatino linotype", Courier, serif;
+    font-weight: normal;
+    border-top: solid 84px #444;
+}
+
+.wrapper {
+    margin-top: -32px;
+}
+
 .backlogo {
- background: transparent url(../images/greenbg.jpg) center -0px repeat-x;
- filter: blur(12px);
- -webkit-filter: blur(12px);
- -moz-filter: blur(12px);
- margin-top: 300px;
+    background: transparent url(../images/kambg.jpg) center -0px no-repeat;
+    position: fixed;
+    float: left;
+    width: 272px;
+    height: 400px;
+    top: 260px;
+}
+
+.wrapper {
+    background: white;
+    z-index: 100;
+}
+
+h1 {
+    font-weight: normal;
+    color: #d0d0d0;
+}
+h2, h3, h4 {
+    font-weight: normal;
+    color: #bd8047;
+}
+
+a, a:visited {
+    color: #bd8047;
 }
