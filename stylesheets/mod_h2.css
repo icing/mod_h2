@@ -1,3 +1,7 @@
 body {
  background: transparent url(../images/greenbg.jpg) center -0px repeat-x;
+ filter: blur(12px);
+ -webkit-filter: blur(12px);
+ -moz-filter: blur(12px);
+ margin-top: 300px;
 }
