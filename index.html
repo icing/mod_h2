@@ -1,1 +1,217 @@
-Hello!
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="chrome=1">
+    <title>Mod h2 by icing</title>
+
+    <link rel="stylesheet" href="stylesheets/styles.css">
+    <link rel="stylesheet" href="stylesheets/pygment_trac.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+    <!--[if lt IE 9]>
+    <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+  </head>
+  <body>
+    <div class="wrapper">
+      <header>
+        <h1>Mod h2</h1>
+        <p>HTTP/2 module for Apache httpd</p>
+
+        <p class="view"><a href="https://github.com/icing/mod_h2">View the Project on GitHub <small>icing/mod_h2</small></a></p>
+
+
+        <ul>
+          <li><a href="https://github.com/icing/mod_h2/zipball/master">Download <strong>ZIP File</strong></a></li>
+          <li><a href="https://github.com/icing/mod_h2/tarball/master">Download <strong>TAR Ball</strong></a></li>
+          <li><a href="https://github.com/icing/mod_h2">View On <strong>GitHub</strong></a></li>
+        </ul>
+      </header>
+      <section>
+        <h1>
+<a id="mod_h2---a-http2-modules-for-apache-httpd" class="anchor" href="#mod_h2---a-http2-modules-for-apache-httpd" aria-hidden="true"><span class="octicon octicon-link"></span></a>mod_h2 - a http/2 modules for apache httpd</h1>
+
+<p>Copyright (C) 2015 greenbytes GmbH</p>
+
+<p>Copying and distribution of this file, with or without modification,
+are permitted in any medium without royalty provided the copyright
+notice and this notice are preserved.  This file is offered as-is,
+without warranty of any kind. See LICENSE for details.</p>
+
+<p>This repository contains a Apache httpd module implementing the HTTP2
+protocol. It uses nghttp2 (<a href="https://nghttp2.org">https://nghttp2.org</a>) as base engine and connects
+it with the Apache infrastructure.</p>
+
+<h2>
+<a id="status" class="anchor" href="#status" aria-hidden="true"><span class="octicon octicon-link"></span></a>Status</h2>
+
+<p>In development. Definitely not ready for a production environment. Use at
+your own risk. Very alpha.</p>
+
+<h2>
+<a id="features" class="anchor" href="#features" aria-hidden="true"><span class="octicon octicon-link"></span></a>Features</h2>
+
+<p>This module supports the "h2" (HTTP2 over TLS) and "h2c" (HTTP2 over plain
+HTTP connections via Upgrade). You can enable it for the whole server or
+for specific virtual hosts only. More on this below on "Configuration".</p>
+
+<h2>
+<a id="configuration" class="anchor" href="#configuration" aria-hidden="true"><span class="octicon octicon-link"></span></a>Configuration</h2>
+
+<p>The test setup in test/conf/* that gets installed in gen/install for the
+local httpd build contains some simple examples of how this module can
+be configured.</p>
+
+<p>There are several configuration commands available when mod_h2 is loaded,
+such as:</p>
+
+<ul>
+<li>H2Engine (on/off), "on"    to enable HTTP/2 protocol handling</li>
+<li>H2MaxSessionStreams n      maximum number of open streams per session</li>
+<li>H2InitialWindowSize n      initial window size on client DATA</li>
+<li>H2MaxHeaderListSize n      maximum acceptable size of request headers</li>
+<li>H2MinWorkers n             minimum number of worker threads per child</li>
+<li>H2MaxWorkers n             maximum number of worker threads per child</li>
+<li>H2StreamMaxMemSize n       maximum number of bytes buffered in memory for a stream</li>
+</ul>
+
+<h2>
+<a id="dependencies" class="anchor" href="#dependencies" aria-hidden="true"><span class="octicon octicon-link"></span></a>Dependencies</h2>
+
+<ol>
+<li>The module is written in plain C and links to libnghttp2 and the
+apache runtime.</li>
+<li>For "h2" support - the part of HTTP2 that uses TLS - a patched mod_ssl
+needs to be present in the server. The patch is available in httpd/patches
+and automatically applied in sandbox mode.</li>
+<li>For ALPN/NPN protocol negotiation (the basic TLS HELLO part) to work,
+at least OpenSSL 1.0.1 is needed (OpenSSL 1.0.2 perferred).</li>
+<li>mod_h2 currently only supports the mpm_worker module.</li>
+</ol>
+
+<h2>
+<a id="installation" class="anchor" href="#installation" aria-hidden="true"><span class="octicon octicon-link"></span></a>Installation</h2>
+
+<p>mod_h2 is using autoconf/automake for configurtion and build handling. If you
+have a git checkout, refer to 'Build from git' below. If you have a release
+extracted, you need to:
+    &gt; cd mod_h2-x.x.x
+    &gt; ./configure
+    &gt; make</p>
+
+<p>For general handling of 'configure', see INSTALL. For mod_h2 specifically,
+there are two arguments to know:
+    --enable-sandbox     build a complete sandbox installation with own httpd,
+                         own libnghttp2
+    --with-apxs=
+                         for a non-sandboxed installation where the apxs
+                         (from the apache development environment) is in an
+                         unusual location.</p>
+
+<p>If you run 'configure' without arguments, it assumes a non-sandbox'ed built
+where apxs and libnghttp2 are properly installed.</p>
+
+<p>Sandbox Installation:</p>
+
+<p>The sandbox installation puts everything in ./gen/install: httpd, nghttp2, curl
+and other fine things. For testing the module, or just trying it out, this
+has the following advantages:
+    - conflicts with "wrong" versions already installed on your system are avoided
+    - you can do the installation and test without root privileges
+    - certain patches can be applied that are necessary for all features to work, see "Dependencies"."</p>
+
+<h2>
+<a id="build-from-git" class="anchor" href="#build-from-git" aria-hidden="true"><span class="octicon octicon-link"></span></a>Build from git</h2>
+
+<p>Building from git is easy, but please be sure that at least autoconf 2.68 is
+used::</p>
+
+<pre><code>&gt; autoreconf -i
+&gt; automake
+&gt; autoconf
+&gt; ./configure
+&gt; make
+</code></pre>
+
+<h2>
+<a id="supported-platforms" class="anchor" href="#supported-platforms" aria-hidden="true"><span class="octicon octicon-link"></span></a>Supported Platforms</h2>
+
+<p>mod_h2 has been developed under Ubuntu 14.04 LTS and OS X 10.10. The module
+itself depends only on an installed APXS (the Apache runtime platform) and
+libnghttp2. As long as both are present, the module itself should build
+just fine.</p>
+
+<p>Ubuntu :Install the prerequisite software. On a 14.04 LTS server, that should be:</p>
+
+<blockquote>
+<p>sudo apt-get install git gcc g++ libpcre3-dev libcunit1-dev libev-dev libjansson-dev libjemalloc-dev cython make binutils autoconf automake autotools-dev libtool pkg-config zlib1g-dev libssl-dev libxml2-dev libevent-dev python3.4-dev libevent-openssl-2.0-5</p>
+</blockquote>
+
+<p>OS X: on OS X 10.10, building the project requires a homebrew installation and the following packages installed via brew:</p>
+
+<ul>
+<li><p>pkg-config</p></li>
+<li><p>for httpd the Makefile will download and install:</p></li>
+<li>pcre</li>
+<li>apr + apr-util</li>
+<li><p>openssl
+exact versions and download urls in httpd/Makefile</p></li>
+<li><p>for nghttp2 the Makefile will download and install:</p></li>
+<li>zlib</li>
+<li>libev
+exact versions and download urls in httpd/Makefile</li>
+</ul>
+
+<h2>
+<a id="architecture-limits-details" class="anchor" href="#architecture-limits-details" aria-hidden="true"><span class="octicon octicon-link"></span></a>Architecture, Limits, Details</h2>
+
+<p>See DISCUSS.</p>
+
+<h2>
+<a id="todo" class="anchor" href="#todo" aria-hidden="true"><span class="octicon octicon-link"></span></a>TODO</h2>
+
+<ul>
+<li>Thanks to the excellent nghttp2, the module currently supports h2-14 and
+h2c-14. Piority handling is implemented in nghttp2, but not tested with the
+mod_h2 and there are several areas in work scheduling where priority handling
+needs to be added to mod_h2.</li>
+<li>Replace own thread pool with the ones from apr-util, use priority scheduling
+(Initial tests show a 10% perf penalty, why?)</li>
+<li>Performance is not where it should be, request/s suffer from current
+pseudo-connection handling and other things. See DISCUSS</li>
+<li>Proper documentation needs to be added</li>
+<li>Test cases need to be written to cover edge cases with connection abort,
+stream reset, priority requests, etc.</li>
+<li>mpm_event: can we support it?</li>
+<li>Chunk handling for request input data (h2_request).</li>
+<li>Detection at runtime that we are indeed running with mpm_worker, an error
+message to the log and stay inactive otherwise.</li>
+<li>http trailers are not implemented</li>
+</ul>
+
+<h2>
+<a id="licensing" class="anchor" href="#licensing" aria-hidden="true"><span class="octicon octicon-link"></span></a>Licensing</h2>
+
+<p>Please see the file called LICENSE.</p>
+
+<h2>
+<a id="credits" class="anchor" href="#credits" aria-hidden="true"><span class="octicon octicon-link"></span></a>Credits</h2>
+
+<p>This work has been funded by the GSM Association (<a href="http://gsma.com">http://gsma.com</a>). The module
+itself was heavily influenced by mod_spdy, the Google implementation of their
+SPDY protocol. And without Tatsuhiro Tsujikawa excellent nghttp2 work, this
+would not have been possible.</p>
+
+<p>Münster, 10.3.2015,</p>
+
+<p>Stefan Eissing, greenbytes GmbH</p>
+      </section>
+      <footer>
+        <p>This project is maintained by <a href="https://github.com/icing">icing</a></p>
+        <p><small>Hosted on GitHub Pages &mdash; Theme by <a href="https://github.com/orderedlist">orderedlist</a></small></p>
+      </footer>
+    </div>
+    <script src="javascripts/scale.fix.js"></script>
+    
+  </body>
+</html>
