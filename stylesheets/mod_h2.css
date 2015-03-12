@@ -38,3 +38,55 @@ h2, h3, h4 {
 a, a:visited {
     color: #bd8047;
 }
+
+@media only screen and (max-width: 960px) {
+    body {
+        border-width: 52px;
+    }
+    .wrapper {
+        background-color: transparent!important;
+        margin-top: -32px!important;
+        padding: 0 .5em;
+    }
+    
+    .backlogo {
+        float: right;
+        position: static;
+        transform: scale(0.75) translate(25px, -150px);
+        -webkit-transform: scale(0.75) translate(25px, -150px);
+        margin: 0 0 0px -50px;
+    }
+    
+    header ul {
+        position: static;
+    }
+    
+}
+
+@media only screen and (max-device-width: 640px),
+    only screen and (max-device-width: 667px),
+    only screen and (max-width: 480px) {
+
+body {
+    border-width: 42px;
+}
+.wrapper {
+    background-color: transparent!important;
+    margin-top: -32px!important;
+    padding: 0 .5em;
+}
+
+.backlogo {
+    float: right;
+    position: static;
+    transform: scale(0.5) translate(125px, -300px);
+    -webkit-transform: scale(0.5) translate(125px, -300px);
+    margin: 0 0 -125px -250px;
+}
+
+header ul {
+    position: static;
+}
+
+}
+
