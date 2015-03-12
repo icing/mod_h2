@@ -79,9 +79,9 @@ body {
 .backlogo {
     float: right;
     position: static;
-    transform: scale(0.5) translate(125px, -300px);
-    -webkit-transform: scale(0.5) translate(125px, -300px);
-    margin: 0 0 -125px -250px;
+    transform: scale(0.5) translate(125px, -2500px);
+    -webkit-transform: scale(0.5) translate(125px, -250px);
+    margin: 0 0 -100px -200px;
 }
 
 header ul {
