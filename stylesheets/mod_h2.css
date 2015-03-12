@@ -81,7 +81,7 @@ body {
     position: static;
     transform: scale(0.5) translate(125px, -2500px);
     -webkit-transform: scale(0.5) translate(125px, -250px);
-    margin: 0 0 -100px -200px;
+    margin: 0 0 -100px -100px;
 }
 
 header ul {
