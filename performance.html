@@ -39,6 +39,9 @@
                 notice and this notice are preserved.  This file is offered as-is,
                 without warranty of any kind. See LICENSE for details.</p>
                 
+                <p><em style="font-weight: bold; font-size: 14pt;">Important update below!</em>
+                </p>
+                
                 <h2><a id="tests" class="anchor" href="#tests" aria-hidden="true"><span class="octicon octicon-link"></span></a>Tests</h2>
                 <p>
                     I did two tests in three combinations, using the <code>mod_h2</code> sandbox setup on an Ubuntu Parallels Image. 
@@ -105,11 +108,53 @@ h2load -c 100 -t 10 -n 740000 https://test.example.org:12346/&lt;file&gt;
                 <p>
                 Anyway, those are the two area to work on: data copying and Apache core integration. There's probably a lot of fun ahead. Feedback always welcome.
                 </p>
+
+
+                <h2><a id="update" class="anchor" href="#update" aria-hidden="true"><span class="octicon octicon-link"></span></a>Update</h2>
                 <p>
+                And feedback I got: Tatsuhiro Tsujikawa (the author of nghttp2) pointed out that <code>h2load</code> without the 
+                <code>-m number</code> option will only send one request at a time per connection. Doh! How could I miss that?
                 </p>
                 <p>
+                In the light of this, my numbers above are a comparision what you get if you use HTTP/2 <em>exactly</em> as HTTP/1.1. But if
+                you really start to send requests in parallel, I get much nicer numbers for the small requests:
+                <table>
+                    <thead>
+                        <tr><th>Scenario</th><th>Parallelism</th><th>Metric</th><th>/index.html</th></tr>
+                        <tr><th>        </th><th>           </th><th>      </th><td class="num"> 653 bytes </td></tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>h2load + nghttpd(0.7.9)</td><td><code>-m 10</code></td><td>req/s (MB/s)</td><td class="num"> 67157 (43.7)</td>
+                        </tr>
+                        <tr>
+                            <td>h2load + nghttpd(0.7.9)</td><td><code>-m 20</code></td><td>req/s (MB/s)</td><td class="num"> 81847 (53.2)</td>
+                        </tr>
+                        <tr>
+                            <td>h2load + nghttpd(0.7.9)</td><td><code>-m 30</code></td><td>req/s (MB/s)</td><td class="num"> 85494 (55.6)</td>
+                        </tr>
+                        <tr>
+                            <td>h2load + nghttpd(0.7.9)</td><td><code>-m 40</code></td><td>req/s (MB/s)</td><td class="num"> 87312 (56.8)</td>
+                        </tr>
+                        <tr>
+                            <td>h2load + nghttpd(0.7.9)</td><td><code>-m 50</code></td><td>req/s (MB/s)</td><td class="num"> 88216 (57.4)</td>
+                        </tr>
+                        <tr>
+                            <td>h2load + mod_h2(0.4.3)</td><td><code>-m 10</code></td><td>req/s</td><td class="num"> 25575 (17.1)</td>
+                        </tr>
+                        <tr>
+                            <td>h2load + mod_h2(0.4.3)</td><td><code>-m 20</code></td><td>req/s</td><td class="num"> 26553 (17.8)</td>
+                        </tr>
+                        <tr>
+                            <td>h2load + mod_h2(0.4.3)</td><td><code>-m 30</code></td><td>req/s</td><td class="num"> 24952 (16.7)</td>
+                        </tr>
+                    </tbody>
+                </table>
+                And there it seems to peek quite early with parallelism in <code>mod_h2</code>, while <code>nghttp2</code> blazes ahead! 
+                My apologies to Tatsuhiro for the earlier numbers and the wrong impression reported!
                 </p>
-                
+                <p>Well, next week I need to look while <code>mod_h2</code> does not scale better, it seems.
+                </p>
                 <p>Münster, 02.04.2015,</p>
                 
                 <p>Stefan Eissing, greenbytes GmbH</p>
