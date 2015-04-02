@@ -30,20 +30,18 @@
  * different lifetimes than our h2_stream or h2_session instances. Basically,
  * we would like to be as standalone as possible.
  *
- * h2_task input/output are the h2_bucket_queue pairs of the h2_session this
- * task belongs to. h2_task_input and h2_task_output convert this into/from
- * proper apr_bucket_brigadedness.
- *
  * Finally, to keep certain connection level filters, such as ourselves and
  * especially mod_ssl ones, from messing with our data, we need a filter
  * of our own to disble those.
  */
 
+struct apr_thread_cond_t;
+struct h2_conn;
 struct h2_mplx;
 struct h2_task;
 struct h2_resp_head;
 struct h2_bucket;
-struct h2_bucket_queue;
+struct h2_worker;
 
 typedef struct h2_task h2_task;
 
@@ -51,26 +49,29 @@ h2_task *h2_task_create(long session_id,
                         int stream_id,
                         conn_rec *master,
                         apr_pool_t *pool, 
-                        struct h2_bucket *input,
-                        int input_eos,
                         struct h2_mplx *mplx);
 
 apr_status_t h2_task_destroy(h2_task *task);
 
-apr_status_t h2_task_do(h2_task *task);
+apr_status_t h2_task_prep_conn(h2_task *task);
+
+apr_status_t h2_task_do(h2_task *task, struct h2_worker *worker);
 
 void h2_task_abort(h2_task *task);
+int h2_task_is_aborted(h2_task *task);
+void h2_task_interrupt(h2_task *task);
 
 int h2_task_has_started(h2_task *task);
 void h2_task_set_started(h2_task *task, int started);
 int h2_task_has_finished(h2_task *task);
 void h2_task_set_finished(h2_task *task, int finished);
 
-long h2_task_get_session_id(h2_task *task);
-int h2_task_get_stream_id(h2_task *task);
+const char *h2_task_get_id(h2_task *task);
 
 void h2_task_register_hooks(void);
 
 int h2_task_pre_conn(h2_task *task, conn_rec *c);
+
+struct apr_thread_cond_t *h2_task_get_io_cond(h2_task *task);
 
 #endif /* defined(__mod_h2__h2_task__) */

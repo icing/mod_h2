@@ -22,8 +22,12 @@ extern module AP_MODULE_DECLARE_DATA h2_module;
 
 APLOG_USE_MODULE(h2);
 
-#define PROTO_H2_14          "h2-14"
-#define PROTO_H2C_14         "h2c-14"
+extern const char *h2_protos[];
+extern apr_size_t h2_protos_len;
+
+extern const char *h2c_protos[];
+extern apr_size_t h2c_protos_len;
+
 
 #define H2_HEADER_METHOD     ":method"
 #define H2_HEADER_METHOD_LEN 7
@@ -35,7 +39,7 @@ APLOG_USE_MODULE(h2);
 #define H2_HEADER_PATH_LEN   5
 #define H2_CRLF             "\r\n"
 
-static const apr_off_t BLOCKSIZE      = 8 * 1024;
-static const apr_off_t DATA_BLOCKSIZE = 8 * 1024;
+static const apr_off_t BLOCKSIZE      = 16 * 1024;
+static const apr_off_t DATA_BLOCKSIZE = 16 * 1024;
 
 #endif

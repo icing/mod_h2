@@ -16,36 +16,97 @@
 #ifndef __mod_h2__h2_io__
 #define __mod_h2__h2_io__
 
-/* h2_io is the basic handler of a httpd connection. It keeps two brigades,
- * one for input, one for output and works with the installed connection
- * filters.
- * The read is done via a callback function, so that input can be processed
- * directly without copying.
+struct apr_thread_cond_t;
+struct h2_bucket;
+struct h2_response;
+
+#include "h2_bucket_queue.h"
+
+typedef struct h2_io h2_io;
+struct h2_io {
+    int id;                      /* stream identifier */
+    h2_bucket_queue input;       /* input data for stream */
+    apr_size_t input_consumed;   /* how many bytes have been read */
+                                 /* != NULL, if someone blocks reading */
+    struct apr_thread_cond_t *input_arrived;  
+    
+    h2_bucket_queue output;      /* output data of stream */
+                                 /* != NULL, if some block writing */
+    struct apr_thread_cond_t *output_drained; 
+
+    struct h2_response *response; /* submittable response created */
+};
+
+/*******************************************************************************
+ * Object lifecycle and information.
+ ******************************************************************************/
+
+/**
+ * Creates a new h2_io for the given stream id. 
  */
-typedef struct {
-    conn_rec *connection;
-    apr_bucket_brigade *input;
-    apr_bucket_brigade *output;
-} h2_io_ctx;
+h2_io *h2_io_create(int id, apr_pool_t *pool);
 
-apr_status_t h2_io_init(h2_io_ctx *io, conn_rec *c);
-void h2_io_destroy(h2_io_ctx *io);
+/**
+ * Frees any resources hold by the h2_io instance. 
+ */
+void h2_io_destroy(h2_io *io);
 
-typedef apr_status_t (*h2_io_on_read_cb)(const char *data, apr_size_t len,
-                                         apr_size_t *readlen, int *done,
-                                         void *puser);
+/**
+ * The input data is completely queued. Blocked reads will return immediately
+ * and give either data or EOF.
+ */
+int h2_io_in_has_eos_for(h2_io *io);
+/**
+ * Output data is available.
+ */
+int h2_io_out_has_data(h2_io *io);
 
+/*******************************************************************************
+ * Input handling of streams.
+ ******************************************************************************/
+/**
+ * Reads the next bucket from the input. Returns APR_EAGAIN if none
+ * is currently available, APR_EOF if end of input has been reached.
+ */
+apr_status_t h2_io_in_read(h2_io *io, struct h2_bucket **pbucket);
 
-apr_status_t h2_io_read(h2_io_ctx *io,
-                        apr_read_type_e block,
-                        h2_io_on_read_cb on_read_cb,
-                        void *puser);
+/**
+ * Appends given bucket to the input.
+ */
+apr_status_t h2_io_in_write(h2_io *io, struct h2_bucket *bucket);
 
-apr_status_t h2_io_write(h2_io_ctx *io,
-                         const char *buf,
-                         size_t length,
-                         size_t *written);
+/**
+ * Closes the input. After existing data has been read, APR_EOF will
+ * be returned.
+ */
+apr_status_t h2_io_in_close(h2_io *io);
 
-apr_status_t h2_io_flush(h2_io_ctx *io);
+/*******************************************************************************
+ * Output handling of streams.
+ ******************************************************************************/
+/**
+ * Read a bucket from the output head. Return APR_EAGAIN if non is available,
+ * APR_EOF if none available and output has been closed. Will, on successful
+ * read, set peos != 0 if data is the last data of the output.
+ */
+apr_status_t h2_io_out_read(h2_io *io, struct h2_bucket **pbucket, int *peos);
+
+/**
+ * Appends given bucket to the output.
+ */
+apr_status_t h2_io_out_write(h2_io *io, struct h2_bucket *bucket);
+
+/**
+ * Closes the input. After existing data has been read, APR_EOF will
+ * be returned.
+ */
+apr_status_t h2_io_out_close(h2_io *io);
+
+/**
+ * Gives the overall length of the data that is currently queued for
+ * output.
+ */
+apr_size_t h2_io_out_length(h2_io *io);
+
 
 #endif /* defined(__mod_h2__h2_io__) */

@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-SUBDIRS         = httpd nghttp2 mod_h2
-DIST_SUBDIRS    = $(SUBDIRS) test
+SUBDIRS         = @BUILD_SUBDIRS@
+DIST_SUBDIRS    = mod_h2 sandbox setup
 
 ACLOCAL_AMFLAGS = -I m4
 
@@ -21,17 +21,20 @@ ACLOCAL_AMFLAGS = -I m4
 dist_doc_DATA   = README
 
 
-.PHONY: test loadtest start stop
+.PHONY: test loadtest start stop restart
 
-start: $(INST_DIR)/.test-setup
-	make -C test start
+start:
+	make -C sandbox start
+
+restart:
+	make -C sandbox restart
 
 stop:
-	make -C test stop
+	make -C sandbox stop
 
 test:
-	make -C test test
+	make -C sandbox test
 
 loadtest:
-	make -C test loadtest
+	make -C sandbox loadtest
 

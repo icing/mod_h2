@@ -1,0 +1,96 @@
+v0.4.3-DEV
+--------------------------------------------------------------------------------
+ * mod_h2 now performs proper flow-control on input. Uploads can no longer
+   flood memory of the server.
+ * changed mod_ssl patch to reflect current trunk changes in regard to NPN/ALPN
+   support.
+ * patched the trunk ALPN patch to make it do the right thing if no 
+   ALPNPreference is configured
+ * added DESTDIR support in Makefile as supplied by Hanno Böck.
+
+v0.4.2
+--------------------------------------------------------------------------------
+ * adding more low-level logging to NPN/ALPN negotiation
+ * added '-Werror' to module compiler flags (thanks @devurandom)
+ * debugged and tcpdumped around h2c startup handling with curl on certain
+   platforms. If you experience connection hangers, report pls with 'trace2'
+   level error log.
+
+v0.4.1
+--------------------------------------------------------------------------------
+ * fixing infinite loop when aborting session with tasks hanging in read
+
+v0.4.0
+--------------------------------------------------------------------------------
+ * h2 + h2-16 will be negiotiated/upgraded. Priority handling is implemented
+   in nghttp2, however assigning requests to workers has currently not the
+   necessary information.
+ * Alt-Svc support based on https://http2.github.io/http2-spec/alt-svc.html#indicator
+   Configuration directives "H2AltSvc" and "H2AltSvcMaxAge" added. Configurable
+   per virtual host.
+ * reduced lock contention and eliminated broadcast signalling on internal 
+   condition variables, improved multi-thread performance
+
+v0.3.1
+--------------------------------------------------------------------------------
+ * defining _GNU_SOURCE to pull in proper features and make APR header files
+   happy, fixes #7 
+
+v0.3.0
+--------------------------------------------------------------------------------
+ * new directory structure, all sandbox related parts have been moved to 
+   own sandbox dir
+ * non-sandbox configuration no longer triggers building of sandbox stuff
+ * cleanup up distribution builds to have smaller and working tar balls
+
+v0.2.2
+--------------------------------------------------------------------------------
+ * optimizations on response reads
+ * being more apacheeeish, using APR_RINGs for queue handling
+ * using openssl latest.tar.gz to retrieve latest openssl for sandbox
+ * fixed crash in large request header handling
+ * better flushing of stream io resulting in performance improvements
+ * added sandbox tests for chunked responses of various sizes
+ * integrated fix (https://github.com/icing/mod_h2/pull/5) from 
+   Jonathan (invader444) to fix chunked encoding when converting http/1
+   responses to http2 unchunked data.
+
+v0.2.1
+--------------------------------------------------------------------------------
+ * changed apr_pool usage to have more recycling, 50% performance increase in 
+   loadtest
+ * added hack to enable mod_h2 to run in mpm_event (experimental)
+ * changed internal stream/data lookup from O(n/2) to O(log(n)) time
+ * fixed index in http2 to http1 header conversion leading to segfaults
+ * update openssl version downloaded for sandbox
+ * using sha256 for self-signed sandbox certificates
+ * sandbox certificate no longer announces itself as roo
+   (last 3 thanks to michael.koeller at greenbytes.de)
+
+v0.2.0
+--------------------------------------------------------------------------------
+ * merged pull request from Tatsuhiro Tsujikawa, removing code for CONTINUATION
+   frames that are never seen by mod_h2
+ * request/response headers are filtered when converting between HTTP/1.1 and
+   HTTP/2 where they can only do harm (Expect/Connection/etc.)
+ * added test cases for uploads
+ * fixed handling of uploads ;-)
+ * enabled h2c upgrade for "OPTIONS *" requests
+ * changed h2_stream_set implementation to use sorted apr array
+ * switched to nghttp2 v0.7.7 in sandbox
+
+v0.1.1
+--------------------------------------------------------------------------------
+ * added cgi test cases (needs python installed)
+ * fixed typo in configure.ac that did not set the CPP flags correctly (#3)
+ * fixed handling of chunked encoding in responses
+ * merged header macro pull request from MATSUMOTO, Ryosuke
+
+v0.1.0
+--------------------------------------------------------------------------------
+ * first alpha release, see README on how to use it and what is all missing
+ * h2 supported with openssl > 1.0.1 and patched mod_ssl (patch included and used in sandbox)
+ * h2c supported
+ * only usable in mpm_worker right now
+ * configure --enable-sandbox for a local install of everything needed
+ * tested with httpd 2.4.12 and nghttp2 0.7.5 on Ubuntu 14.04 and OS X 10.10

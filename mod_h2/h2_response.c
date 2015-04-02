@@ -29,21 +29,6 @@
 #include "h2_util.h"
 #include "h2_response.h"
 
-#define H2_CREATE_NV_LIT_CS(nv, NAME, VALUE) nv->name = (uint8_t *)NAME;      \
-                                             nv->namelen = sizeof(NAME) - 1;  \
-                                             nv->value = (uint8_t *)VALUE;    \
-                                             nv->valuelen = strlen(VALUE)
-
-#define H2_CREATE_NV_CS_LIT(nv, NAME, VALUE) nv->name = (uint8_t *)NAME;      \
-                                             nv->namelen = strlen(NAME);      \
-                                             nv->value = (uint8_t *)VALUE;    \
-                                             nv->valuelen = sizeof(VALUE) - 1
-
-#define H2_CREATE_NV_CS_CS(nv, NAME, VALUE) nv->name = (uint8_t *)NAME;       \
-                                            nv->namelen = strlen(NAME);       \
-                                            nv->value = (uint8_t *)VALUE;     \
-                                            nv->valuelen = strlen(VALUE)
-
 h2_response *h2_response_create(int stream_id,
                                   apr_status_t task_status,
                                   const char *http_status,
@@ -51,12 +36,12 @@ h2_response *h2_response_create(int stream_id,
                                   h2_bucket *data,
                                   apr_pool_t *pool)
 {
-    apr_size_t nvlen = 1 + (hlines? hlines->nelts : 0);
+    apr_size_t nvmax = 1 + (hlines? hlines->nelts : 0);
     /* we allocate one block for the h2_response and the array of
      * nghtt2_nv structures.
      */
     h2_response *head = calloc(1, sizeof(h2_response)
-                                + (nvlen * sizeof(nghttp2_nv)));
+                                + (nvmax * sizeof(nghttp2_nv)));
     if (head == NULL) {
         return NULL;
     }
@@ -72,11 +57,15 @@ h2_response *h2_response_create(int stream_id,
         H2_CREATE_NV_LIT_CS(nvs, ":status", http_status);
 
         int seen_clen = 0;
+        int nvlen = 1;
         for (int i = 0; i < hlines->nelts; ++i) {
             char *hline = ((char **)hlines->elts)[i];
-            nghttp2_nv *nv = &nvs[i + 1];
+            nghttp2_nv *nv = &nvs[nvlen];
             char *sep = strchr(hline, ':');
             if (!sep) {
+                ap_log_perror(APLOG_MARK, APLOG_WARNING, APR_EINVAL, pool,
+                              "h2_response(%d): invalid header[%d] '%s'",
+                              head->stream_id, i, (char*)hline);
                 /* not valid format, abort */
                 return NULL;
             }
@@ -85,26 +74,37 @@ h2_response *h2_response_create(int stream_id,
                 ++sep;
             }
             if (*sep) {
-                H2_CREATE_NV_CS_CS(nv, h2_strlwr(hline), sep);
+                if (H2_HD_MATCH_LIT_CS("transfer-encoding", hline)) {
+                    /* never forward this header */
+                    if (!strcmp("chunked", sep)) {
+                        head->chunked = 1;
+                    }
+                }
+                else if (H2_HD_MATCH_LIT_CS("connection", hline)
+                         || H2_HD_MATCH_LIT_CS("proxy-connection", hline)
+                         || H2_HD_MATCH_LIT_CS("upgrade", hline)
+                         || H2_HD_MATCH_LIT_CS("keep-alive", hline)) {
+                    /* never forward, ch. 8.1.2.2 */
+                }
+                else {
+                    H2_CREATE_NV_CS_CS(nv, h2_strlwr(hline), sep);
+                    ++nvlen;
+                }
             }
             else {
                 /* reached end of line, an empty header value */
                 H2_CREATE_NV_CS_LIT(nv, h2_strlwr(hline), "");
+                ++nvlen;
             }
         }
         head->nvlen = nvlen;
 
         for (int i = 1; i < head->nvlen; ++i) {
             const nghttp2_nv *nv = &(&head->nv)[i];
-
-            if (!strcmp("transfer-encoding", (char*)nv->name)) {
-                if (!strcmp("chunked", (char *)nv->value)) {
-                    head->chunked = 1;
-                }
-            }
-            else if (!head->chunked && !strcmp("content-length", (char*)nv->name)) {
-                apr_int64_t clen = apr_atoi64((char*)nv->value);
-                if (clen <= 0) {
+            if (!head->chunked && !strcmp("content-length", (char*)nv->name)) {
+                char *end;
+                apr_int64_t clen = apr_strtoi64((char*)nv->value, &end, 10);
+                if (((char*)nv->value) == end) {
                     ap_log_perror(APLOG_MARK, APLOG_WARNING, APR_EINVAL, pool,
                                   "h2_response(%d): content-length value not parsed: %s",
                                   head->stream_id, (char*)nv->value);

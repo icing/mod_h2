@@ -49,7 +49,7 @@ static void set_state(h2_stream *stream, h2_stream_state_t state)
 h2_stream *h2_stream_create(int id, apr_pool_t *master, struct h2_mplx *m)
 {
     apr_pool_t *spool = NULL;
-    apr_status_t status = apr_pool_create_ex(&spool, master, NULL, NULL);
+    apr_status_t status = apr_pool_create(&spool, master);
     if (status != APR_SUCCESS) {
         return NULL;
     }
@@ -60,7 +60,7 @@ h2_stream *h2_stream_create(int id, apr_pool_t *master, struct h2_mplx *m)
         stream->state = H2_STREAM_ST_IDLE;
         stream->pool = spool;
         stream->m = m;
-        stream->request = h2_request_create(id, spool);
+        stream->request = h2_request_create(id, spool, m);
     }
     return stream;
 }
@@ -98,12 +98,13 @@ void h2_stream_abort(h2_stream *stream)
 h2_task *h2_stream_create_task(h2_stream *stream, conn_rec *master)
 {
     assert(stream);
-    int input_eos = 0;
-    h2_bucket *data = h2_request_steal_first_data(stream->request, &input_eos);
-    h2_request_flush(stream->request, stream->m);
-    stream->task = h2_task_create(h2_mplx_get_id(stream->m),
-                                  stream->id, master, stream->pool,
-                                  data, input_eos, stream->m);
+    stream->task = h2_task_create(h2_mplx_get_id(stream->m), stream->id, 
+                                  master, stream->pool, stream->m);
+    ap_log_cerror(APLOG_MARK, APLOG_DEBUG, 0, master,
+                  "h2_stream(%ld-%d): created task for %s %s (%s)",
+                  h2_mplx_get_id(stream->m), stream->id,
+                  stream->request->method, stream->request->path,
+                  stream->request->authority);
     return stream->task;
 }
 
@@ -116,7 +117,9 @@ apr_status_t h2_stream_write_eoh(h2_stream *stream)
 apr_status_t h2_stream_rwrite(h2_stream *stream, request_rec *r)
 {
     assert(stream);
-    return h2_request_rwrite(stream->request, r, stream->m, stream->pool);
+    set_state(stream, H2_STREAM_ST_OPEN);
+    apr_status_t status = h2_request_rwrite(stream->request, r, stream->m);
+    return status;
 }
 
 apr_status_t h2_stream_write_eos(h2_stream *stream)
@@ -129,7 +132,7 @@ apr_status_t h2_stream_write_eos(h2_stream *stream)
     switch (stream->state) {
         case H2_STREAM_ST_CLOSED_INPUT:
         case H2_STREAM_ST_CLOSED:
-            break; /* ignore, idempotent */
+            return APR_SUCCESS; /* ignore, idempotent */
         case H2_STREAM_ST_CLOSED_OUTPUT:
             /* both closed now */
             set_state(stream, H2_STREAM_ST_CLOSED);
@@ -147,22 +150,38 @@ apr_status_t h2_stream_write_header(h2_stream *stream,
                                     const char *value, size_t vlen)
 {
     assert(stream);
+    switch (stream->state) {
+        case H2_STREAM_ST_IDLE:
+            set_state(stream, H2_STREAM_ST_OPEN);
+            break;
+        case H2_STREAM_ST_OPEN:
+            break;
+        default:
+            return APR_EINVAL;
+    }
     return h2_request_write_header(stream->request, name, nlen,
-                                   value, vlen, stream->m,
-                                   stream->pool);
+                                   value, vlen, stream->m);
 }
 
 apr_status_t h2_stream_write_data(h2_stream *stream,
                                   const char *data, size_t len)
 {
     assert(stream);
+    assert(stream);
+    switch (stream->state) {
+        case H2_STREAM_ST_OPEN:
+            break;
+        default:
+            return APR_EINVAL;
+    }
     return h2_request_write_data(stream->request, data, len, stream->m);
 }
 
-apr_status_t h2_stream_read(h2_stream *stream, struct h2_bucket **pbucket)
+apr_status_t h2_stream_read(h2_stream *stream, struct h2_bucket **pbucket,
+                            int *peos)
 {
     assert(stream);
-    return h2_mplx_out_read(stream->m, stream->id, pbucket);
+    return h2_mplx_out_read(stream->m, stream->id, pbucket, peos);
 }
 
 void h2_stream_set_suspended(h2_stream *stream, int suspended)

@@ -16,7 +16,7 @@
 #ifndef __mod_h2__h2_session__
 #define __mod_h2__h2_session__
 
-#include "h2_io.h"
+#include "h2_conn_io.h"
 
 /**
  * A HTTP/2 connection, a session with a specific client.
@@ -25,8 +25,8 @@
  * control of the connection data. It receives protocol frames from the
  * client. For new HTTP/2 streams it creates h2_task(s) that are sent
  * via callback to a dispatcher (see h2_conn.c).
- * h2_session keeps two h2_bucket_queue instances, one for the incoming
- * HEADER and DATA payload and one for the outgoing DATA payload.
+ * h2_session keeps h2_io's for each ongoing stream which buffer the
+ * payload for that stream.
  *
  * New incoming HEADER frames are converted into a h2_stream+h2_task instance
  * that both represent a HTTP/2 stream, but may have separate lifetimes. This
@@ -37,6 +37,8 @@
  *
  */
 
+struct apr_thread_mutext_t;
+struct apr_thread_cond_t;
 struct h2_config;
 struct h2_mplx;
 struct h2_response;
@@ -74,9 +76,14 @@ struct h2_session {
     request_rec *r;                 /* the request that started this in case
                                      * of 'h2c', NULL otherwise */
     int aborted;                    /* this session is being aborted */
+    apr_size_t frames_received;     /* number of http/2 frames received */
     
+    apr_allocator_t *allocator;      /* we have our own allocator */
+    struct apr_thread_mutex_t *alock;
     apr_pool_t *pool;               /* pool to use in session handling */
-    h2_io_ctx io;                   /* io on httpd conn filters */
+    struct apr_thread_cond_t *iowait; /* our cond when trywaiting for data */
+    
+    h2_conn_io_ctx io;              /* io on httpd conn filters */
     struct h2_mplx *mplx;           /* multiplexer for stream data */
     struct h2_stream_set *streams;  /* streams handled by this session */
     struct h2_stream_set *zombies;  /* streams that are done */
@@ -84,10 +91,7 @@ struct h2_session {
     after_stream_open *after_stream_opened_cb; /* stream task can start */
     before_stream_close *before_stream_close_cb; /* stream will close */
 
-    int loglvl;
-    
     struct nghttp2_session *ngh2;   /* the nghttp2 session (internal use) */
-
 };
 
 
@@ -120,6 +124,9 @@ apr_status_t h2_session_goaway(h2_session *session, apr_status_t reason);
 /* Called when an error occured and the session needs to shut down.
  * Status indicates the reason of the error. */
 apr_status_t h2_session_abort(h2_session *session, apr_status_t reason);
+
+/* Called before a session gets destroyed, might flush output etc. */
+apr_status_t h2_session_close(h2_session *session);
 
 /* Read more data from the client connection. Used normally with blocking
  * APR_NONBLOCK_READ, which will return APR_EAGAIN when no data is available.

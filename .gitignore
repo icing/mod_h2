@@ -1,11 +1,11 @@
 *.xcuserstate
-gen
-httpd/packages/httpd-2.4.x.tar.gz
-test/conf/sites/mod-h2.greenbytes.de.conf
+sandbox/httpd/packages/httpd-2.4.x.tar.gz
+sandbox/test/conf/sites/mod-h2.greenbytes.de.conf
 *.o
 *.slo
 *.lo
 *.la
+*.pcap
 .libs
 .configured
 .deps
@@ -32,3 +32,4 @@ stamp-h1
 Makefile.in
 Makefile
 mod_h2-*.tar.gz
+mod_h2/h2_version.h

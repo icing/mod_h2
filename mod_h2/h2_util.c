@@ -42,90 +42,6 @@ int h2_util_hex_dump(char *buffer, size_t maxlen,
     return strlen(buffer);
 }
 
-int h2_util_frame_print(const nghttp2_frame *frame, char *buffer, size_t maxlen)
-{
-    char scratch[128];
-    size_t s_len = sizeof(scratch)/sizeof(scratch[0]);
-    
-    switch (frame->hd.type) {
-        case NGHTTP2_DATA: {
-            return apr_snprintf(buffer, maxlen,
-                                "DATA[length=%d, flags=%d, stream=%d, padlen=%d]",
-                                (int)frame->hd.length, frame->hd.flags,
-                                frame->hd.stream_id, (int)frame->data.padlen);
-        }
-        case NGHTTP2_HEADERS: {
-            return apr_snprintf(buffer, maxlen,
-                                "HEADERS[length=%d, hend=%d, stream=%d, eos=%d]",
-                                (int)frame->hd.length,
-                                !!(frame->hd.flags & NGHTTP2_FLAG_END_HEADERS),
-                                frame->hd.stream_id,
-                                !!(frame->hd.flags & NGHTTP2_FLAG_END_STREAM));
-        }
-        case NGHTTP2_PRIORITY: {
-            return apr_snprintf(buffer, maxlen,
-                                "PRIORITY[length=%d, flags=%d, stream=%d]",
-                                (int)frame->hd.length,
-                                frame->hd.flags, frame->hd.stream_id);
-        }
-        case NGHTTP2_RST_STREAM: {
-            return apr_snprintf(buffer, maxlen,
-                                "RST_STREAM[length=%d, flags=%d, stream=%d]",
-                                (int)frame->hd.length,
-                                frame->hd.flags, frame->hd.stream_id);
-        }
-        case NGHTTP2_SETTINGS: {
-            if (frame->hd.flags & NGHTTP2_FLAG_ACK) {
-                return apr_snprintf(buffer, maxlen,
-                                    "SETTINGS[ack=1, stream=%d]",
-                                    frame->hd.stream_id);
-            }
-            return apr_snprintf(buffer, maxlen,
-                                "SETTINGS[length=%d, stream=%d]",
-                                (int)frame->hd.length, frame->hd.stream_id);
-        }
-        case NGHTTP2_PUSH_PROMISE: {
-            return apr_snprintf(buffer, maxlen,
-                                "PUSH_PROMISE[length=%d, hend=%d, stream=%d]",
-                                (int)frame->hd.length,
-                                !!(frame->hd.flags & NGHTTP2_FLAG_END_HEADERS),
-                                frame->hd.stream_id);
-        }
-        case NGHTTP2_PING: {
-            return apr_snprintf(buffer, maxlen,
-                                "PING[length=%d, ack=%d, stream=%d]",
-                                (int)frame->hd.length,
-                                frame->hd.flags&NGHTTP2_FLAG_ACK,
-                                frame->hd.stream_id);
-        }
-        case NGHTTP2_GOAWAY: {
-            size_t len = (frame->goaway.opaque_data_len < s_len)?
-                frame->goaway.opaque_data_len : s_len-1;
-            memcpy(scratch, frame->goaway.opaque_data, len);
-            scratch[len+1] = '\0';
-            return apr_snprintf(buffer, maxlen, "GOAWAY[error=%d, reason='%s']",
-                         frame->goaway.error_code, scratch);
-        }
-        case NGHTTP2_WINDOW_UPDATE: {
-            return apr_snprintf(buffer, maxlen,
-                                "WINDOW_UPDATE[length=%d, stream=%d]",
-                                (int)frame->hd.length, frame->hd.stream_id);
-        }
-        case NGHTTP2_CONTINUATION: {
-            return apr_snprintf(buffer, maxlen,
-                                "CONTINUATION[length=%d, hend=%dm, stream=%d]",
-                                (int)frame->hd.length,
-                                !!(frame->hd.flags & NGHTTP2_FLAG_END_HEADERS),
-                                frame->hd.stream_id);
-        }
-        default:
-            return apr_snprintf(buffer, maxlen,
-                         "FRAME[type=%d, length=%d, flags=%d, stream=%d]",
-                         frame->hd.type, (int)frame->hd.length,
-                         frame->hd.flags, frame->hd.stream_id);
-    }
-}
-
 int h2_util_header_print(char *buffer, size_t maxlen,
                          const char *name, size_t namelen,
                          const char *value, size_t valuelen)
@@ -159,13 +75,13 @@ char *h2_strlwr(char *s)
 int h2_util_contains_token(apr_pool_t *pool, const char *s, const char *token)
 {
     if (s) {
-        if (!strcasecmp(s, token)) {          /* the simple life */
+        if (!apr_strnatcasecmp(s, token)) {   /* the simple life */
             return 1;
         }
         
         for (char *c = ap_get_token(pool, &s, 0); c && *c;
              c = *s? ap_get_token(pool, &s, 0) : NULL) {
-            if (!strcasecmp(c, token)) {     /* seeing the token? */
+            if (!apr_strnatcasecmp(c, token)) { /* seeing the token? */
                 return 1;
             }
             while (*s++ == ';') {            /* skip parameters */
@@ -177,4 +93,26 @@ int h2_util_contains_token(apr_pool_t *pool, const char *s, const char *token)
         }
     }
     return 0;
+}
+
+const char *h2_util_first_token_match(apr_pool_t *pool, const char *s, 
+                                      const char *tokens[], apr_size_t len)
+{
+    if (s && *s) {
+        for (char *c = ap_get_token(pool, &s, 0); c && *c;
+             c = *s? ap_get_token(pool, &s, 0) : NULL) {
+            for (int i = 0; i < len; ++i) {
+                if (!apr_strnatcasecmp(c, tokens[i])) {
+                    return tokens[i];
+                }
+            }
+            while (*s++ == ';') {            /* skip parameters */
+                ap_get_token(pool, &s, 0);
+            }
+            if (*s++ != ',') {               /* need comma separation */
+                return 0;
+            }
+        }
+    }
+    return NULL;
 }

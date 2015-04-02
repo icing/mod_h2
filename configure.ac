@@ -14,7 +14,7 @@
 #
 
 AC_PREREQ([2.69])
-AC_INIT([mod_h2], [0.1.0], [stefan.eissing@greenbytes.de])
+AC_INIT([mod_h2], [0.4.3-DEV], [stefan.eissing@greenbytes.de])
 
 LT_PREREQ([2.2.6])
 LT_INIT()
@@ -23,6 +23,14 @@ dnl  http://www.gnu.org/software/libtool/manual/html_node/Updating-version-info.
 AC_SUBST(LT_CURRENT, 11)
 AC_SUBST(LT_REVISION, 0)
 AC_SUBST(LT_AGE, 6)
+
+major=`echo $PACKAGE_VERSION |cut -d. -f1 | sed -e "s/[^0-9]//g"`
+minor=`echo $PACKAGE_VERSION |cut -d. -f2 | sed -e "s/[^0-9]//g"`
+patch=`echo $PACKAGE_VERSION |cut -d. -f3 | cut -d- -f1 | sed -e "s/[^0-9]//g"`
+
+PACKAGE_VERSION_NUM=`printf "0x%02x%02x%02x" "$major" "$minor" "$patch"`
+
+AC_SUBST(PACKAGE_VERSION_NUM)
 
 AC_CANONICAL_BUILD
 AC_CANONICAL_HOST
@@ -66,11 +74,15 @@ if test x"$build_mode" == "xsandbox"; then
 
     # easy, we know where everything will be
     #
-    prefix="$PWD/gen/install"
+    export BUILD_SUBDIRS="sandbox mod_h2"
+
+    prefix="$PWD/sandbox/install"
     APXS="$prefix/bin/apxs"
     LDFLAGS="$LDFLAGS -L${prefix}/lib"
     LIBS="$LIBS -lnghttp2"
     CPPFLAGS="$CPPFLAGS -I${prefix}/include"
+    export SYSCONF_DIR="$prefix/conf"
+    export LIBEXEC_DIR="$prefix/modules"
 
     # On Ubuntu, we have a propblem with APR 1.5.1 and system includes that
     # causes compilation to abort since no definition of PATH_MAX can be found.
@@ -90,9 +102,13 @@ else
         AC_MSG_NOTICE("using APXS=$APXS as configured")
     fi
 
+    export BUILD_SUBDIRS="mod_h2 setup"
+
     prefix="$($APXS -q prefix)"
     LDFLAGS="$LDFLAGS -L$($APXS -q libdir)"
-    CPPFLAGS="$CPPFLAGS $($APXS -q includedir) -I$($APXS -q APR_INCLUDEDIR)"
+    CPPFLAGS="$CPPFLAGS -I$($APXS -q includedir) -I$($APXS -q APR_INCLUDEDIR)"
+    export SYSCONF_DIR="$($APXS -q sysconfdir)"
+    export LIBEXEC_DIR="$($APXS -q LIBEXECDIR)"
 
     # We need nghttp2 to be in our link path, check for it.
     #
@@ -117,9 +133,19 @@ AC_TYPE_UINT8_T
 # Checks for library functions.
 AC_CHECK_FUNCS([memmove memset strcasecmp strchr])
 
+AC_CHECK_PROG([A2ENMOD],[a2enmod])
+
+# substitution in generated files
+AC_SUBST(BUILD_SUBDIRS)
+AC_SUBST(SYSCONF_DIR)
+AC_SUBST(LIBEXEC_DIR)
+
 AC_CONFIG_FILES([
     Makefile
     mod_h2/Makefile
+    mod_h2/h2_version.h
+    sandbox/Makefile 
+    setup/Makefile
 ])
 
 AC_OUTPUT
@@ -138,4 +164,6 @@ AC_MSG_NOTICE([summary of build options:
     LIBS:           ${LIBS}
     CPPFLAGS:       ${CPPFLAGS}
     C preprocessor: ${CPP}
+    BUILD_SUBDIRS   ${BUILD_SUBDIRS}
+    a2enmod         ${A2ENMOD:--}
 ])

@@ -16,10 +16,10 @@
 #ifndef __mod_h2__h2_util__
 #define __mod_h2__h2_util__
 
+struct nghttp2_frame;
+
 int h2_util_hex_dump(char *buffer, size_t maxlen,
                      const char *data, size_t datalen);
-
-int h2_util_frame_print(const nghttp2_frame *frame, char *buffer, size_t maxlen);
 
 int h2_util_header_print(char *buffer, size_t maxlen,
                          const char *name, size_t namelen,
@@ -32,5 +32,30 @@ char *h2_strlwr(char *s);
  * HTTP header syntax, rfc7230.
  */
 int h2_util_contains_token(apr_pool_t *pool, const char *s, const char *token);
+
+const char *h2_util_first_token_match(apr_pool_t *pool, const char *s, 
+                                      const char *tokens[], apr_size_t len);
+
+#define H2_HD_MATCH_LIT(l, name, nlen)  \
+    ((nlen == sizeof(l) - 1) && !apr_strnatcasecmp(l, name))
+
+#define H2_HD_MATCH_LIT_CS(l, name)  \
+    ((strlen(name) == sizeof(l) - 1) && !apr_strnatcasecmp(l, name))
+
+#define H2_CREATE_NV_LIT_CS(nv, NAME, VALUE) nv->name = (uint8_t *)NAME;      \
+                                             nv->namelen = sizeof(NAME) - 1;  \
+                                             nv->value = (uint8_t *)VALUE;    \
+                                             nv->valuelen = strlen(VALUE)
+
+#define H2_CREATE_NV_CS_LIT(nv, NAME, VALUE) nv->name = (uint8_t *)NAME;      \
+                                             nv->namelen = strlen(NAME);      \
+                                             nv->value = (uint8_t *)VALUE;    \
+                                             nv->valuelen = sizeof(VALUE) - 1
+
+#define H2_CREATE_NV_CS_CS(nv, NAME, VALUE) nv->name = (uint8_t *)NAME;       \
+                                            nv->namelen = strlen(NAME);       \
+                                            nv->value = (uint8_t *)VALUE;     \
+                                            nv->valuelen = strlen(VALUE)
+
 
 #endif /* defined(__mod_h2__h2_util__) */

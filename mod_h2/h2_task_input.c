@@ -26,15 +26,15 @@
 #include "h2_session.h"
 #include "h2_stream.h"
 #include "h2_task_input.h"
+#include "h2_task.h"
 
 struct h2_task_input {
-    struct h2_mplx *m;
-    int session_id;
+    h2_task *task;
     int stream_id;
+    struct h2_mplx *m;
+    
     int eos;
-    int is_last;
     struct h2_bucket *cur;
-    apr_size_t cur_offset;
 };
 
 
@@ -64,25 +64,17 @@ static void cleanup(h2_task_input *input) {
          * this bucket. */
         h2_bucket_destroy(input->cur);
         input->cur = NULL;
-        input->cur_offset = 0;
-        if (input->is_last) {
-            input->eos = 1;
-        }
     }
 }
 
-h2_task_input *h2_task_input_create(apr_pool_t *pool,
-                                    int session_id, int stream_id,
-                                    h2_bucket *data, int is_last,
-                                    h2_mplx *m)
+h2_task_input *h2_task_input_create(apr_pool_t *pool, h2_task *task, 
+                                    int stream_id, h2_mplx *m)
 {
     h2_task_input *input = apr_pcalloc(pool, sizeof(h2_task_input));
     if (input) {
-        input->m = m;
-        input->cur = data;
-        input->is_last = is_last;
-        input->session_id = session_id;
+        input->task = task;
         input->stream_id = stream_id;
+        input->m = m;
     }
     return input;
 }
@@ -106,20 +98,11 @@ apr_status_t h2_task_input_read(h2_task_input *input,
     apr_size_t nread = 0;
     int all_there = all_queued(input);
     
-    ap_log_cerror(APLOG_MARK, APLOG_TRACE3, 0, filter->c,
-                  "h2_task_input(%d-%d): read() asking for %d bytes",
-                  input->session_id, input->stream_id, (int)readbytes);
-    
-    if (input->cur && input->cur_offset >= input->cur->data_len) {
+    if (input->cur && input->cur->data_len <= 0) {
         cleanup(input);
     }
     
-    if (input->eos) {
-        cleanup(input);
-        return APR_EOF;
-    }
-    
-    if (!input->cur) {
+    if (!input->eos && !input->cur) {
         /* Try to get new data for our stream from the queue.
          * If all data is in queue (could be none), do not block.
          * Getting none back in that case means we reached the
@@ -129,19 +112,34 @@ apr_status_t h2_task_input_read(h2_task_input *input,
             return APR_ECONNABORTED;
         }
         
+        ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, filter->c,
+                      "h2_task_input(%s): get next bucket from mplx (%s)",
+                      h2_task_get_id(input->task), 
+                      (block==APR_BLOCK_READ? "BLOCK" : "NONBLOCK"));
         status = h2_mplx_in_read(input->m, all_there? APR_NONBLOCK_READ : block,
-                                 input->stream_id, &input->cur);
-        input->cur_offset = 0;
+                                 input->stream_id, &input->cur, 
+                                 h2_task_get_io_cond(input->task));
+        ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, filter->c,
+                      "h2_task_input(%s): mplx returned %ld bytes",
+                      h2_task_get_id(input->task), 
+                      (long)(input->cur? input->cur->data_len : -1L));
         if (status == APR_EOF) {
             input->eos = 1;
         }
     }
     
+    if (input->eos) {
+        ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, filter->c,
+                      "h2_task_input(%s): read returns EOF",
+                      h2_task_get_id(input->task));
+        cleanup(input);
+        return APR_EOF;
+    }
+    
     if (input->cur) {
         /* Got data, depends on the read mode how much we return. */
         h2_bucket *b = input->cur;
-        apr_size_t avail = (input->cur_offset < b->data_len)?
-        (b->data_len - input->cur_offset) : 0;
+        apr_size_t avail = b->data_len;
         if (avail > 0) {
             if (mode == AP_MODE_EXHAUSTIVE) {
                 /* return all we have */
@@ -155,7 +153,7 @@ apr_status_t h2_task_input_read(h2_task_input *input,
             else if (mode == AP_MODE_GETLINE) {
                 /* Look for a linebreak in the first GetLineMax bytes.
                  * If we do not find one, return all we have. */
-                apr_size_t scan = input->cur_offset;
+                apr_size_t scan = 0;
                 apr_size_t scan_max = ((b->data_len > 4096)?
                                        4096 : b->data_len);
                 apr_off_t index = -1;
@@ -166,7 +164,7 @@ apr_status_t h2_task_input_read(h2_task_input *input,
                     }
                 }
                 
-                nread = (index >= 0)? (index - input->cur_offset + 1) : avail;
+                nread = (index >= 0)? (index + 1) : avail;
             }
             else {
                 /* Hmm, well. There is mode AP_MODE_EATCRLF, but we chose not
@@ -186,14 +184,14 @@ apr_status_t h2_task_input_read(h2_task_input *input,
     
     if (nread > 0) {
         /* We got actual data. */
-        APR_BRIGADE_INSERT_TAIL(brigade,
-                                apr_bucket_transient_create(input->cur->data + input->cur_offset,
-                                                            nread, brigade->bucket_alloc));
+        apr_bucket *b = apr_bucket_transient_create(input->cur->data,
+                                                    nread, brigade->bucket_alloc);
+        APR_BRIGADE_INSERT_TAIL(brigade, b);
         if (mode != AP_MODE_SPECULATIVE) {
-            input->cur_offset += nread;
-            ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, filter->c,
-                          "h2_task_input(%d-%d): forward %d bytes",
-                          input->session_id, input->stream_id, (int)nread);
+            h2_bucket_consume(input->cur, nread);
+            ap_log_cerror(APLOG_MARK, APLOG_TRACE2, 0, filter->c,
+                          "h2_task_input(%s): forward %d bytes",
+                          h2_task_get_id(input->task), (int)nread);
         }
     }
     else if (all_there) {
