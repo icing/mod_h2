@@ -1,0 +1,125 @@
+<!doctype html>
+<html>
+    <head>
+        <meta charset="utf-8">
+            <meta http-equiv="X-UA-Compatible" content="chrome=1">
+                <title>mod_h2, a look at performance</title>
+                
+                <link rel="stylesheet" href="stylesheets/styles.css">
+                    <link rel="stylesheet" href="stylesheets/pygment_trac.css">
+                        <link rel="stylesheet" href="stylesheets/mod_h2.css">
+                            <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+                                <!--[if lt IE 9]>
+                                 <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+                                 <![endif]-->
+                                </head>
+    <body>
+        <div class="wrapper">
+            <div class="backlogo">
+                <a href="https://github.com/icing/mod_h2/releases">Available Releases on GitHub</a>
+            </div>
+            <header>
+                <h1>mod_h2</h1>
+                <p>HTTP/2 module for Apache httpd</p>
+                
+                <ul>
+                    <li><a href="https://github.com/icing/mod_h2/zipball/master">Download <strong>ZIP File</strong></a></li>
+                    <li><a href="https://github.com/icing/mod_h2/tarball/master">Download <strong>TAR Ball</strong></a></li>
+                    <li><a href="https://github.com/icing/mod_h2">View On <strong>GitHub</strong></a></li>
+                </ul>
+            </header>
+            <section>
+                <h1>
+                    <a id="mod_h2---a-http2-modules-for-apache-httpd" class="anchor" href="#top" aria-hidden="true"><span class="octicon octicon-link"></span></a>mod_h2, a look at performance</h1>
+                
+                <p>Copyright (C) 2015 greenbytes GmbH</p>
+                
+                <p>Copying and distribution of this file, with or without modification,
+                are permitted in any medium without royalty provided the copyright
+                notice and this notice are preserved.  This file is offered as-is,
+                without warranty of any kind. See LICENSE for details.</p>
+                
+                <h2><a id="tests" class="anchor" href="#tests" aria-hidden="true"><span class="octicon octicon-link"></span></a>Tests</h2>
+                <p>
+                    I did two tests in three combinations, using the <code>mod_h2</code> sandbox setup on an Ubuntu Parallels Image. 
+                    I used <code>h2load</code> for the HTTP/2 test cases and the nice <code>wrk</code> (see <a href="https://github.com/wg/wrk">https://github.com/wg/wrk</a>) for the HTTP/1.1 numbers.
+                </p>
+                <p>
+                The performance tests invoked were:
+                <pre><code>
+wrk wrk -t10 -c100 -d30s https://test.example.org:12346/&lt;file&gt;
+h2load -c 100 -t 10 -n 740000 https://test.example.org:12346/&lt;file&gt;
+                </code></pre>
+                where wrk was tested against Apache httpd 2.4.12 with TLS+http/1.1 and h2load was tested
+                with <code>nghttpd</code>, the server that comes with nghttp2, and mod_h2 in the Apache httpd 2.4.12 setup.
+                <code>test.example.org</code> was mapped to <code>127.0.0.1</code>.
+                </p>
+                <p>
+                The numbers:
+                <table>
+                    <thead>
+                        <tr><th>Scenario</th><th>Metric</th><th>/index.html</th><th>/002.jpg</th></tr>
+                        <tr><th>        </th><th>      </th><td class="num"> 653 bytes </td><td class="num"> 90364 bytes</td></tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>wrk + apache(2.4.12)</td><td>req/s</td><td class="num"> 25139 </td><td class="num"> 7941 </td>
+                            </tr>
+                        <tr>
+                            <td></td><td>MB/s</td><td class="num"> 23.1 </td><td class="num"> 686.8 </td>
+                        </tr>
+                        <tr>
+                            <td>h2load + nghttpd(0.7.9)</td><td>req/s</td><td class="num"> 25084 </td><td class="num"> 4022 </td>
+                        </tr>
+                        <tr>
+                            <td></td><td>MB/s</td><td class="num"> 16.3 </td><td class="num"> 347.0 </td>
+                        </tr>
+                        <tr>
+                            <td>h2load + mod_h2(0.4.3)</td><td>req/s</td><td class="num"> 16093 </td><td class="num"> 4272 </td>
+                        </tr>
+                        <tr>
+                            <td></td><td>MB/s</td><td class="num"> 10.7 </td><td class="num"> 368.7 </td>
+                        </tr>
+                    </tbody>
+                </table>
+                </p>
+                
+                <h2><a id="discuss" class="anchor" href="#discuss" aria-hidden="true"><span class="octicon octicon-link"></span></a>Discussion</h2>
+                <p>How to interpret this? Like every benchmark: with care.
+                </p>
+                <p>First of all <code>wrk</code> and <code>h2load</code> are different programs and its dangerous to compare the absolute numbers between them. But assuming that they are both as efficient in generating the load, one can see that the number of requests generated per second is very similar between <code>wrk</code> and <code>h2load+nghttpd</code>. The MB/s shows either the effect of header compression, or that both tools measure throughput differently. But my bet is on header compression. index.html is very small and compression will play a larger role.
+                </p>
+                <p>The <code>mod_h2</code> performance is at about two thirds now (coming from a good 50% start in February) of that of <code>nghttpd</code> or http/1.1 Apache. This is the penalty that <code>mod_h2</code> has to pay currently in processing individual requests via the Apache <code>httpd</code> 2.4.x runtime. It internally has to fake HTTP/1.1 requests and parse HTTP/1.1 responses and that costs time and resources. The advantage of adding HTTP/2 support without changing the Apache core itself.
+                </p>
+                <p>That <code>mod_h2</code>'s implementation is not inherently stupid becomes visible when looking at requests for the larger resource. In this scenario, the i/o optimized Apache <code>httpd</code> can really shine. Since most of the power goes into shoveling a large file onto a socket and ramming it down TCP's flow control throat, we see almost twice the performance of <code>nghttpd/mod_h2</code>.
+                </p>
+                <p>
+                Some people might suspect that the lower performance is a inherent disadvantage of HTTP2 flow control. However if one looks at <a href="https://github.com/h2o/h2o">performance measurements from the h2o server</a>, one sees that HTTP/2 performance in throughput and requests/s can match and even outpace HTTP/1 implementations.
+                </p>
+                <p>So, the most likely suspect (and that needs to be investigated more) is the way that <code>nghttp2</code> and <code>mod_h2</code> handle response <code>DATA</code>. There are two points to make:
+                <ul>
+                    <li><code>libnghttp2</code> uses a <code>dataprovider</code> callback API that needs to return a memory buffer with the data. It then shuffles this data around internally until it is read to send it out (properly framed). This means that static files (mmap'ed) will be copied at least twice. In comparison, the Apache <code>bucket brigade</code> architecture will do this only once and in a very efficient manner.</li>
+                    <li>the additional work that <code>mod_h2</code> does when collecting response DATA from different threads and feeding it to <code>nghttp2</code> does not limit performance (in this case). This seems to be the benefit of having own data bucket structures that are passed between threads without copying.</li>
+                    </ul>
+                </p>
+                <p>
+                Anyway, those are the two area to work on: data copying and Apache core integration. There's probably a lot of fun ahead. Feedback always welcome.
+                </p>
+                <p>
+                </p>
+                <p>
+                </p>
+                
+                <p>Münster, 02.04.2015,</p>
+                
+                <p>Stefan Eissing, greenbytes GmbH</p>
+            </section>
+            <footer>
+                <p>This project is maintained by <a href="https://github.com/icing">icing</a></p>
+                <p><small>Hosted on GitHub Pages &mdash; Theme by <a href="https://github.com/orderedlist">orderedlist</a></small></p>
+            </footer>
+        </div>
+        <script src="javascripts/scale.fix.js"></script>
+        
+    </body>
+</html>

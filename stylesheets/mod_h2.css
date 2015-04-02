@@ -90,3 +90,7 @@ header ul {
 
 }
 
+td.num {
+    text-align: right;
+}
+
