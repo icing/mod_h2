@@ -39,10 +39,105 @@
                 notice and this notice are preserved.  This file is offered as-is,
                 without warranty of any kind. See LICENSE for details.</p>
                 
+                <h2><a id="tests" class="anchor" href="#tests" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    Parallelism<div class="post-date">2015-04-15</div>
+                </h2>
+                <p>
+                   With release <code>v0.5.0</code> I did some improvements internally that reflect in less memory
+                   consumptiona and better performance. I also did a detailed look at the effect that parallel stream
+                   numbers have on the overall results.
+                </p>
+                <p>
+                  The tests were again done on my trustworthy MacBook with a Parallels (hah!) Ubuntu 14.04 image. All tests
+                  ran in the sandbox. The numbers are samples from several runs, not really averaged and with variation
+                  and all that stuff that I should know and do as a mathematician...but I want just to give a feel
+                  for it.
+                </p>
+                <table>
+                    <thead>
+                        <tr><th>Scenario</th><th>Parallelism</th><th>Metric</th><th>/index.html</th></tr>
+                        <tr><th>        </th><th>           </th><th>      </th><td class="num"> 653 bytes </td></tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>wrk (httpd 2.4.12)</td><td><code> - </code></td><td>req/s</td><td class="num"> 26026 </td>
+                        </tr>
+                        <tr>
+                            <td>nghttpd(0.7.11)</td><td><code>-m 1</code></td><td>req/s</td><td class="num"> 23691 </td>
+                        </tr>
+                        <tr>
+                            <td>  </td><td><code>-m 10</code></td><td>req/s</td><td class="num"> 71078 </td>
+                        </tr>
+                        <tr>
+                            <td>  </td><td><code>-m 20</code></td><td>req/s</td><td class="num"> 84392 </td>
+                        </tr>
+                        <tr>
+                            <td>  </td><td><code>-m 40</code></td><td>req/s</td><td class="num"> 89725</td>
+                        </tr>
+                        <tr>
+                            <td> </td><td><code>-m 100</code></td><td>req/s</td><td> ~30% failures</td>
+                        </tr>
+                        <tr>
+                            <td>mod_h2(0.5.0)</td><td><code>-m 1</code></td><td>req/s</td><td class="num"> 19587 </td>
+                        </tr>
+                        <tr>
+                            <td>   </td><td><code>-m 2</code></td><td>req/s</td><td class="num"> 23702 </td>
+                        </tr>
+                        <tr>
+                            <td>   </td><td><code>-m 5</code></td><td>req/s</td><td class="num"> 28582 </td>
+                        </tr>
+                        <tr>
+                            <td>   </td><td><code>-m 10</code></td><td>req/s</td><td class="num"> 28723 </td>
+                        </tr>
+                        <tr>
+                            <td>   </td><td><code>-m 20</code></td><td>req/s</td><td class="num"> 29535 </td>
+                        </tr>
+                        <tr>
+                            <td>   </td><td><code>-m 40</code></td><td>req/s</td><td class="num"> 29189 </td>
+                        </tr>
+                        <tr>
+                            <td>   </td><td><code>-m 100</code></td><td>req/s</td><td class="num"> 29498 </td>
+                        </tr>
+                    </tbody>
+                </table>
+                <p>
+                Interpretation? I think it is safe to say the following:
+                    <ul>
+                        <li>The <code>-m 1</code> numbers show that the cost of a single request is still 20% higher 
+                            in <code>mod_h2</code> compared to <code>nghttpd</code>.</li>
+                        <li>The overall performance of HTTP/2 is better than HTTP/1 if the number of parallel requests
+                        exceeds 2-5, depending on implementation.</li>
+                        <li>The scaling of the <code>nghttpd</code> is fabulous, however the <code>-m 100</code> case shows
+                        that it keeps files open until streams are done and runs out of file handles rather soon. (I am sure
+                            now that I mentioned it that the next nghttp2 release will fix this and keep the performance, too!).</li>
+                        <li><code>mod_h2</code> hits is ceiling with 10-20 parallel streams very soon. But the good news is it
+                        stays stable with increased stream numbers. </li>
+                    </ul>
+                    <code>mod_h2</code> stays stable with increasing parallel stream numbers because files for static content
+                    get converted into byte buffers before worker threads turn to other streams. That limits the number of
+                    open files to the number of worker threads. 
+                </p>
+                <p>
+                    This is a compromise in the current processing model. The HTTP/2 connection terminates in a specific 
+                    worker process and that process has a limit on the number of open files. No spawning of new processes
+                    will really help the connection. If HTTP/2 connections should expose long lifetimes and bursty, parallel
+                    streams, resources need to be allocated carefully.
+                </p>
+                <p>
+                   The <code>v0.5.0</code> release allocates everything for stream handling per worker. The worker has a
+                   memory pool, bucket allocators and pseudo connection socket and rents those out to the stream that it
+                   processes. The stream is done, if all its output data has been sent or sits in the, size limited, output
+                   buffers of the HTTP/2 session. So, opening a new stream will allocate only a few bytes. Only when processing
+                   of the stream actually starts will more resources be allocated, most of them on hot standby in the worker
+                   itself. Therefore the stable performance with increasing parallel stream numbers.
+                </p>
+
+                <h2><a id="tests" class="anchor" href="#tests" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    Tests<div class="post-date">2015-04-02</div>
+                </h2>
+                
                 <p><em style="font-weight: bold; font-size: 14pt;">Important update below!</em>
                 </p>
-                
-                <h2><a id="tests" class="anchor" href="#tests" aria-hidden="true"><span class="octicon octicon-link"></span></a>Tests</h2>
                 <p>
                     I did two tests in three combinations, using the <code>mod_h2</code> sandbox setup on an Ubuntu Parallels Image. 
                     I used <code>h2load</code> for the HTTP/2 test cases and the nice <code>wrk</code> (see <a href="https://github.com/wg/wrk">https://github.com/wg/wrk</a>) for the HTTP/1.1 numbers.
