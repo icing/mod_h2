@@ -1,0 +1,166 @@
+<!doctype html>
+<html>
+    <head>
+        <meta charset="utf-8">
+            <meta http-equiv="X-UA-Compatible" content="chrome=1">
+                <title>mod_h2, inside httpd</title>
+                
+                <link rel="stylesheet" href="stylesheets/styles.css">
+                    <link rel="stylesheet" href="stylesheets/pygment_trac.css">
+                        <link rel="stylesheet" href="stylesheets/mod_h2.css">
+                            <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+                                <!--[if lt IE 9]>
+                                 <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+                                 <![endif]-->
+                                </head>
+    <body>
+        <div class="wrapper">
+            <div class="backlogo">
+                <a href="https://github.com/icing/mod_h2/releases">Available Releases on GitHub</a>
+            </div>
+            <header>
+                <h1>mod_h2</h1>
+                <p>HTTP/2 for Apache httpd</p>
+                
+                <ul>
+                    <li><a href="https://github.com/icing/mod_h2/zipball/master">Download <strong>ZIP File</strong></a></li>
+                    <li><a href="https://github.com/icing/mod_h2/tarball/master">Download <strong>TAR Ball</strong></a></li>
+                    <li><a href="https://github.com/icing/mod_h2">View On <strong>GitHub</strong></a></li>
+                </ul>
+            </header>
+            <section>
+                <h1>
+                    mod_h2, inside httpd
+                </h1>
+                
+                <p>Copyright (C) 2015 greenbytes GmbH</p>
+                
+                <p>Copying and distribution of this file, with or without modification,
+                are permitted in any medium without royalty provided the copyright
+                notice and this notice are preserved.  This file is offered as-is,
+                without warranty of any kind. See LICENSE for details.</p>
+                
+                <p>
+                This is a look at the internals of the <code>mod_h2</code> implementation and its interfaces
+                with Apache <code>httpd</code>. I try to give experiences and observations made during implementation
+                of <code>mod_h2</code> without any guarantuee of completeness or particular order. When it comes
+                to features or the lack of in <code>httpd</code>, all mistakes and misconception that may be there
+                are completely to blame on myself. <code>httpd</code> has decades of experiences coded in by 
+                people much smarter than myself, or: all mistakes are my own.
+                </p>
+                
+                <h2><a name="processing-model">Processing Model</a><div class="post-date">2015-04-17</div>
+                </h2>
+                <p>
+                The nature of HTTP/2 places new demands on a server. In HTTP/1, the client only expectations after sending a request
+                is to get an answer to that request as soon as possible. Even if it pipelines a second request on the same connection,
+                it will expect the answer to the first one to arrive before the second. The server can process a HTTP/1 connection
+                by a single thread, since it has only one thing to perform at at time (I exclude sub-requests in this discussion). 
+                </p><p>
+                And
+                this was the model for the early httpd. It later got refined by different multi-processing modules, the current star
+                being <code>mpm_event</code> that can reuse threads during times when a request is waiting. But while the thread may
+                change during the lifetime of a connection, there is only ever one at a time. And there is only ever one requests worked
+                on per connection at a time. In gaming once would say this is a <code>"1-1-1"</code> built.
+                </p><p>
+                HTTP/2 is built for handling multiple requests at once, expecting high bandwidth utilization, interleaving of
+                responses and even on-the-fly prioritization. But not only that, both endpoints of a HTTP/2 connection are
+                frequently exchanging meta information, adjusting window sizes, update settings or even simply answering a ping
+                request.
+                </p><p>
+                A HTTP/2 server that only serves static files may handle all of this in a single thread, using some sort of async
+                io or event handling. A server like <code>httpd</code> that allows configurable filters/handlers and foreign
+                request processing modules, cannot do that. Instead request processing must be shifted into separate threads, while the
+                "main" thread serves the connection and collects and combines results from request processing. This would then be called
+                a <code>"1-n-n"</code> processing model.
+                </p><p>
+                But that still is too simple, since threads are a valuable and limited server resource. To guarantuee a thread to each
+                client request is not possible unless the number of parallel requests is kept small. But that would then limit the client
+                and, especially on high latency connections, potentially lower performance. A better model is to allow queuing of requests
+                up to a certain amount if not eniough processing threads are available. Then the server has a <code>"1-n-m"</code> processing model.
+                </p><p>
+                <code>mod_h2</code> implements that model with one thread serving the connection, allowing up to a configurable number
+                of parallel requests which are then served by a number of workers. The worker output, the response data, is collected again
+                in the connection thread for sending out to the client. worker threads are blocked when buffered output reaches a
+                certain size.
+                </p>
+                <h3>httpd specifics</h3>
+                <p>
+                TODO, elaborate on:
+                    <ul>
+                        <li>pseudo connections for worker processing</li>
+                        <li>mpm_event related connection state hack</li>
+                        <li>request related protocol filters that are (partly) in the way: CHUNK and HTTP_HEADERS</li>
+                        <li>current backoff algorithm on connection reads and apr_mutex_cond trywaits. Any way to replace
+                        with an event driven model?</li>
+                    </ul>
+                </p>
+                
+                <h2><a name="moving-data">Moving Data</a><div class="post-date">2015-04-17</div>
+                </h2>
+                <p>
+                Due to the <a href="#processing-model">processing model</a> request and response data needs to traverse threads. In the 
+                <code>httpd</code> infrstructure, this means data in <code>apr_bucket</code>s handed out/placed into 
+                <code>apr_bucket_brigade</code>s.
+                </p><p>
+                <code>apr_bucket</code> has no link to a <code>apr_bucket_brigade</code>. It can move freely from one brigade
+                to the next. However, it cannot move freely from one thread to another. This is due to the fact that almost all
+                interesting operations on a bucket will involve the <code>apr_bucket_alloc_t</code> it is created with. The job
+                of the <code>apr_bucket_alloc_t</code> is to manage a free list of suitable memory chunks for fast bucket
+                creation/split/transform operations. And it is not thread-safe.
+                </p><p>
+                This requires all <code>apr_bucket</code>s managed by the same <code>apr_bucket_alloc_t</code> to stay in the same
+                thread. (There are even more turtles down there, as the <code>apr_bucket_alloc_t</code> uses a <code>apr_allocator_t</code>
+                itself, but that can be configured thread safe, if needed).
+                </p><p>
+                So, while a worker thread is writing to its output <code>apr_bucket_brigade</code>, buckets from this brigade
+                cannot be transferred and manipulated in another thread. Which means <code>mod_h2</code> cannot simply transfer
+                the data from the workers to the main thread and out on the connection output <code>apr_bucket_brigade</code>.
+                </p><p>
+                A closer look at the <code>apr_bucket</code> reveals that bucket data is not supposed to leave its 
+                <code>apr_bucket_alloc_t</code> instance. Which is no surprise as that was never necessary in the <code>1-1-1</code>
+                processing model.
+                </p><p>
+                That means <code>mod_h2</code> needs to read from one brigade and write to another brigade when it wants data
+                to cross thread boundaries. Which means basically <code>memcpy</code> the request and response data. Which is simply bad.
+                Especially on response data.
+                </p><p>
+                For resources in static files, <code>httpd</code> has a very efficient implementation. A looked up file descriptor
+                is placed into a bucket and that bucket is passed on to the part handling the connection output streaming. Only
+                there it will be read and written to the connection, using perferably the most efficient way that the host operating
+                system offers.
+                </p><p>
+                Any improvement to <code>mod_h2</code>'s output handling would transfer the file handle exactly that way. But that
+                poses another challenge, as described in the next chapter.
+                </p>
+                
+                <h2><a name="resource-allocation">Resource Allocation</a><div class="post-date">2015-04-17</div>
+                </h2>
+                <p>
+                If <code>mod_h2</code> handled output of static file resources similar to <code>httpd</code>, it would quickly
+                run out of open file descriptors under load. Especially when processing many parallel requests with the same
+                priority. 
+                </p><p>
+                10 requests for files would then have 10 file descriptors open, since output of same priority is
+                interleaved. In HTTP/1 processing, the 1-1-1 model, 10 file requests on the same connection would only allocate
+                1 file descriptor at a time.
+                </p><p>
+                Worse, the HTTP/2 spec says <code>" It is recommended that this value be no smaller than 100, so as to not 
+                    unnecessarily limit parallelism."</code> So, potentially worst case, a straightforward implementation would open
+                100 file descriptors at the same time for each connection. This does not sound good, especially since
+                HTTP/2 connections are expected to stay open for a much longer duration.
+                </p><p>
+                The challenge is to find a implementation that allows for many connections and a lot of parallelsim while
+                staying stable, e.g. no request failures due to exhausted file descriptors.
+                </p>
+
+            </section>
+            <footer>
+                <p>This project is maintained by <a href="https://github.com/icing">icing</a></p>
+                <p><small>Hosted on GitHub Pages &mdash; Theme by <a href="https://github.com/orderedlist">orderedlist</a></small></p>
+            </footer>
+        </div>
+        <script src="javascripts/scale.fix.js"></script>
+        
+    </body>
+</html>
