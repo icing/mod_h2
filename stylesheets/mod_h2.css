@@ -99,3 +99,6 @@ td.num {
     text-align: right;
 }
 
+.fn {
+    font-size: smaller;
+}

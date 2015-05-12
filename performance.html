@@ -39,6 +39,72 @@
                 notice and this notice are preserved.  This file is offered as-is,
                 without warranty of any kind. See LICENSE for details.</p>
                 
+                <h2><a id="large-transfers" class="anchor" href="#large-transfers" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    Large Transfers<div class="post-date">2015-05-12</div>
+                </h2>
+                <p>
+                With release <code>v0.5.5</code> <code>mod_h2</code> addresses performance of writes. Early tests in April showed that transfers
+                of large resources achieved only 50-60% of the throughput that was possible with HTTP/1.1, e.g. httpd not involving mod_h2 (on my
+                machine, all over https). That seemed excessively slow.
+                </p>
+                <p>
+                At first I suspected that the code just did not shovel the data fast enough from worker threads to the main connection. But
+                changes there resulted in only marginal improvements.
+                </p>
+                <p>
+                Then I looked at how mod_h2 actually passed the raw HTTP/2 frames down the httpd filter chain for writing to the connection. I 
+                experimented with some simple write buffering and immediately got much better results. So I looked at how connection output
+                filters work with the data they are given, especially the output filter from <code>mod_ssl</code>.
+                </p>
+                <p>
+                For those unfamiliar with the httpd internals: the server uses a very nice mechanism call <em>bucket brigades</em> for
+                input and output handling. A very smart list of data chunks, basically, that allows also for meta data buckets like
+                flushing, end-of-stream or resource maintenance indicators. The main purpose of <em>brigades</em> is to make copying of
+                data <em>chunks</em> unnecessary for most operations on the overall data <em>stream</em>. This way, code can manage a brigade
+                of a 10 MB file without having the full 10 MB in memory, read the first 16 KB of it, insert a flush bucket any time etc.
+                without copying of data from one buffer to another.
+                </p>
+                <p>
+                <code>mod_h2</code> gets complete frames from its <code>nghttp2</code> engine to be transfered to the client. Before <code>v0.5.5</code> it placed them
+                into a bucket and passed that down the connection output filter chain where it eventually reached <code>mod_ssl</code>'s
+                filter, got encrypted and then passed to the socket. While DATA frames are mostly 8-16 KB in size, depending on the amount
+                delivered by the worker threads, there are also may other session management frames that are quite small.
+                </p>
+                <p>
+                By just passing these small frames as buckets in the output brigade, <code>mod_ssl</code> was doing a <code>SSLWrite()</code> on
+                each of them, including all the yadayada that is required by TLS. And this was causing the slow performance.
+                </p>
+                <p>
+                <code>v0.5.5</code> uses <code>apr_brigade_write()</code> instead, which contains some very smart code. If possible, it collects
+                small data chunks into 8 KB buckets and, given a proper flush callback, directly writes large data chunks without
+                copying. That gives the following measurements on my Ubuntu image, transferring a 10 MB file 1000 times via 8 connections:
+                </p>
+                <table>
+                    <thead>
+                        <tr><th>Scenario</th><th>Metric</th><th>/005.txt</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>wrk (http/1.1)</td><td>MB/s</td><td class="num"> 1029 </td>
+                        </tr>
+                        <tr>
+                            <td>mod_h2(0.5.4)</td><td>MB/s</td><td class="num"> 601 </td>
+                        </tr>
+                        <tr>
+                            <td>mod_h2(0.5.5)</td><td>MB/s</td><td class="num"> 950 </td>
+                        </tr>
+                    </tbody>
+                </table>
+                <p>
+                With this change, <code>mod_h2</code> is transferring data about as fast as in HTTP/1.1 and there is no downside of
+                enabling HTTP/2 in a httpd that needs to transfer large resources<sup>*)</sup>.
+                </p>
+                <p class="fn">
+                <sup>*)</sup>In my test scenarios. If you have proof to the contrary, please submit a test case!
+                </p>
+
+
+
                 <h2><a id="tests" class="anchor" href="#tests" aria-hidden="true"><span class="octicon octicon-link"></span></a>
                     Parallelism<div class="post-date">2015-04-15</div>
                 </h2>
