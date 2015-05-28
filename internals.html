@@ -43,10 +43,8 @@
                 <p>
                 This is a look at the internals of the <code>mod_h2</code> implementation and its interfaces
                 with Apache <code>httpd</code>. I try to give experiences and observations made during implementation
-                of <code>mod_h2</code> without any guarantuee of completeness or particular order. When it comes
-                to features or the lack of in <code>httpd</code>, all mistakes and misconception that may be there
-                are completely to blame on myself. <code>httpd</code> has decades of experiences coded in by 
-                people much smarter than myself, or: all mistakes are my own.
+                of <code>mod_h2</code> without any guarantee of completeness or particular order. All mistakes made
+                are my own.
                 </p>
                 
                 <h2><a name="processing-model">Processing Model</a><div class="post-date">2015-04-17</div>
@@ -74,33 +72,199 @@
                 "main" thread serves the connection and collects and combines results from request processing. This would then be called
                 a <code>"1-n-n"</code> processing model.
                 </p><p>
-                But that still is too simple, since threads are a valuable and limited server resource. To guarantuee a thread to each
+                But that still is too simple, since threads are a valuable and limited server resource. To guarantee a thread to each
                 client request is not possible unless the number of parallel requests is kept small. But that would then limit the client
                 and, especially on high latency connections, potentially lower performance. A better model is to allow queuing of requests
-                up to a certain amount if not eniough processing threads are available. Then the server has a <code>"1-n-m"</code> processing model.
+                up to a certain amount if not enough processing threads are available. Then the server has a <code>"1-n-m"</code> processing model.
                 </p><p>
                 <code>mod_h2</code> implements that model with one thread serving the connection, allowing up to a configurable number
                 of parallel requests which are then served by a number of workers. The worker output, the response data, is collected again
-                in the connection thread for sending out to the client. worker threads are blocked when buffered output reaches a
-                certain size.
+                in the connection thread for sending out to the client. Worker threads are blocked when buffered output reaches a
+                certain memory size (This is the model adopted from <code>mod_spdy</code>).
                 </p>
-                <h3>httpd specifics</h3>
+                
+                
+                <h2><a name="embedding">Embedding</a><div class="post-date">2015-05-27</div>
+                </h2>
                 <p>
-                TODO, elaborate on:
-                    <ul>
-                        <li>pseudo connections for worker processing</li>
-                        <li>mpm_event related connection state hack</li>
-                        <li>request related protocol filters that are (partly) in the way: CHUNK and HTTP_HEADERS</li>
-                        <li>current backoff algorithm on connection reads and apr_mutex_cond trywaits. Any way to replace
-                        with an event driven model?</li>
-                    </ul>
+                In its internal architecture, <code>mod_h2</code> started with the basic <code>mod_spdy</code> architecture
+                and then started tweaking some more. For those not familiar with <code>mod_spdy</code> I try to give a short
+                summary of what google did there:
                 </p>
+                
+                <h3><code>mod_spdy</code> architecture</h3>
+                <p>
+                The architecture is most easily understood by following what happens on a new connection and the first request:
+                <ol>
+                    <li>In a <code>pre_connection</code> hook, running after <code>mod_ssl</code>, the module registers NPN callbacks for new TLS connections.</li>
+                    <li>In a <code>connection</code> hook, also after <code>mod_ssl</code>, the whole connection processing
+                        is taken over <em>if</em> a <code>spdy</code> protocol was negotiated via NPN. This disables any further
+                    processing of the connection by httpd core. However the <code>mod_ssl</code> in-/output filters are in place.</li>
+                    <li><code>spdy</code> now talks the selected spdy dialect with the client, negotiates some parameter and
+                    reads the first request.</li>
+                    <li>Once the head of the request is sufficiently there, the module creates a new <em>pseudo</em> connection
+                    that is a basically a copy of its main one, but with its own memory pool and a socket for itself. Additionally
+                    it has special in- and output filters. The whole thing then is thrown into a queue where a worker thread
+                    will eventually get it and start processing.</li>
+                    <li>The pseudo connection is processed just like any other connection via <code>ap_process_connection()</code>,
+                    which runs all the usual connection hooks. The pre-connection hooks of the module detect the nature of
+                    the connection and disable <code>mod_ssl</code> for it, among other things.</li>
+                    <li>At this point, <code>mod_spdy</code> has a filter pair to read/write data to a connection that
+                    runs the <code>httpd HTTP/1</code> processing engine in another thread.</li>
+                    <li>The request data is then serialized in <code>HTTP/1.1</code> format onto that pseudo connection
+                    where <code>httpd core</code> will parse it, create a <code>request_rec</code> and process that. The
+                    response eventually arrives in <code>HTTP/1.1</code> at spdy's output filter on that connection, is
+                    converted to internal format and passed in spdy protocol packages out on the main connection.</li>
+                    <li>Some peeking/poking is done to convince everyone that this is the only request on this pseudo
+                    connection, the connection get "closed" and the worker thread is free to perform other tasks.</li>
+                    <li>Should the main connection die/close, any connected workers need some signalling and will be joined
+                        before processing of the main connection terminates.
+                </ol>
+                </p><p>
+                This is how <code>mod_spdy</code> works, in a nutshell. There are many details to get things right and
+                everyone convinced that there is a HTTP/1.1 request on a connection, just business as usual, move on
+                please and disregard the man behind the curtain.
+                </p><p>
+                And it is a very good approach to bringing the spdy/h2 processing model into <code>httpd</code> as it allows
+                most of httpd's infrastructure as hooks, filters and other modules to keep on processing requests, even 
+                though the originally arrived via a totally different network protocol.
+                </p><p>
+                But disadvantages are also there:
+                <ul>
+                    <li>Pseudo connections are "hand made", I think because the core had no <code>ap_run_create_connection</code>
+                        at that time (mod_spdy was created on 2.2 in 2012?). And even if it could have used it, it still would
+                    not have worked with <code>mpm_event</code>. There is simply something missing in the core API that allows
+                    for a spdy/h2 like processing model. Hacks can be made, but may be soon outdated by httpd development.</li>
+                    <li>The serialization of request headers and data in HTTP/1.1 format is a bit awkward. If you need to add
+                    HTTP/1.1 chunking on internal buffers because content-length is missing, well... And, of course, responses
+                    need to be parsed and possibly un-chunked as well.</li>
+                    <li>The <code>mod_spdy</code> implementation was held a bit generic and does not use the APR to its
+                    fullest extend. Probably because the spdy engine is being used also inside other google code. Data passing
+                    involves more copying than all the carefully crafted bucket code in Apache deserves.</li>
+                </ul>
+                </p>
+                
+                <h3><code>mod_h2</code> architecture</h3>
+                <p>
+                <code>mod_h2</code> was written from scratch, but took the ideas from spdy. The main structures/names connected
+                to the concepts introduced by spdy are:
+                <ul>
+                    <li><code>h2_session</code>: the instance handling the main connection, keep the <code>ngttp2</code> instance and all other state information.</li>
+                    <li><code>h2_stream</code>: a HTTP/2 stream, the equivalent of a request/response pair.</li>
+                    <li><code>h2_task</code>: the processor for a h2_stream that gets executed in another thread.</li>
+                    <li><code>h2_worker</code>: a specialized thread for executing h2_tasks.</li>
+                    <li><code>h2_mplx</code>: a multiplexing instance, one per main connection, that does the talking/synchronization between h2_session and h2_tasks.</li>
+                    <li><code>h2_conn</code>: sets up pseudo connections.</li>
+                    <li><code>h2_request+h2_to_h1</code>: request headers and conversion into httpd HTTP/1 format.</li>
+                    <li><code>h2_response+h2_from_h1</code>: response headers and conversion from httpd HTTP/1 format.</li>
+                    <li><code>h2_h2</code>: hooks and filters for handling "h2" protocol in TLS connections.</li>
+                    <li><code>h2_h2c</code>: hooks and filters for handling "h2c" protocol upgrades in clear text requests.</li>
+                </ul>
+                </p><p>
+                So, connection setup runs by <code>h2_h2</code>, upgrades in clear by <code>h2_h2c</code>. On success, a <code>h2_session</code>
+                is created. Any newly opened HTTP/2 stream results in a h2_stream. When all headers have been received in a <code>h2_request</code>,
+                a <code>h2_task</code> is created and added to the task queue.
+                </p><p>
+                A <code>h2_worker</code> eventually takes the <code>h2_task</code>, sets up the environment pools, bucket allocators, filters
+                and converts the <code>h2_request</code> into a httpd <code>request_rec</code>. This processed by httpd core.
+                </p><p>
+                The output filters then transform the output into a <code>h2_response</code> which is passed to the <code>h2_mplx</code>.
+                <code>h2_session</code> regularly polls <code>h2_mplx</code> for new responses and submits those to the client.
+                </p><p>
+                Request and response bodies are passed via <code>h2_mplx</code> from <code>h2_session</code> to <code>h2_task</code>
+                and vice versa. When the response body is passed, <code>h2_task</code> ends, its resources are reclaimed and 
+                the <code>h2_worker</code> will start on other tasks.
+                </p><p>
+                Once all data for a stream has been processed (or when the stream has been aborted), the <code>h2_stream</code> is
+                destroyed and all its resources (memory pools, buckets) are reclaimed. This can happen before the <code>h2_task</code>
+                for the stream is done. The cleanup needs to be delayed then and such streams are kept in a special <em>zombie</em> set.
+                </p><p>
+                The closing of connection (graceful or not) triggers the destruction of <code>h2_session</code> which again frees 
+                resources. There, it needs to remove all pending <code>h2_task</code> from the queue and join all pending zombie 
+                streams before shutting down itself.
+                </p>
+                
+                
+                <h3><code>mod_h2</code> hacks</h3>
+                
+                <h4>pseudo connections</h4>
+                <p>
+                The creation of pseudo connections is using <code>ap_run_create_connection</code> instead of doing it manually. This
+                works for <code>mpm_worker</code>, but <code>mpm_event</code> is not happy with it and a special hack needed to be
+                added, mainly for setting up a satisfactory connection state structure.
+                </p><p>
+                Other mpm modules have not been tested yet. It would be preferable the extend <code>ap_run_create_connection</code>
+                to setup a connection regardless of what <code>mpm</code> is configured.
+                </p>
+                
+                
+                <h4>request serialization</h4>
+                <p>
+                <code>mod_h2</code> has code to serialize requests in HTTP/1.1 format so that httpd core may <code>ap_read_request()</code>
+                if from the pseudo connection and then <code>ap_process_request()</code> it. This is basically how
+                <code>ap_process_connection()</code> works, plus some mpm state handling and connection close/keepalive handling.
+                </p><p>
+                In <code>v0.6.0</code>, an alternate implementation was added that directly creates a <code>request_rec</code> and
+                invokes <code>ap_process_request()</code> directly. This saves the serialization and parsing exercise and gives
+                better performance at the cost of compatibility. 
+                </p><p>
+                Setting up the <code>request_rec</code> currently copies two pages of code from the httpd core, something which could
+                be easily mitigated by enhancing the core API.
+                </p><p>
+                The HTTP/1.1 serialization can be configured on/off. It is disabled by default.
+                </p>
+
+                <h4>response serialization</h4>
+                <p>
+                Similar to the request handling, the response was initially parsed from the pseudo connection. And that code
+                is still there when serialization is configured on. By default however, an optimization is in place that replaces
+                the core <code>HTTP_HEADER</code> filter with its own variation.
+                </p><p>
+                <code>HTTP_HEADER</code> is a quite large filter that does the following tasks:
+                <ol>
+                    <li>Check for error or end of connection buckets.</li>
+                    <li>Apply the sum of holy knowledge how different flags, notes and headers in <code>request_rec</code>
+                        and to and remove from the response headers. Initialize potentially missing fields such as status_line.</li>
+                    <li>Determine if HTTP/1.1 chunking is necessary and, if so, add a filter that will apply it.</li>
+                    <li>Remove itself from the output filters once it has passed all status and headers in HTTP/1.1 format
+                        down the filter chain.</li>
+                </ol>
+                All but the second point is not needed in the case of HTTP/2 processing. And the replacement filter installed
+                by <code>mod_h2</code> is a copy of that filter stripped from all the unwanted parts.
+                </p><p>
+                <code>HTTP_HEADER</code> should be split into two filters: <code>HTTP_HEADER</code> and <code>HTTP_SERIALIZATION</code>. Then
+                the first one could be kept and code duplication avoided.
+                </p>
+                
+                <h4>polling vs. events</h4>
+                <p>
+                Processing a HTTP/2 connection means that data from the client may arrive any time and that stream data
+                from responses need to be sent as soon as it becomes available. In the current <code>mod_h2</code> this
+                is done in a polling loop that works like this:
+                <ul>
+                    <li>Check if <code>h2_mplx</code> has new responses to be submitted and sent what is there.</li>
+                    <li>Check if new response data arrived for suspended streams and resume them if this is the case.</li>
+                    <li>Let <code>nghttp2</code> write, if it wants. This may pull stream response data and suspend streams
+                        if no data is available at <code>h2_mplx</code>.</li>
+                    <li>If streams are open, do a non-blocking read on the main connection. Otherwise do a blocking read.
+                        Pass any data received to the <code>nghttp2</code> instance for this connection.</li>
+                    <li>If none of the above resulted in any action, increase a backoff time and perform a timed wait on
+                        arrival of new data in <code>h2_mplx</code>.</li>
+                </ul>
+                The backoff timer keeps the main connection thread from using up unnecessary CPU. Currently it is capped at
+                200 ms to keep responsiveness to client data. This is not ideal and a purely event driven implementation
+                is needed.
+                </p><p>
+                In common web page processing however, there will be bursts of streams interleaved with long periods of
+                nothingness and in such periods <code>mod_h2</code> can do a blocking read on the main connection.
+                </p>
+                
                 
                 <h2><a name="moving-data">Moving Data</a><div class="post-date">2015-04-17</div>
                 </h2>
                 <p>
                 Due to the <a href="#processing-model">processing model</a> request and response data needs to traverse threads. In the 
-                <code>httpd</code> infrstructure, this means data in <code>apr_bucket</code>s handed out/placed into 
+                <code>httpd</code> infrastructure, this means data in <code>apr_bucket</code>s handed out/placed into 
                 <code>apr_bucket_brigade</code>s.
                 </p><p>
                 <code>apr_bucket</code> has no link to a <code>apr_bucket_brigade</code>. It can move freely from one brigade
@@ -122,36 +286,58 @@
                 processing model.
                 </p><p>
                 That means <code>mod_h2</code> needs to read from one brigade and write to another brigade when it wants data
-                to cross thread boundaries. Which means basically <code>memcpy</code> the request and response data. Which is simply bad.
-                Especially on response data.
+                to cross thread boundaries. Which means basically <code>memcpy</code> the request and response data. Which is not smart.
                 </p><p>
-                For resources in static files, <code>httpd</code> has a very efficient implementation. A looked up file descriptor
+                For resources in static files, <code>httpd</code> has a very efficient implementation. A file descriptor
                 is placed into a bucket and that bucket is passed on to the part handling the connection output streaming. Only
-                there it will be read and written to the connection, using perferably the most efficient way that the host operating
+                there it will be read and written to the connection, using preferably the most efficient way that the host operating
                 system offers.
                 </p><p>
                 Any improvement to <code>mod_h2</code>'s output handling would transfer the file handle exactly that way. But that
-                poses another challenge, as described in the next chapter.
+                poses another challenge, as described in "resource allocation".
                 </p>
                 
                 <h2><a name="resource-allocation">Resource Allocation</a><div class="post-date">2015-04-17</div>
                 </h2>
                 <p>
-                If <code>mod_h2</code> handled output of static file resources similar to <code>httpd</code>, it would quickly
+                If <code>mod_h2</code> handled output of static file resources similar to <code>httpd</code>, it could easily
                 run out of open file descriptors under load. Especially when processing many parallel requests with the same
                 priority. 
                 </p><p>
-                10 requests for files would then have 10 file descriptors open, since output of same priority is
+                10 requests for files could then have 10 file descriptors open, since output of streams with same priority is
                 interleaved. In HTTP/1 processing, the 1-1-1 model, 10 file requests on the same connection would only allocate
                 1 file descriptor at a time.
                 </p><p>
-                Worse, the HTTP/2 spec says <code>" It is recommended that this value be no smaller than 100, so as to not 
+                And, the HTTP/2 spec says <code>" It is recommended that this value be no smaller than 100, so as to not 
                     unnecessarily limit parallelism."</code> So, potentially worst case, a straightforward implementation would open
-                100 file descriptors at the same time for each connection. This does not sound good, especially since
+                100 file descriptors at the same time for each connection. This certainly worsens the problem, especially since
                 HTTP/2 connections are expected to stay open for a much longer duration.
                 </p><p>
-                The challenge is to find a implementation that allows for many connections and a lot of parallelsim while
-                staying stable, e.g. no request failures due to exhausted file descriptors.
+                The current implementation in <code>mod_h2</code> never passes file buckets from <code>h2_task</code> to
+                <code>h2_mplx</code>, it just passes data. That means that file handles are only open while a <code>h2_task</code>
+                is being processed. And a <code>h2_task</code> being processed means that it is allocated to a <code>h2_worker</code>
+                thread.
+                </p><p>
+                As a result of all this, the number of simultaneous open file descriptors is in the order of  
+                <code>h2_worker</code> numbers. And those are limited (and configurable). This gives a behaviour that
+                is stable under load.
+                </p><p>
+                But not as efficient as it could be. Maybe there is a good way to introduce resource managements that
+                allows passing of file handles as long as configurable limit has not been exceeded.
+                </p>
+
+                <h2><a name="unknowns">The Unknowns</a><div class="post-date">2015-05-28</div>
+                </h2>
+                <p>
+                Since httpd is such a rich environment, deployed on many platforms and host of many, many modules, there
+                certainly will be more incompatibilities discovered in connection with <code>mod_h2</code>. Some few issues
+                have been reported on github, but I am certain many more await.
+                </p><p>
+                The main cause, I suspect, will be the pseudo connection handling, especially the setup. Modules that add their
+                data to a connection and then later expect to find it there again during request processing, are the most
+                vulnerable (One of the issues was a report that SSL variables no longer worked).
+                </p><p>
+                It would be nice to get rid of these pseudo connections (or replace them with some other concept). 
                 </p>
 
             </section>
