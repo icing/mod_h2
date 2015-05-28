@@ -21,22 +21,32 @@
  * for our pseudo httpd conn_rec that is handling a specific h2_task.
  * 
  */
-struct h2_bucket;
+struct apr_thread_cond_t;
 struct h2_mplx;
-struct h2_response;
-struct h2_task;
+struct h2_task_env;
+struct h2_from_h1;
+
+typedef enum {
+    H2_TASK_OUT_INIT,
+    H2_TASK_OUT_STARTED,
+    H2_TASK_OUT_DONE,
+} h2_task_output_state_t;
 
 typedef struct h2_task_output h2_task_output;
 
-h2_task_output *h2_task_output_create(apr_pool_t *pool,
-                                      struct h2_task *task, int stream_id,
-                                      struct h2_mplx *m);
+struct h2_task_output {
+    const char *id;
+    int stream_id;
+    struct h2_mplx *mplx;
+    struct apr_thread_cond_t *cond;
+    h2_task_output_state_t state;
+    struct h2_from_h1 *from_h1;
+};
+
+h2_task_output *h2_task_output_create(struct h2_task_env *env, apr_pool_t *pool,
+                                      apr_bucket_alloc_t *bucket_alloc);
 
 void h2_task_output_destroy(h2_task_output *output);
-
-apr_status_t h2_task_output_open(h2_task_output *output,
-                                 struct h2_response *response);
-
 
 apr_status_t h2_task_output_write(h2_task_output *output,
                                   ap_filter_t* filter,

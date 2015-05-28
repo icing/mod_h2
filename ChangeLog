@@ -1,5 +1,77 @@
-v0.4.3-DEV
+v0.6.0
 --------------------------------------------------------------------------------
+ * fiddling around with task/worker assignments to use the global h2_workers
+   lock less, giving better parallelism
+ * ./configure --enable-werror enables all sorts of compiler diagnostics, if
+   the chosen compiler supports them
+ * merged pull request with compiler warning fixes by LPardue and @samhurst 
+   (Thanks!)
+ * new config option "H2SerializeHeaders (On|Off)" that determines if request
+   response headers should be serialized/parsed when converting from HTTP/2 to
+   httpd's internal HTTP/1 processing or request_recs are manipulated directly.
+   "Off" is default, "On" gives better compatibility.
+ * new config options "H2HackMpmEvent (On|Off) that enables a hack to make
+   internal connection work with the mpm_event module. Has no effect if other
+   mpm modules have been configured. Defaults to "On"."
+ * upgrading sandbox to nghttp2 0.7.15
+
+v0.5.6
+--------------------------------------------------------------------------------
+ * making SSL variables available in subprocess (e.g. CGI) environments if
+configured (fixes #19)
+
+v0.5.5
+--------------------------------------------------------------------------------
+ * improved transfer of large resources by 50% by more efficient writes
+
+v0.5.4
+ --------------------------------------------------------------------------------
+ * moving request handling and http/1 emulation into worker thread, offloading 
+   main
+ * some fixes in connection shutdown re race condition with still active workers
+ * removing reqtimeout filters on stream connections
+ * taking in latest alpn changes from httpd trunk, made separate npn patch for
+   those who need to run with openssl 1.0.1
+ * fixed handling of transient bucket in stream output data (led to corrupted
+   responses)
+ * reworked task join to eliminate race conditions during session shutdown
+ * info logging is less verbose
+
+v0.5.2
+--------------------------------------------------------------------------------
+ * rewrote the input handling
+    * forwarding headers in camel case to HTTP/1 request prossing
+    * merging duplicate headers into single line with proper separators
+    * eliminated h2_bucket by using apr_bucket_brigades everywhere
+    * added test cases and fixed chunked input processing
+ * sandbox now uses curl 7.42.0
+ * enhanced alpn patch slightly, compatible to old one, no need to repatch mod_ssl on existing installations
+ * adding some tests with fcgi, for sandbox testing please install php5-cgi
+
+v0.5.1
+--------------------------------------------------------------------------------
+ * ensuring HOST header is properly set for internal request handling
+ * updated sandbox to latest nghttp2 release
+
+v0.5.0
+--------------------------------------------------------------------------------
+ * improved resource handling and performance
+ * fixes lookup of correct server config when several virtual hosts are 
+   available
+
+v0.4.5
+--------------------------------------------------------------------------------
+ * fixed base64 decoding to use correct dialect when upgrading to h2c
+
+v0.4.4
+--------------------------------------------------------------------------------
+ * adds missing file in distribution tar, fixes #11
+ * sandbox now uses nghttp2 0.7.11
+
+v0.4.3
+--------------------------------------------------------------------------------
+ * heavy work on internal data transfers, use of apache bucket brigades for
+   improved performance and parallelism
  * mod_h2 now performs proper flow-control on input. Uploads can no longer
    flood memory of the server.
  * changed mod_ssl patch to reflect current trunk changes in regard to NPN/ALPN

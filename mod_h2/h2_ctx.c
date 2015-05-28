@@ -24,70 +24,81 @@
 #include "h2_ctx.h"
 #include "h2_private.h"
 
-h2_ctx *h2_ctx_create(conn_rec *c)
+static h2_ctx *h2_ctx_create(conn_rec *c)
 {
     h2_ctx *ctx = apr_pcalloc(c->pool, sizeof(h2_ctx));
-    assert(ctx);
+    AP_DEBUG_ASSERT(ctx);
     ap_set_module_config(c->conn_config, &h2_module, ctx);
     return ctx;
 }
 
-h2_ctx *h2_ctx_create_for(conn_rec *c, h2_task *task)
+h2_ctx *h2_ctx_create_for(conn_rec *c, h2_task_env *env)
 {
     h2_ctx *ctx = h2_ctx_create(c);
     if (ctx) {
-        ctx->task = task;
+        ctx->task_env = env;
     }
     return ctx;
 }
 
-h2_ctx *h2_ctx_get( conn_rec *c )
+h2_ctx *h2_ctx_get(conn_rec *c, int create)
 {
-    return (h2_ctx*)ap_get_module_config(c->conn_config, &h2_module);
+    h2_ctx *ctx = (h2_ctx*)ap_get_module_config(c->conn_config, &h2_module);
+    if (ctx == NULL && create) {
+        ctx = h2_ctx_create(c);
+    }
+    return ctx;
 }
 
-const char *h2_ctx_get_protocol( conn_rec* c )
+h2_ctx *h2_ctx_rget(request_rec *r, int create)
 {
-    h2_ctx *ctx = h2_ctx_get(c);
+    h2_ctx *ctx = h2_ctx_get(r->connection, create);
+    if (!ctx->server) {
+        ctx->server = r->server;
+    }
+    return ctx;
+}
+
+const char *h2_ctx_get_protocol(conn_rec* c)
+{
+    h2_ctx *ctx = h2_ctx_get(c, 0);
     return ctx? ctx->protocol : NULL;
 }
 
 h2_ctx *h2_ctx_set_protocol(conn_rec* c, const char *proto)
 {
-    h2_ctx *ctx = h2_ctx_get(c);
-    if (ctx) {
-        ctx->protocol = proto;
-        ctx->is_h2 = (proto != NULL);
-        ctx->is_negotiated = 1;
-    }
+    h2_ctx *ctx = h2_ctx_get(c, 1);
+    ctx->protocol = proto;
+    ctx->is_h2 = (proto != NULL);
+    ctx->is_negotiated = 1;
     return ctx;
 }
 
 int h2_ctx_is_session(conn_rec * c)
 {
-    h2_ctx *ctx = h2_ctx_get(c);
-    return ctx && !ctx->task;
+    h2_ctx *ctx = h2_ctx_get(c, 0);
+    return ctx && !ctx->task_env;
 }
 
 int h2_ctx_is_task(conn_rec * c)
 {
-    h2_ctx *ctx = h2_ctx_get(c);
-    return ctx && !!ctx->task;
+    h2_ctx *ctx = h2_ctx_get(c, 0);
+    return ctx && !!ctx->task_env;
 }
 
 int h2_ctx_is_negotiated( conn_rec * c )
 {
-    h2_ctx *ctx = h2_ctx_get(c);
+    h2_ctx *ctx = h2_ctx_get(c, 0);
     return ctx && ctx->is_negotiated;
 }
 
 int h2_ctx_is_active(conn_rec * c)
 {
-    h2_ctx *ctx = h2_ctx_get(c);
+    h2_ctx *ctx = h2_ctx_get(c, 0);
     return ctx && ctx->protocol != NULL;
 }
 
-struct h2_task *h2_ctx_get_task(h2_ctx *ctx)
+struct h2_task_env *h2_ctx_get_task(h2_ctx *ctx)
 {
-    return ctx->task;
+    return ctx->task_env;
 }

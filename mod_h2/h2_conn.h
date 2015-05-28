@@ -17,6 +17,7 @@
 #define __mod_h2__h2_conn__
 
 struct h2_task;
+struct h2_worker;
 
 /* Process the connection that is now starting the HTTP/2
  * conversation. Return when the HTTP/2 session is done
@@ -43,28 +44,30 @@ typedef enum {
     H2_MPM_EVENT,
 } h2_mpm_type_t;
 
-/* Returns the type of MPM module detected */
 h2_mpm_type_t h2_conn_mpm_type();
+module *h2_conn_mpm_module();
+
+/* Returns the type of MPM module detected */
+h2_mpm_type_t h2_conn_mpm_type(void);
 
 /* Gives the detected module itself or NULL if unknown */
-module *h2_conn_mpm_module();
+module *h2_conn_mpm_module(void);
 
 
 typedef struct h2_conn h2_conn;
 struct h2_conn {
-    const char *id;
     apr_pool_t *pool;
     apr_bucket_alloc_t *bucket_alloc;
     conn_rec *c;
     apr_socket_t *socket;
-    conn_rec *master;
 };
 
-h2_conn *h2_conn_create(const char *id, conn_rec *master, apr_pool_t *parent);
-
+h2_conn *h2_conn_create(conn_rec *master, apr_pool_t *parent);
 void h2_conn_destroy(h2_conn *conn);
 
-apr_status_t h2_conn_prep(h2_conn *conn, apr_thread_t *thd);
+apr_status_t h2_conn_prep(h2_conn *conn, conn_rec *master, 
+                          struct h2_worker *worker);
+apr_status_t h2_conn_post(h2_conn *conn, struct h2_worker *worker);
 
 apr_status_t h2_conn_process(h2_conn *conn);
 

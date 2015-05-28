@@ -31,6 +31,7 @@ CURL         = $(INST_DIR)/bin/curl
 NGHTTP       = $(INST_DIR)/bin/nghttp
 H2LOAD       = $(INST_DIR)/bin/h2load
 
+PHP_CGI      = $(shell bash -c 'type -p php-cgi')
 
 all: install
 
@@ -49,17 +50,20 @@ distdir:
 	@rm -f $(distdir)/conf/sites/mod-h2.greebytes.de.conf
 
 start: $(INST_DIR)/.test-setup
-	@$(INST_DIR)/bin/apachectl restart
+	@$(INST_DIR)/bin/apachectl -k start
+
+start-debug: $(INST_DIR)/.test-setup
+	@$(INST_DIR)/bin/apachectl -k start -X
 
 restart: $(INST_DIR)/.test-setup
 	@echo -n shutting down httpd...
-	@$(INST_DIR)/bin/apachectl stop
-	@while true; do pkill -U $(USER) httpd; test "$$?" != "0" && break; done   
+	@$(INST_DIR)/bin/apachectl -k stop
+	@while true; do sleep 1; pkill -1 -U $(USER) httpd; test "$$?" != "0" && break; done   
 	@echo done.
-	@$(INST_DIR)/bin/apachectl restart
+	@$(INST_DIR)/bin/apachectl -k restart
 
 stop:
-	@$(INST_DIR)/bin/apachectl stop
+	@$(INST_DIR)/bin/apachectl -k stop
 
 
 install:
@@ -75,18 +79,14 @@ test: \
 	@mkdir -p $(GEN)/tmp
 	@$(INST_DIR)/bin/apachectl restart
 	@bash test_curl_altsvc.sh http://$(HTTP_AUTH) https://$(HTTPS_AUTH)
-	@bash test_curl_get.sh    https://$(HTTPS_AUTH)
-	@bash test_curl_post.sh   https://$(HTTPS_AUTH)
 	@bash test_nghttp_get.sh  https://$(HTTPS_AUTH)
 	@bash test_nghttp_post.sh https://$(HTTPS_AUTH)
+	@bash test_curl_get.sh    https://$(HTTPS_AUTH)
+	@bash test_curl_post.sh   https://$(HTTPS_AUTH)
 	@bash test_nghttp_get.sh  http://$(HTTP_AUTH)
 	@bash test_nghttp_post.sh http://$(HTTP_AUTH)
-
-# disabled curl HTTP tests as we have hangers on the client side:
-# reported: https://github.com/bagder/curl/issues/192
-#
-#@bash test_curl_get.sh https://$(HTTP_AUTH)
-#@bash test_curl_post.sh https://$(HTTP_AUTH)
+	@bash test_curl_get.sh    http://$(HTTP_AUTH)
+	@bash test_curl_post.sh   http://$(HTTP_AUTH)
 
 ################################################################################
 # Load Test
@@ -102,24 +102,32 @@ $(GEN)/load-urls-2.txt: \
 	@mkdir -p $(GEN)/tmp
 	@sed -e "s,SUBST_AUTH_SUBST,http://$(HTTP_AUTH)," < load-urls-1.txt >$(GEN)/load-urls-2.txt
 
+MAX_STREAMS = 100
+
 loadtest: \
 		$(INST_DIR)/.test-setup \
 		$(INST_DIR)/.curl-installed \
         $(GEN)/load-urls-1.txt
-	@$(H2LOAD) -i $(GEN)/load-urls-1.txt -n 200000 -t 1 -c 8
-	@$(H2LOAD) -i $(GEN)/load-urls-1.txt -n 200000 -t 2 -c 8
-	@$(H2LOAD) -i $(GEN)/load-urls-1.txt -n 200000 -t 3 -c 8
-	@$(H2LOAD) -i $(GEN)/load-urls-1.txt -n 200000 -t 4 -c 8
-	@$(H2LOAD) -i $(GEN)/load-urls-1.txt -n 200000 -t 5 -c 8
-	@$(H2LOAD) -i $(GEN)/load-urls-1.txt -n 200000 -t 6 -c 8
-	@$(H2LOAD) -i $(GEN)/load-urls-1.txt -n 200000 -t 7 -c 8
-	@$(H2LOAD) -i $(GEN)/load-urls-1.txt -n 200000 -t 8 -c 8
+	$(H2LOAD) -c 100 -t 10 -n 100000 -m $(MAX_STREAMS) https://$(HTTPS_AUTH)/index.html
+	$(H2LOAD) -i $(GEN)/load-urls-1.txt -n 200000 -t 1 -m $(MAX_STREAMS) -c 8
+	$(H2LOAD) -i $(GEN)/load-urls-1.txt -n 200000 -t 2 -m $(MAX_STREAMS) -c 8
+	$(H2LOAD) -i $(GEN)/load-urls-1.txt -n 200000 -t 3 -m $(MAX_STREAMS) -c 8
+	$(H2LOAD) -i $(GEN)/load-urls-1.txt -n 200000 -t 4 -m $(MAX_STREAMS) -c 8
+	$(H2LOAD) -i $(GEN)/load-urls-1.txt -n 200000 -t 5 -m $(MAX_STREAMS) -c 8
+	$(H2LOAD) -i $(GEN)/load-urls-1.txt -n 200000 -t 6 -m $(MAX_STREAMS) -c 8
+	$(H2LOAD) -i $(GEN)/load-urls-1.txt -n 200000 -t 7 -m $(MAX_STREAMS) -c 8
+	$(H2LOAD) -i $(GEN)/load-urls-1.txt -n 200000 -t 8 -m $(MAX_STREAMS) -c 8
 
+xtest: \
+		$(INST_DIR)/.test-setup \
+		$(INST_DIR)/.curl-installed \
+        $(GEN)/load-urls-1.txt
+	@bash test_nghttp_post.sh https://$(HTTPS_AUTH)
 
 ################################################################################
 # Setup the local httpd for our tests
 #
-SETUP_FILES = $(wildcard conf/*.conf) $(wildcard conf/sites/*.conf)
+SETUP_FILES = $(wildcard conf/*.conf) $(wildcard conf/sites/*.conf) $(wildcard bin/*)
 
 $(INST_DIR)/.testdocs-setup: \
 	$(wildcard conf/*) \
@@ -132,8 +140,8 @@ $(INST_DIR)/.testdocs-setup: \
 
 $(INST_DIR)/.test-setup: \
 		$(INST_DIR)/.httpd-installed \
-		conf/httpd.conf \
-		conf/modules.conf \
+		conf/*.conf \
+       		$(wildcard bin/*) \
 		$(wildcard conf/sites/*.conf) \
         $(INST_DIR)/conf/mods-enabled/h2.load \
 		$(INST_DIR)/conf/ssl/test.example.org.key \
@@ -148,8 +156,10 @@ $(INST_DIR)/.test-setup: \
 			-e "s,SUBST_SERVER_NAME_SUBST,$(shell hostname -f),g" \
 			-e "s,SUBST_PORT_HTTP_SUBST,$(HTTP_PORT),g" \
 			-e "s,SUBST_PORT_HTTPS_SUBST,$(HTTPS_PORT),g" \
+            -e "s,SUBST_PHP_CGI_SUBST,$(PHP_CGI),g" \
 			< $$file > $(INST_DIR)/$$file; \
 	done
+	@for i in bin/*; do chmod +x $(INST_DIR)/$$i; done
 	@cp conf/ssl/*.* $(INST_DIR)/conf/ssl
 	@echo done.
 	@touch $(INST_DIR)/.test-setup

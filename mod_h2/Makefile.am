@@ -23,8 +23,6 @@ mod_h2_la_LDFLAGS  = -module
 
 OBJECTS = \
     h2_alt_svc.c \
-    h2_bucket.c \
-    h2_bucket_queue.c \
     h2_config.c \
     h2_conn.c \
     h2_conn_io.c \
@@ -35,7 +33,6 @@ OBJECTS = \
     h2_io.c \
     h2_io_set.c \
     h2_mplx.c \
-    h2_queue.c \
     h2_request.c \
     h2_response.c \
     h2_session.c \
@@ -44,6 +41,7 @@ OBJECTS = \
     h2_task.c \
     h2_task_input.c \
     h2_task_output.c \
+    h2_task_queue.c \
     h2_to_h1.c \
     h2_util.c \
     h2_worker.c \
@@ -52,8 +50,6 @@ OBJECTS = \
 
 HFILES = \
     h2_alt_svc.h \
-    h2_bucket.h \
-    h2_bucket_queue.h \
     h2_config.h \
     h2_conn.h \
     h2_conn_io.h \
@@ -65,7 +61,6 @@ HFILES = \
     h2_io_set.h \
     h2_mplx.h \
     h2_private.h \
-    h2_queue.h \
     h2_request.h \
     h2_response.h \
     h2_session.h \
@@ -74,6 +69,7 @@ HFILES = \
     h2_task.h \
     h2_task_input.h \
     h2_task_output.h \
+    h2_task_queue.h \
     h2_to_h1.h \
     h2_util.h \
     h2_version.h \

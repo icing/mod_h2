@@ -23,9 +23,7 @@
  * - a series of bytes that represent the response body alone, without
  *   any meta data, such as inserted by chunked transfer encoding.
  *
- * All data is allocated from the connection memory pool. Body data
- * is passed "through" into the given h2_bucket(s) and will not
- * cause allocations.
+ * All data is allocated from the stream memory pool. 
  *
  * Again, see comments in h2_request: ideally we would take the headers
  * and status from the httpd structures instead of parsing them here, but
@@ -40,35 +38,45 @@ typedef enum {
     H2_RESP_ST_DONE         /* complete response converted */
 } h2_from_h1_state_t;
 
-struct h2_bucket;
 struct h2_response;
+
 typedef struct h2_from_h1 h2_from_h1;
+
+struct h2_from_h1 {
+    int stream_id;
+    h2_from_h1_state_t state;
+    apr_pool_t *pool;
+    apr_bucket_brigade *bb;
+    
+    apr_size_t content_length;
+    int chunked;
+    
+    const char *status;
+    apr_array_header_t *hlines;
+    
+    struct h2_response *response;
+};
+
 
 typedef void h2_from_h1_state_change_cb(struct h2_from_h1 *resp,
                                          h2_from_h1_state_t prevstate,
                                          void *cb_ctx);
 
 h2_from_h1 *h2_from_h1_create(int stream_id, apr_pool_t *pool);
+
 apr_status_t h2_from_h1_destroy(h2_from_h1 *response);
 
 void h2_from_h1_set_state_change_cb(h2_from_h1 *from_h1,
                                      h2_from_h1_state_change_cb *callback,
                                      void *cb_ctx);
 
-apr_status_t h2_from_h1_http_convert(h2_from_h1 *from_h1,
-                                     conn_rec *connection,
-                                     struct h2_bucket *bucket,
-                                     const char *data, apr_size_t len,
-                                     apr_size_t *pconsumed);
+apr_status_t h2_from_h1_read_response(h2_from_h1 *from_h1,
+                                      ap_filter_t* f, apr_bucket_brigade* bb);
 
 struct h2_response *h2_from_h1_get_response(h2_from_h1 *from_h1);
 
 h2_from_h1_state_t h2_from_h1_get_state(h2_from_h1 *from_h1);
 
-/* Returns != 0 iff the conversion is not transforming anything (from the
- * point of time asking until the end of the response. Will be true for
- * repsonse bodies that do not need chunking.
- */
-int h2_from_h2_is_identity(h2_from_h1 *from_h1);
+apr_status_t h2_response_output_filter(ap_filter_t *f, apr_bucket_brigade *bb);
 
 #endif /* defined(__mod_h2__h2_from_h1__) */

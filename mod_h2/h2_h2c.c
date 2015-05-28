@@ -53,7 +53,7 @@ static int h2_h2c_upgrade_options(request_rec *r)
 {
     if ((r->method_number == M_OPTIONS) && r->uri && (r->uri[0] == '*') &&
         (r->uri[1] == '\0')) {
-        ap_log_rerror(APLOG_MARK, APLOG_TRACE2, 0, r,
+        ap_log_rerror(APLOG_MARK, APLOG_TRACE1, 0, r,
                       "h2c: request OPTIONS * seen");
         return h2_h2c_request_handler(r);
     }
@@ -114,7 +114,7 @@ static const char *h2_get_upgrade_proto(request_rec *r)
 
 static int h2_h2c_upgrade_to(request_rec *r, const char *proto)
 {
-    h2_ctx *ctx = h2_ctx_create(r->connection);
+    h2_ctx *ctx = h2_ctx_rget(r, 1);
     ctx->is_h2 = 1;
     h2_ctx_set_protocol(r->connection, proto);
     

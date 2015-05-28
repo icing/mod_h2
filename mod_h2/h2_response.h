@@ -19,32 +19,30 @@
 /* h2_response is just the data belonging the the head of a HTTP response,
  * suitable prepared to be fed to nghttp2 for response submit. 
  */
-
-struct h2_bucket;
+typedef struct h2_headers {
+    nghttp2_nv *nv;
+    apr_size_t nvlen;
+    const char *status;
+    volatile int refs;
+} h2_headers;
 
 typedef struct h2_response {
     int stream_id;
-    apr_status_t task_status;
-    const char *http_status;
-    struct h2_bucket *data;
-
-    long content_length;
-    int chunked;
-    
-    apr_size_t nvlen;
-    const nghttp2_nv nv;
-    /* must be last element */
+    apr_off_t content_length;
+    h2_headers *headers;
 } h2_response;
 
 h2_response *h2_response_create(int stream_id,
-                                  apr_status_t task_status,
                                   const char *http_status,
                                   apr_array_header_t *hlines,
-                                  struct h2_bucket *data,
                                   apr_pool_t *pool);
 
-void h2_response_destroy(h2_response *head);
+h2_response *h2_response_rcreate(int stream_id, request_rec *r,
+                                 apr_table_t *header, apr_pool_t *pool);
 
-long h2_response_get_content_length(h2_response *resp);
+void h2_response_cleanup(h2_response *response);
+void h2_response_destroy(h2_response *response);
+
+void h2_response_copy(h2_response *to, h2_response *from);
 
 #endif /* defined(__mod_h2__h2_response__) */

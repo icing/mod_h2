@@ -23,6 +23,7 @@
 #include <http_core.h>
 #include <http_config.h>
 #include <http_connection.h>
+#include <http_protocol.h>
 #include <http_log.h>
 
 #include "h2_private.h"
@@ -45,6 +46,10 @@ apr_size_t h2_protos_len = sizeof(h2_protos)/sizeof(h2_protos[0]);
  */
 APR_DECLARE_OPTIONAL_FN(int, ssl_engine_disable, (conn_rec*));
 APR_DECLARE_OPTIONAL_FN(int, ssl_is_https, (conn_rec*));
+APR_DECLARE_OPTIONAL_FN(char *, ssl_var_lookup,
+                        (apr_pool_t *, server_rec *,
+                         conn_rec *, request_rec *,
+                         char *));
 
 typedef int (*ssl_npn_advertise_protos)(conn_rec *connection, 
                                       apr_array_header_t *protos);
@@ -68,9 +73,13 @@ APR_DECLARE_OPTIONAL_FN(int, modssl_register_alpn,
                          ssl_alpn_propose_protos proposefn,
                          ssl_alpn_proto_negotiated negotiatedfn));
 
+int h2_h2_post_read_req(request_rec *r);
 
 static int (*opt_ssl_engine_disable)(conn_rec*);
 static int (*opt_ssl_is_https)(conn_rec*);
+static char *(*opt_ssl_var_lookup)(apr_pool_t *, server_rec *,
+                                   conn_rec *, request_rec *,
+                                   char *);
 static int (*opt_ssl_register_alpn)(conn_rec*,
                                     ssl_alpn_propose_protos,
                                     ssl_alpn_proto_negotiated);
@@ -78,8 +87,23 @@ static int (*opt_ssl_register_npn)(conn_rec*,
                                     ssl_npn_advertise_protos,
                                     ssl_npn_proto_negotiated);
 
+static void check_sni_host(conn_rec *c) 
+{
+    h2_ctx *ctx = h2_ctx_get(c, 1);
+    if (opt_ssl_var_lookup && !ctx->hostname) {
+        ctx->hostname = opt_ssl_var_lookup(c->pool, c->base_server, c, 
+                                           NULL, (char*)"SSL_TLS_SNI");
+        ap_log_cerror(APLOG_MARK, APLOG_TRACE2, 0, c,
+                      "h2_h2, connection, SNI %s",
+                      ctx->hostname? ctx->hostname : "NULL");
+        
+    }
+}
+
+
 static const char *const mod_ssl[] = { "mod_ssl.c", NULL};
-static const char *const more_core[] = { "core.c", NULL};
+static const char *const mod_core[] = { "core.c", NULL};
+static const char *const mod_reqtimeout[] = { "reqtimeout.c", NULL};
 
 void h2_h2_register_hooks(void)
 {
@@ -94,19 +118,28 @@ void h2_h2_register_hooks(void)
      * httpd. Its purpose is to register, if TLS is used, the ALPN callbacks
      * that enable us to chose "h2" as next procotol if the client supports it.
      */
-    ap_hook_pre_connection(h2_h2_pre_conn, mod_ssl, more_core, APR_HOOK_LAST);
+    ap_hook_pre_connection(h2_h2_pre_conn, mod_ssl, mod_core, APR_HOOK_LAST);
     
     /* When the connection processing actually starts, we might to
      * take over, if h2* was selected by ALPN on a TLS connection.
      */
-    ap_hook_process_connection(h2_h2_process_conn, NULL, NULL, APR_HOOK_FIRST);
+    ap_hook_process_connection(h2_h2_process_conn, 
+                               NULL, NULL, APR_HOOK_FIRST);
+    /* Perform connection cleanup before the actual processing happens.
+     */
+    ap_hook_process_connection(h2_h2_cleanup_conn, 
+                               mod_reqtimeout, NULL, APR_HOOK_LAST);
+    
+    ap_hook_post_read_request(h2_h2_post_read_req, NULL, NULL, APR_HOOK_MIDDLE);
 }
 
 apr_status_t h2_h2_init(apr_pool_t *pool, server_rec *s)
 {
+    (void)pool;
     ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, s, "h2_h2, child_init");
     opt_ssl_engine_disable = APR_RETRIEVE_OPTIONAL_FN(ssl_engine_disable);
     opt_ssl_is_https = APR_RETRIEVE_OPTIONAL_FN(ssl_is_https);
+    opt_ssl_var_lookup = APR_RETRIEVE_OPTIONAL_FN(ssl_var_lookup);
     opt_ssl_register_npn = APR_RETRIEVE_OPTIONAL_FN(modssl_register_npn);
     opt_ssl_register_alpn = APR_RETRIEVE_OPTIONAL_FN(modssl_register_alpn);
     
@@ -123,6 +156,8 @@ apr_status_t h2_h2_init(apr_pool_t *pool, server_rec *s)
 
 apr_status_t h2_h2_child_init(apr_pool_t *pool, server_rec *s)
 {
+    (void)pool;
+    (void)s;
     return APR_SUCCESS;
 }
 
@@ -145,12 +180,13 @@ static int h2_util_array_index(apr_array_header_t *array, const char *s)
 
 static int h2_h2_npn_advertise(conn_rec *c, apr_array_header_t *protos)
 {
+    check_sni_host(c);
     h2_config *cfg = h2_config_get(c);
     if (!h2_config_geti(cfg, H2_CONF_ENABLED)) {
         return DECLINED;
     }
     
-    for (int i = 0; i < h2_protos_len; ++i) {
+    for (apr_size_t i = 0; i < h2_protos_len; ++i) {
         const char *proto = h2_protos[i];
         ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, c,
                       "NPN proposing %s from client selection", proto);
@@ -183,7 +219,7 @@ static int h2_h2_npn_negotiated(conn_rec *c,
         return DECLINED;
     }
     
-    for (int i = 0; i < h2_protos_len; ++i) {
+    for (apr_size_t i = 0; i < h2_protos_len; ++i) {
         const char *proto = h2_protos[i];
         if (proto_name_len == strlen(proto)
             && strncmp(proto, proto_name, proto_name_len) == 0) {
@@ -200,12 +236,13 @@ static int h2_h2_alpn_propose(conn_rec *c,
                               apr_array_header_t *client_protos,
                               apr_array_header_t *protos)
 {
+    check_sni_host(c);
     h2_config *cfg = h2_config_get(c);
     if (!h2_config_geti(cfg, H2_CONF_ENABLED)) {
         return DECLINED;
     }
     
-    for (int i = 0; i < h2_protos_len; ++i) {
+    for (apr_size_t i = 0; i < h2_protos_len; ++i) {
         const char *proto = h2_protos[i];
         if (h2_util_array_index(client_protos, proto) >= 0) {
             ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, c,
@@ -241,7 +278,7 @@ static int h2_h2_alpn_negotiated(conn_rec *c,
         return DECLINED;
     }
     
-    for (int i = 0; i < h2_protos_len; ++i) {
+    for (apr_size_t i = 0; i < h2_protos_len; ++i) {
         const char *proto = h2_protos[i];
         if (proto_name_len == strlen(proto)
             && strncmp(proto, proto_name, proto_name_len) == 0) {
@@ -256,9 +293,11 @@ static int h2_h2_alpn_negotiated(conn_rec *c,
 
 int h2_h2_pre_conn(conn_rec* c, void *arg)
 {
+    (void)arg;
     ap_log_cerror(APLOG_MARK, APLOG_TRACE2, 0, c,
                   "h2_h2, pre_connection, start");
-    h2_ctx *ctx = h2_ctx_get(c);
+    
+    h2_ctx *ctx = h2_ctx_get(c, 0);
     if (!ctx) {
         ap_log_cerror(APLOG_MARK, APLOG_TRACE2, 0, c,
                       "h2_h2, pre_connection, no ctx");
@@ -284,7 +323,7 @@ int h2_h2_pre_conn(conn_rec* c, void *arg)
             return DECLINED;
         }
         
-        ctx = h2_ctx_create(c);
+        ctx = h2_ctx_get(c, 1);
         if (opt_ssl_register_alpn) {
             opt_ssl_register_alpn(c, h2_h2_alpn_propose, h2_h2_alpn_negotiated);
         }
@@ -299,12 +338,30 @@ int h2_h2_pre_conn(conn_rec* c, void *arg)
                       "h2_h2, pre_connection, end");
     }
     else if (h2_ctx_is_task(c)) {
-        /* A connection that represents a http2 stream from another connection.
+        /* A pseudo connection for a http2 stream.
          */
         ap_log_cerror(APLOG_MARK, APLOG_TRACE2, 0, c,
                       "h2_h2, pre_connection, found stream task");
-        h2_task *task = h2_ctx_get_task(ctx);
-        return h2_task_pre_conn(task, c);
+        h2_task_env *env = h2_ctx_get_task(ctx);
+        return h2_task_pre_conn(env, c);
+    }
+    
+    return DECLINED;
+}
+
+int h2_h2_cleanup_conn(conn_rec* c)
+{
+    h2_ctx *ctx = h2_ctx_get(c, 0);
+    
+    if (ctx) {
+        if (h2_ctx_is_task(c)) {
+            /* cleanup on task connections */
+            ap_remove_input_filter_byhandle(c->input_filters, "reqtimeout");
+        }
+        else if (!h2_ctx_is_negotiated(c)) {
+            /* cleanup on master h2 connections */
+            ap_remove_input_filter_byhandle(c->input_filters, "reqtimeout");
+        }
     }
     
     return DECLINED;
@@ -312,23 +369,27 @@ int h2_h2_pre_conn(conn_rec* c, void *arg)
 
 int h2_h2_process_conn(conn_rec* c)
 {
-    h2_ctx *ctx = h2_ctx_get(c);
+    h2_ctx *ctx = h2_ctx_get(c, 0);
     
     if (ctx) {
         if (h2_ctx_is_task(c)) {
-            // This should not happend, as we install our own filters
-            // in h2_h2_pre_connection in such cases, so the normal
-            // connection hooks get bypassed.
+            if (!ctx->task_env->serialize_headers) {
+                ap_log_cerror(APLOG_MARK, APLOG_TRACE2, 0, c, 
+                              "h2_h2, processing request directly");
+                h2_task_process_request(ctx->task_env);
+                return DONE;
+            }
             return DECLINED;
         }
         else if (!h2_ctx_is_negotiated(c)) {
             // Let the client/server hellos fly and ALPN call us back.
             apr_bucket_brigade* temp_brigade = apr_brigade_create(
                 c->pool, c->bucket_alloc);
-            const apr_status_t status = ap_get_brigade(c->input_filters,
-                temp_brigade, AP_MODE_SPECULATIVE, APR_BLOCK_READ, 1);
+            ap_get_brigade(c->input_filters, temp_brigade,
+                AP_MODE_SPECULATIVE, APR_BLOCK_READ, 1);
             apr_brigade_destroy(temp_brigade);
         }
+        check_sni_host(c);
     }
     
     ap_log_cerror(APLOG_MARK, APLOG_TRACE2, 0, c, "h2_h2, connection, start");
@@ -345,7 +406,9 @@ int h2_h2_process_conn(conn_rec* c)
 
 int h2_h2_stream_pre_conn(conn_rec* c, void *arg)
 {
-    h2_ctx *ctx = h2_ctx_get(c);
+    (void)arg;
+    
+    h2_ctx *ctx = h2_ctx_get(c, 0);
     if (ctx && h2_ctx_is_task(c)) {
         /* This connection is a pseudo-connection used for a h2_task.
          * Since we read/write directly from it ourselves, we need
@@ -357,4 +420,26 @@ int h2_h2_stream_pre_conn(conn_rec* c, void *arg)
     }
     return OK;
 }
+
+int h2_h2_post_read_req(request_rec *r)
+{
+    h2_ctx *ctx = h2_ctx_rget(r, 0);
+    struct h2_task_env *env = ctx? h2_ctx_get_task(ctx) : NULL;
+    if (env) {
+        /* h2_task connection for a stream, not for h2c */
+        ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r,
+                      "adding h1_to_h2_resp output filter");
+        if (env->serialize_headers) {
+            ap_add_output_filter("H1_TO_H2_RESP", env, r, r->connection);
+        }
+        else {
+            /* replace the core http filter that formats response headers
+             * in HTTP/1 with our own that collects status and headers */
+            ap_remove_output_filter_byhandle(r->output_filters, "HTTP_HEADER");
+            ap_add_output_filter("H2_RESPONSE", env, r, r->connection);
+        }
+    }
+    return DECLINED;
+}
+
 

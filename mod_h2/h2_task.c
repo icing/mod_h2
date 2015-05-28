@@ -23,11 +23,20 @@
 #include <httpd.h>
 #include <http_core.h>
 #include <http_connection.h>
+#include <http_protocol.h>
+#include <http_request.h>
 #include <http_log.h>
+#include <http_vhost.h>
+#include <util_filter.h>
+#include <ap_mpm.h>
+#include <mod_core.h>
+#include <scoreboard.h>
 
 #include "h2_private.h"
-#include "h2_bucket.h"
 #include "h2_conn.h"
+#include "h2_config.h"
+#include "h2_from_h1.h"
+#include "h2_h2.h"
 #include "h2_mplx.h"
 #include "h2_session.h"
 #include "h2_stream.h"
@@ -38,88 +47,73 @@
 #include "h2_worker.h"
 
 
-struct h2_task {
-    const char *id;
-    int stream_id;
-    int aborted;
-    apr_uint32_t has_started;
-    apr_uint32_t has_finished;
-    
-    struct h2_mplx *mplx;
-    struct h2_conn *conn;
-    
-    struct h2_task_input *input;    /* http/1.1 input data */
-    struct h2_task_output *output;  /* response body data */
-    apr_thread_cond_t *io;           /* optional condition to wait for io on */
-};
-
-
-
-static ap_filter_rec_t *h2_input_filter_handle;
-static ap_filter_rec_t *h2_output_filter_handle;
-
 static apr_status_t h2_filter_stream_input(ap_filter_t* filter,
                                            apr_bucket_brigade* brigade,
                                            ap_input_mode_t mode,
                                            apr_read_type_e block,
                                            apr_off_t readbytes) {
-    h2_task *task = (h2_task *)filter->ctx;
-    assert(task);
-    if (!task->input) {
+    h2_task_env *env = filter->ctx;
+    AP_DEBUG_ASSERT(task);
+    if (!env->input) {
         return APR_ECONNABORTED;
     }
-    return h2_task_input_read(task->input, filter, brigade,
+    return h2_task_input_read(env->input, filter, brigade,
                               mode, block, readbytes);
 }
 
 static apr_status_t h2_filter_stream_output(ap_filter_t* filter,
                                             apr_bucket_brigade* brigade) {
-    h2_task *task = (h2_task *)filter->ctx;
-    assert(task);
-    if (!task->output) {
+    h2_task_env *env = filter->ctx;
+    AP_DEBUG_ASSERT(task);
+    if (!env->output) {
         return APR_ECONNABORTED;
     }
-    return h2_task_output_write(task->output, filter, brigade);
+    return h2_task_output_write(env->output, filter, brigade);
 }
 
+static apr_status_t h2_filter_read_response(ap_filter_t* f,
+                                            apr_bucket_brigade* bb) {
+    h2_task_env *env = f->ctx;
+    AP_DEBUG_ASSERT(task);
+    if (!env->output || !env->output->from_h1) {
+        return APR_ECONNABORTED;
+    }
+    return h2_from_h1_read_response(env->output->from_h1, f, bb);
+}
 
 void h2_task_register_hooks(void)
 {
-    h2_input_filter_handle =
-    ap_register_input_filter("H2_TO_HTTP", h2_filter_stream_input,
+    ap_register_output_filter("H2_RESPONSE", h2_response_output_filter,
+                              NULL, AP_FTYPE_PROTOCOL);
+    ap_register_input_filter("H2_TO_H1", h2_filter_stream_input,
                              NULL, AP_FTYPE_NETWORK);
-    
-    h2_output_filter_handle =
-    ap_register_output_filter("HTTP_TO_H2", h2_filter_stream_output,
+    ap_register_output_filter("H1_TO_H2", h2_filter_stream_output,
                               NULL, AP_FTYPE_NETWORK);
+    ap_register_output_filter("H1_TO_H2_RESP", h2_filter_read_response,
+                              NULL, AP_FTYPE_PROTOCOL);
 }
 
-int h2_task_pre_conn(h2_task *task, conn_rec *c)
+int h2_task_pre_conn(h2_task_env *env, conn_rec *c)
 {
-    assert(task);
+    AP_DEBUG_ASSERT(env);
     /* Add our own, network level in- and output filters.
-     * These will take input from the h2_session->request_data
-     * bucket queue and place the output into the
-     * h2_session->response_data bucket queue.
      */
     ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, c,
                   "h2_stream(%s): task_pre_conn, installing filters",
-                  task->id);
-    ap_add_input_filter_handle(h2_input_filter_handle,
-                               task, NULL, c);
-    ap_add_output_filter_handle(h2_output_filter_handle,
-                                task, NULL, c);
+                  env->id);
+    
+    ap_add_input_filter("H2_TO_H1", env, NULL, c);
+    ap_add_output_filter("H1_TO_H2", env, NULL, c);
     
     /* prevent processing by anyone else, including httpd core */
     ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, c,
-                  "h2_stream(%s): task_pre_conn, taking over", task->id);
+                  "h2_stream(%s): task_pre_conn, taking over", env->id);
     return DONE;
 }
 
 
 h2_task *h2_task_create(long session_id,
                         int stream_id,
-                        conn_rec *master,
                         apr_pool_t *stream_pool,
                         h2_mplx *mplx)
 {
@@ -128,59 +122,47 @@ h2_task *h2_task_create(long session_id,
         ap_log_perror(APLOG_MARK, APLOG_ERR, APR_ENOMEM, stream_pool,
                       "h2_task(%ld-%d): create stream task", 
                       session_id, stream_id);
-        h2_mplx_out_reset(mplx, stream_id, APR_ENOMEM);
+        h2_mplx_out_close(mplx, stream_id);
         return NULL;
     }
     
+    APR_RING_ELEM_INIT(task, link);
+
     task->id = apr_psprintf(stream_pool, "%ld-%d", session_id, stream_id);
     task->stream_id = stream_id;
     task->mplx = mplx;
     
-    h2_task_prep_conn(task);
+    /* We would like to have this happening when our task is about
+     * to be processed by the worker. But something corrupts our
+     * stream pool if we comment this out.
+     * TODO.
+     */
+    task->conn = h2_conn_create(mplx->c, stream_pool);
+    if (task->conn == NULL) {
+        return NULL;
+    }
 
     ap_log_perror(APLOG_MARK, APLOG_DEBUG, 0, stream_pool,
                   "h2_task(%s): created", task->id);
     return task;
 }
 
-apr_status_t h2_task_prep_conn(h2_task *task)
+void h2_task_set_request(h2_task *task, 
+                         const char *method, const char *path, 
+                         const char *authority, apr_table_t *headers, int eos)
 {
-    /* We need a separate pool for the task execution as this happens
-     * in another thread and pools are not multi-thread safe. 
-     * Since the task lives not longer than the stream, we'd tried
-     * making this new pool a sub pool of the stream one, but that
-     * only led to crashes. With a root pool, this does not happen.
-     */
-    task->conn = h2_conn_create(task->id, h2_mplx_get_conn(task->mplx), 
-                                h2_mplx_get_pool(task->mplx));
-    if (!task->conn) {
-        h2_mplx_out_reset(task->mplx, task->stream_id, APR_ENOMEM);
-        return APR_ENOMEM;
-    }
-
-    task->input = h2_task_input_create(task->conn->pool,
-                                       task, task->stream_id,
-                                       task->mplx);
-    task->output = h2_task_output_create(task->conn->pool,
-                                         task, task->stream_id,
-                                         task->mplx);
-    return APR_SUCCESS;
+    task->method = method;
+    task->path = path;
+    task->authority = authority;
+    task->headers = headers;
+    task->input_eos = eos;
 }
-
 
 apr_status_t h2_task_destroy(h2_task *task)
 {
-    assert(task);
+    AP_DEBUG_ASSERT(task);
     ap_log_cerror(APLOG_MARK, APLOG_DEBUG, 0, h2_mplx_get_conn(task->mplx),
                   "h2_task(%s): destroy started", task->id);
-    if (task->input) {
-        h2_task_input_destroy(task->input);
-        task->input = NULL;
-    }
-    if (task->output) {
-        h2_task_output_destroy(task->output);
-        task->output = NULL;
-    }
     if (task->mplx) {
         task->mplx = NULL;
     }
@@ -193,86 +175,228 @@ apr_status_t h2_task_destroy(h2_task *task)
 
 apr_status_t h2_task_do(h2_task *task, h2_worker *worker)
 {
-    assert(task);
+    apr_status_t status = APR_SUCCESS;
+    h2_config *cfg = h2_config_get(task->mplx->c);
+    h2_task_env env; 
     
-    apr_status_t status = h2_conn_prep(task->conn, 
-                                       h2_worker_get_thread(worker));
+    AP_DEBUG_ASSERT(task);
+    
+    memset(&env, 0, sizeof(env));
+    
+    env.id = task->id;
+    env.stream_id = task->stream_id;
+    env.mplx = task->mplx;
+    
+    /* TODO: clone? */
+    env.method = task->method;
+    env.path = task->path;
+    env.authority = task->authority;
+    env.headers = task->headers;
+    
+    env.input_eos = task->input_eos;
+    task->io = env.io = h2_worker_get_cond(worker);
+
+    env.conn = task->conn;
+    task->conn = NULL;
+    env.serialize_headers = !!h2_config_geti(cfg, H2_CONF_SER_HEADERS);
+    
+    status = h2_conn_prep(env.conn, task->mplx->c, worker);
+    
+    /* save in connection that this one is for us, prevents
+     * other hooks from messing with it. */
+    h2_ctx_create_for(env.conn->c, &env);
+
     if (status == APR_SUCCESS) {
-        /* save in connection that this one is for us, prevents
-         * other hooks from messing with it. */
-        h2_ctx_create_for(task->conn->c, task);
-        /* borrow the condition from the worker during our processing. we
-         * will use it for io blocking and signalling. */
-        task->io = h2_worker_get_cond(worker);
-        assert(task->io);
+        apr_pool_t *pool = env.conn->pool;
+        apr_bucket_alloc_t *bucket_alloc = env.conn->bucket_alloc;
         
-        status = h2_conn_process(task->conn);
+        env.input = h2_task_input_create(&env, pool, bucket_alloc);
+        env.output = h2_task_output_create(&env, pool, bucket_alloc);
         
-        task->io = NULL;
+        status = h2_conn_process(env.conn);
     }
     
-    if (!h2_task_output_has_started(task->output)) {
-        h2_mplx_out_reset(task->mplx, task->stream_id, status);
+    ap_log_cerror(APLOG_MARK, APLOG_TRACE1, status, env.conn->c,
+                  "h2_task(%s):processing done", task->id);
+    
+    if (env.input) {
+        h2_task_input_destroy(env.input);
+        env.input = NULL;
+    }
+    
+    if (env.conn) {
+        h2_conn_post(env.conn, worker);
+        env.conn = NULL;
+    }
+    
+    h2_task_set_finished(task);
+    if (env.io) {
+        apr_thread_cond_signal(env.io);
+    }
+    
+    if (env.output) {
+        h2_task_output_close(env.output);
+        h2_task_output_destroy(env.output);
+        env.output = NULL;
     }
     
     return status;
 }
 
-void h2_task_abort(h2_task *task)
-{
-    assert(task);
-    ap_log_cerror(APLOG_MARK, APLOG_DEBUG, 0, task->conn->c,
-                  "h2_task(%s): aborting task", task->id);
-    task->aborted =  1;
-}
-
-int h2_task_is_aborted(h2_task *task)
-{
-    assert(task);
-    return task->aborted;
-}
-
-void h2_task_interrupt(h2_task *task)
-{
-    apr_thread_cond_t *cond = task->io;
-    if (cond) {
-        /* task is waiting on io */
-        apr_thread_cond_broadcast(cond);
-    }
-}
-
-const char *h2_task_get_id(h2_task *task)
-{
-    return task->id;
-}
-
 int h2_task_has_started(h2_task *task)
 {
-    assert(task);
+    AP_DEBUG_ASSERT(task);
     return apr_atomic_read32(&task->has_started);
 }
 
-void h2_task_set_started(h2_task *task, int started)
+void h2_task_set_started(h2_task *task)
 {
-    assert(task);
-    apr_atomic_set32(&task->has_started, started);
+    AP_DEBUG_ASSERT(task);
+    apr_atomic_set32(&task->has_started, 1);
 }
 
 int h2_task_has_finished(h2_task *task)
 {
-    assert(task);
     return apr_atomic_read32(&task->has_finished);
 }
 
-void h2_task_set_finished(h2_task *task, int finished)
+void h2_task_set_finished(h2_task *task)
 {
-    assert(task);
-    apr_atomic_set32(&task->has_finished, finished);
+    apr_atomic_set32(&task->has_finished, 1);
 }
 
-apr_thread_cond_t *h2_task_get_io_cond(h2_task *task)
+static request_rec *h2_task_create_request(h2_task_env *env)
 {
-    return task->io;
+    conn_rec *conn = env->conn->c;
+    request_rec *r;
+    apr_pool_t *p;
+    int access_status = HTTP_OK;    
+    
+    apr_pool_create(&p, conn->pool);
+    apr_pool_tag(p, "request");
+    r = apr_pcalloc(p, sizeof(request_rec));
+    AP_READ_REQUEST_ENTRY((intptr_t)r, (uintptr_t)conn);
+    r->pool            = p;
+    r->connection      = conn;
+    r->server          = conn->base_server;
+    
+    r->user            = NULL;
+    r->ap_auth_type    = NULL;
+    
+    r->allowed_methods = ap_make_method_list(p, 2);
+    
+    r->headers_in = apr_table_copy(r->pool, env->headers);
+    r->trailers_in     = apr_table_make(r->pool, 5);
+    r->subprocess_env  = apr_table_make(r->pool, 25);
+    r->headers_out     = apr_table_make(r->pool, 12);
+    r->err_headers_out = apr_table_make(r->pool, 5);
+    r->trailers_out    = apr_table_make(r->pool, 5);
+    r->notes           = apr_table_make(r->pool, 5);
+    
+    r->request_config  = ap_create_request_config(r->pool);
+    /* Must be set before we run create request hook */
+    
+    r->proto_output_filters = conn->output_filters;
+    r->output_filters  = r->proto_output_filters;
+    r->proto_input_filters = conn->input_filters;
+    r->input_filters   = r->proto_input_filters;
+    ap_run_create_request(r);
+    r->per_dir_config  = r->server->lookup_defaults;
+    
+    r->sent_bodyct     = 0;                      /* bytect isn't for body */
+    
+    r->read_length     = 0;
+    r->read_body       = REQUEST_NO_BODY;
+    
+    r->status          = HTTP_OK;  /* Until further notice */
+    r->header_only     = 0;
+    r->the_request     = NULL;
+    
+    /* Begin by presuming any module can make its own path_info assumptions,
+     * until some module interjects and changes the value.
+     */
+    r->used_path_info = AP_REQ_DEFAULT_PATH_INFO;
+    
+    r->useragent_addr = conn->client_addr;
+    r->useragent_ip = conn->client_ip;
+    
+    ap_run_pre_read_request(r, conn);
+    
+    /* Time to populate r with the data we have. */
+    r->request_time = apr_time_now();
+    r->the_request = apr_psprintf(r->pool, "%s %s HTTP/1.1", 
+                                  env->method, env->path);
+    r->method = env->method;
+    /* Provide quick information about the request method as soon as known */
+    r->method_number = ap_method_number_of(r->method);
+    if (r->method_number == M_GET && r->method[0] == 'H') {
+        r->header_only = 1;
+    }
+
+    ap_parse_uri(r, env->path);
+    r->protocol = (char*)"HTTP/1.1";
+    r->proto_num = HTTP_VERSION(1, 1);
+    
+    r->hostname = env->authority;
+    
+    /* update what we think the virtual host is based on the headers we've
+     * now read. may update status.
+     */
+    ap_update_vhost_from_headers(r);
+    
+    /* we may have switched to another server */
+    r->per_dir_config = r->server->lookup_defaults;
+    
+    /*
+     * Add the HTTP_IN filter here to ensure that ap_discard_request_body
+     * called by ap_die and by ap_send_error_response works correctly on
+     * status codes that do not cause the connection to be dropped and
+     * in situations where the connection should be kept alive.
+     */
+    ap_add_input_filter_handle(ap_http_input_filter_handle,
+                               NULL, r, r->connection);
+    
+    if (access_status != HTTP_OK
+        || (access_status = ap_run_post_read_request(r))) {
+        ap_die(access_status, r);
+        ap_update_child_status(conn->sbh, SERVER_BUSY_LOG, r);
+        ap_run_log_transaction(r);
+        r = NULL;
+        goto traceout;
+    }
+    
+    AP_READ_REQUEST_SUCCESS((uintptr_t)r, (char *)r->method, 
+                            (char *)r->uri, (char *)r->server->defn_name, 
+                            r->status);
+    return r;
+traceout:
+    AP_READ_REQUEST_FAILURE((uintptr_t)r);
+    return r;
+}
+
+
+apr_status_t h2_task_process_request(h2_task_env *env)
+{
+    conn_rec *c = env->conn->c;
+    request_rec *r;
+    conn_state_t *cs = c->cs;
+
+    r = h2_task_create_request(env);
+    if (r && (r->status == HTTP_OK)) {
+        if (cs)
+            cs->state = CONN_STATE_HANDLER;
+        ap_process_request(r);
+        /* After the call to ap_process_request, the
+         * request pool will have been deleted.  We set
+         * r=NULL here to ensure that any dereference
+         * of r that might be added later in this function
+         * will result in a segfault immediately instead
+         * of nondeterministic failures later.
+         */
+        r = NULL;
+    }
+    
+    return APR_SUCCESS;
 }
 
 

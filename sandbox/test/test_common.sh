@@ -70,12 +70,26 @@ nghttp_check_assets() {
     mkdir -p $TMP &&
     sort > $TMP/reference
     ${NGHTTP} -uans $ARGS $URL_PREFIX/$DOC > $TMP/out || fail
-    fgrep " /" $TMP/out | while read begin end dur stat size path; do
+    fgrep " /" $TMP/out | while read id begin end dur stat size path; do
         echo "$path $size $stat"
     done | sort > $TMP/output || fail
     diff $TMP/reference $TMP/output  || fail
     echo ok.
 }
+
+nghttp_check_content() {
+    DOC="$1"; shift;
+    MSG="$1"; shift;
+    ARGS="$@"
+    rm -rf $TMP
+    mkdir -p $TMP
+    cat > $TMP/expected
+    echo -n "nghttp $URL_PREFIX/$DOC: $MSG..."
+    ${NGHTTP} -u $ARGS $URL_PREFIX/$DOC > $TMP/$DOC || fail
+    diff  $TMP/expected $TMP/$DOC || fail
+    echo ok.
+}
+
 
 curl_check_content() {
     DOC="$1"; shift;
@@ -150,6 +164,27 @@ curl_post_data() {
     echo ok.
 }
 
+nghttp_remove_file() {
+    DOC="$1"; shift;
+    FILE="$1"; shift;
+    MSG="$1"; shift;
+    ARGS="$@"
+    fname="$(basename $FILE)"
+    rm -rf $TMP
+    mkdir -p $TMP
+    cat > $TMP/updata <<EOF
+--DSAJKcd9876
+Content-Disposition: form-data; name="remove";
+Content-Type: text/plain
+
+$fname
+--DSAJKcd9876--
+EOF
+    echo -n "nghttp $URL_PREFIX/$DOC: rm $fname..."
+    ${NGHTTP} -uv $ARGS --data=$TMP/updata -H'Content-Type: multipart/form-data; boundary=DSAJKcd9876' $URL_PREFIX/$DOC > $TMP/$DOC || fail "error removing $fname"
+    echo ok.
+}
+
 nghttp_post_file() {
     DOC="$1"; shift;
     FILE="$1"; shift;
@@ -175,8 +210,9 @@ EOF
 --DSAJKcd9876--
 EOF
     echo -n "nghttp $URL_PREFIX/$DOC: $MSG..."
-    ${NGHTTP} -uv --data=$TMP/updata -H'Content-Type: multipart/form-data; boundary=DSAJKcd9876' $URL_PREFIX/$DOC > $TMP/$DOC || fail "error uploading $fname"
-    ${NGHTTP} -u $ARGS $URL_PREFIX/files/"$fname" > $TMP/data.down || fail "error downloding $fname"
+    ${NGHTTP} -uv $ARGS --data=$TMP/updata -H'Content-Type: multipart/form-data; boundary=DSAJKcd9876' $URL_PREFIX/$DOC > $TMP/$DOC || fail "error uploading $fname"
+
+    ${NGHTTP} -u $URL_PREFIX/files/"$fname" > $TMP/data.down || fail "error downloding $fname"
     diff  $FILE $TMP/data.down || fail
     echo ok.
 }

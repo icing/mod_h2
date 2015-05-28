@@ -19,10 +19,12 @@
 #include <http_core.h>
 #include <http_config.h>
 #include <http_log.h>
+#include <http_vhost.h>
 
 #include <apr_strings.h>
 
 #include "h2_alt_svc.h"
+#include "h2_ctx.h"
 #include "h2_config.h"
 #include "h2_private.h"
 
@@ -39,10 +41,12 @@ static h2_config defconf = {
     64 * 1024,        /* window_size */
     -1,               /* min workers */
     -1,               /* max workers */
-    10,               /* max workers idle secs */
+    10 * 60,          /* max workers idle secs */
     64 * 1024,        /* stream max mem size */
     NULL,             /* no alt-svcs */
     -1,               /* alt-svc max age */
+    0,                /* serialize headers */
+    1,                /* hack mpm event */
 };
 
 static void *h2_config_create(apr_pool_t *pool,
@@ -67,6 +71,8 @@ static void *h2_config_create(apr_pool_t *pool,
     conf->max_worker_idle_secs = DEF_VAL;
     conf->stream_max_mem_size = DEF_VAL;
     conf->alt_svc_max_age = DEF_VAL;
+    conf->serialize_headers = DEF_VAL;
+    conf->hack_mpm_event = DEF_VAL;
     return conf;
 }
 
@@ -105,6 +111,8 @@ void *h2_config_merge(apr_pool_t *pool, void *basev, void *addv)
     n->stream_max_mem_size = H2_CONFIG_GET(add, base, stream_max_mem_size);
     n->alt_svcs = add->alt_svcs? add->alt_svcs : base->alt_svcs;
     n->alt_svc_max_age = H2_CONFIG_GET(add, base, alt_svc_max_age);
+    n->serialize_headers = H2_CONFIG_GET(add, base, serialize_headers);
+    n->hack_mpm_event = H2_CONFIG_GET(add, base, hack_mpm_event);
     
     return n;
 }
@@ -126,10 +134,14 @@ int h2_config_geti(h2_config *conf, h2_config_var_t var)
             return H2_CONFIG_GET(conf, &defconf, max_workers);
         case H2_CONF_MAX_WORKER_IDLE_SECS:
             return H2_CONFIG_GET(conf, &defconf, max_worker_idle_secs);
-        case H2_CONF_STREAM_MAX_MEM_SIZE:
+        case H2_CONF_STREAM_MAX_MEM:
             return H2_CONFIG_GET(conf, &defconf, stream_max_mem_size);
         case H2_CONF_ALT_SVC_MAX_AGE:
             return H2_CONFIG_GET(conf, &defconf, alt_svc_max_age);
+        case H2_CONF_SER_HEADERS:
+            return H2_CONFIG_GET(conf, &defconf, serialize_headers);
+        case H2_CONF_HACK_MPM_EVENT:
+            return H2_CONFIG_GET(conf, &defconf, hack_mpm_event);
         default:
             return DEF_VAL;
     }
@@ -140,6 +152,7 @@ static const char *h2_conf_set_engine(cmd_parms *parms,
 {
     h2_config *cfg = h2_config_sget(parms->server);
     cfg->h2_enabled = !apr_strnatcasecmp(value, "On");
+    (void)arg;
     return NULL;
 }
 
@@ -148,6 +161,7 @@ static const char *h2_conf_set_max_streams(cmd_parms *parms,
 {
     h2_config *cfg = h2_config_sget(parms->server);
     cfg->h2_max_streams = (int)apr_atoi64(value);
+    (void)arg;
     return NULL;
 }
 
@@ -156,6 +170,7 @@ static const char *h2_conf_set_window_size(cmd_parms *parms,
 {
     h2_config *cfg = h2_config_sget(parms->server);
     cfg->h2_window_size = (int)apr_atoi64(value);
+    (void)arg;
     return NULL;
 }
 
@@ -164,6 +179,7 @@ static const char *h2_conf_set_max_hl_size(cmd_parms *parms,
 {
     h2_config *cfg = h2_config_sget(parms->server);
     cfg->h2_max_hl_size = (int)apr_atoi64(value);
+    (void)arg;
     return NULL;
 }
 
@@ -172,6 +188,7 @@ static const char *h2_conf_set_min_workers(cmd_parms *parms,
 {
     h2_config *cfg = h2_config_sget(parms->server);
     cfg->min_workers = (int)apr_atoi64(value);
+    (void)arg;
     return NULL;
 }
 
@@ -180,6 +197,7 @@ static const char *h2_conf_set_max_workers(cmd_parms *parms,
 {
     h2_config *cfg = h2_config_sget(parms->server);
     cfg->max_workers = (int)apr_atoi64(value);
+    (void)arg;
     return NULL;
 }
 
@@ -188,6 +206,7 @@ static const char *h2_conf_set_max_worker_idle_secs(cmd_parms *parms,
 {
     h2_config *cfg = h2_config_sget(parms->server);
     cfg->max_worker_idle_secs = (int)apr_atoi64(value);
+    (void)arg;
     return NULL;
 }
 
@@ -198,6 +217,7 @@ static const char *h2_conf_set_stream_max_mem_size(cmd_parms *parms,
     
     
     cfg->stream_max_mem_size = (int)apr_atoi64(value);
+    (void)arg;
     return NULL;
 }
 
@@ -215,6 +235,7 @@ static const char *h2_add_alt_svc(cmd_parms *parms,
         }
         APR_ARRAY_PUSH(cfg->alt_svcs, h2_alt_svc*) = as;
     }
+    (void)arg;
     return NULL;
 }
 
@@ -223,9 +244,29 @@ static const char *h2_conf_set_alt_svc_max_age(cmd_parms *parms,
 {
     h2_config *cfg = h2_config_sget(parms->server);
     cfg->alt_svc_max_age = (int)apr_atoi64(value);
+    (void)arg;
     return NULL;
 }
 
+static const char *h2_conf_set_serialize_headers(cmd_parms *parms,
+                                                 void *arg, const char *value)
+{
+    h2_config *cfg = h2_config_sget(parms->server);
+    cfg->serialize_headers = !apr_strnatcasecmp(value, "On");
+    (void)arg;
+    return NULL;
+}
+
+static const char *h2_conf_set_hack_mpm_event(cmd_parms *parms,
+                                              void *arg, const char *value)
+{
+    h2_config *cfg = h2_config_sget(parms->server);
+    cfg->hack_mpm_event = !apr_strnatcasecmp(value, "On");
+    (void)arg;
+    return NULL;
+}
+
+#pragma GCC diagnostic ignored "-Wmissing-braces"
 const command_rec h2_cmds[] = {
     AP_INIT_TAKE1("H2Engine", h2_conf_set_engine, NULL,
                   RSRC_CONF, "on to enable HTTP/2 protocol handling"),
@@ -247,26 +288,72 @@ const command_rec h2_cmds[] = {
                   RSRC_CONF, "adds an Alt-Svc for this server"),
     AP_INIT_TAKE1("H2AltSvcMaxAge", h2_conf_set_alt_svc_max_age, NULL,
                   RSRC_CONF, "set the maximum age (in seconds) that client can rely on alt-svc information"),
-    {NULL}
+    AP_INIT_TAKE1("H2SerializeHeaders", h2_conf_set_serialize_headers, NULL,
+                  RSRC_CONF, "on to enable header serialization for compatibility"),
+    AP_INIT_TAKE1("H2HackMpmEvent", h2_conf_set_hack_mpm_event, NULL,
+                  RSRC_CONF, "on to enable a hack that makes mpm_event working with mod_h2"),
+    { NULL, NULL, NULL, 0, 0, NULL }
 };
 
 
 h2_config *h2_config_rget(request_rec *r)
 {
-    h2_config *cfg = (h2_config *)ap_get_module_config(r->per_dir_config, &h2_module);
-    return cfg? cfg : 
-        (h2_config *)ap_get_module_config(r->server->module_config, &h2_module);
+    h2_config *cfg = (h2_config *)ap_get_module_config(r->per_dir_config, 
+                                                       &h2_module);
+    return cfg? cfg : h2_config_sget(r->server); 
 }
 
 h2_config *h2_config_sget(server_rec *s)
 {
-    h2_config *cfg = (h2_config *)ap_get_module_config(s->module_config, &h2_module);
-    assert(cfg);
+    h2_config *cfg = (h2_config *)ap_get_module_config(s->module_config, 
+                                                       &h2_module);
+    AP_DEBUG_ASSERT(cfg);
     return cfg;
 }
 
 h2_config *h2_config_get(conn_rec *c)
 {
+    h2_ctx *ctx = h2_ctx_get(c, 1);
+    if (ctx) {
+        if (ctx->config) {
+            return ctx->config;
+        }
+        if (!ctx->server && ctx->hostname) {
+            /* We have a host agreed upon via TLS SNI, but no request yet.
+             * The sni host was accepted and therefore does match a server record
+             * (vhost) for it. But we need to know which one.
+             * Normally, it is enough to be set on the initial request on a
+             * connection, but we need it earlier. Simulate a request and call
+             * the vhost matching stuff.
+             */
+            apr_uri_t uri;
+            memset(&uri, 0, sizeof(uri));
+            uri.scheme = (char*)"https";
+            uri.hostinfo = (char*)ctx->hostname;
+            uri.hostname = (char*)ctx->hostname;
+            uri.port_str = (char*)"";
+            uri.port = c->local_addr->port;
+            uri.path = (char*)"/";
+            
+            request_rec r;
+            memset(&r, 0, sizeof(r));
+            r.uri = (char*)"/";
+            r.connection = c;
+            r.pool = c->pool;
+            r.hostname = ctx->hostname;
+            r.headers_in = apr_table_make(c->pool, 1);
+            r.parsed_uri = uri;
+            r.status = HTTP_OK;
+            
+            ap_update_vhost_from_headers(&r);
+            ctx->server = r.server;
+        }
+        
+        if (ctx->server) {
+            ctx->config = h2_config_sget(ctx->server);
+            return ctx->config;
+        }
+    }
     return h2_config_sget(c->base_server);
 }
 

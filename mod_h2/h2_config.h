@@ -31,9 +31,11 @@ typedef enum {
     H2_CONF_MIN_WORKERS,
     H2_CONF_MAX_WORKERS,
     H2_CONF_MAX_WORKER_IDLE_SECS,
-    H2_CONF_STREAM_MAX_MEM_SIZE,
+    H2_CONF_STREAM_MAX_MEM,
     H2_CONF_ALT_SVCS,
     H2_CONF_ALT_SVC_MAX_AGE,
+    H2_CONF_SER_HEADERS,
+    H2_CONF_HACK_MPM_EVENT,
 } h2_config_var_t;
 
 /* Apache httpd module configuration for h2. */
@@ -48,7 +50,11 @@ typedef struct h2_config {
     int max_worker_idle_secs;     /* max # of idle seconds for worker */
     int stream_max_mem_size;      /* max # bytes held in memory/stream */
     apr_array_header_t *alt_svcs; /* h2_alt_svc specs for this server */
-    int alt_svc_max_age;          /* how long clients can rely on alt-svc info (seconds) */
+    int alt_svc_max_age;          /* seconds clients can rely on alt-svc info*/
+    int serialize_headers;        /* Use serialized HTTP/1.1 headers for 
+                                     processing, better compatibility */
+    int hack_mpm_event;           /* If mpm_event is detected, perform a hack
+                                     on stream connections to make it work */
 } h2_config;
 
 

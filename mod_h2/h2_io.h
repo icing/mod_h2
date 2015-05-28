@@ -16,25 +16,31 @@
 #ifndef __mod_h2__h2_io__
 #define __mod_h2__h2_io__
 
-struct apr_thread_cond_t;
-struct h2_bucket;
 struct h2_response;
+struct apr_thread_cond_t;
+struct h2_task;
 
-#include "h2_bucket_queue.h"
+
+typedef apr_status_t h2_io_data_cb(void *ctx, 
+                                   const char *data, apr_size_t len);
+
 
 typedef struct h2_io h2_io;
+
 struct h2_io {
     int id;                      /* stream identifier */
-    h2_bucket_queue input;       /* input data for stream */
-    apr_size_t input_consumed;   /* how many bytes have been read */
-                                 /* != NULL, if someone blocks reading */
-    struct apr_thread_cond_t *input_arrived;  
+    apr_bucket_brigade *bbin;    /* input data for stream */
+    int eos_in;
     
-    h2_bucket_queue output;      /* output data of stream */
-                                 /* != NULL, if some block writing */
-    struct apr_thread_cond_t *output_drained; 
-
-    struct h2_response *response; /* submittable response created */
+    apr_size_t input_consumed;   /* how many bytes have been read */
+    struct apr_thread_cond_t *input_arrived; /* block on reading */
+    
+    apr_bucket_brigade *bbout;   /* output data from stream */
+    struct apr_thread_cond_t *output_drained; /* block on writing */
+    
+    struct h2_response *response;/* submittable response created */
+   
+    apr_file_t *file;
 };
 
 /*******************************************************************************
@@ -44,7 +50,7 @@ struct h2_io {
 /**
  * Creates a new h2_io for the given stream id. 
  */
-h2_io *h2_io_create(int id, apr_pool_t *pool);
+h2_io *h2_io_create(int id, apr_pool_t *pool, apr_bucket_alloc_t *bucket_alloc);
 
 /**
  * Frees any resources hold by the h2_io instance. 
@@ -68,12 +74,13 @@ int h2_io_out_has_data(h2_io *io);
  * Reads the next bucket from the input. Returns APR_EAGAIN if none
  * is currently available, APR_EOF if end of input has been reached.
  */
-apr_status_t h2_io_in_read(h2_io *io, struct h2_bucket **pbucket);
+apr_status_t h2_io_in_read(h2_io *io, apr_bucket_brigade *bb, 
+                           apr_size_t maxlen);
 
 /**
  * Appends given bucket to the input.
  */
-apr_status_t h2_io_in_write(h2_io *io, struct h2_bucket *bucket);
+apr_status_t h2_io_in_write(h2_io *io, apr_bucket_brigade *bb);
 
 /**
  * Closes the input. After existing data has been read, APR_EOF will
@@ -84,17 +91,26 @@ apr_status_t h2_io_in_close(h2_io *io);
 /*******************************************************************************
  * Output handling of streams.
  ******************************************************************************/
-/**
- * Read a bucket from the output head. Return APR_EAGAIN if non is available,
- * APR_EOF if none available and output has been closed. Will, on successful
- * read, set peos != 0 if data is the last data of the output.
- */
-apr_status_t h2_io_out_read(h2_io *io, struct h2_bucket **pbucket, int *peos);
 
 /**
- * Appends given bucket to the output.
+ * Read a bucket from the output head. Return APR_EAGAIN if non is available,
+ * APR_EOF if none available and output has been closed. 
+ * May be called with buffer == NULL in order to find out how much data
+ * is available.
+ * @param io the h2_io to read output from
+ * @param buffer the buffer to copy the data to, may be NULL
+ * @param plen the requested max len, set to amount of data on return
+ * @param peos != 0 iff the end of stream has been reached
  */
-apr_status_t h2_io_out_write(h2_io *io, struct h2_bucket *bucket);
+apr_status_t h2_io_out_read(h2_io *io, char *buffer, 
+                            apr_size_t *plen, int *peos);
+
+apr_status_t h2_io_out_readx(h2_io *io,  
+                             h2_io_data_cb *cb, void *ctx, 
+                             apr_size_t *plen, int *peos);
+
+apr_status_t h2_io_out_write(h2_io *io, apr_bucket_brigade *bb, 
+                             apr_size_t maxlen);
 
 /**
  * Closes the input. After existing data has been read, APR_EOF will

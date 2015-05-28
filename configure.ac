@@ -14,7 +14,7 @@
 #
 
 AC_PREREQ([2.69])
-AC_INIT([mod_h2], [0.4.3-DEV], [stefan.eissing@greenbytes.de])
+AC_INIT([mod_h2], [0.6.0], [stefan.eissing@greenbytes.de])
 
 LT_PREREQ([2.2.6])
 LT_INIT()
@@ -42,10 +42,15 @@ AM_INIT_AUTOMAKE([subdir-objects no-define])
 
 m4_ifdef([AM_SILENT_RULES], [AM_SILENT_RULES([yes])])
 
-AC_CONFIG_SRCDIR([mod_h2/h2_bucket.c])
+CFLAGS=
+
+AC_CONFIG_SRCDIR([mod_h2/h2_config.c])
 AC_CONFIG_HEADERS([mod_h2/config.h])
 
-
+AC_ARG_ENABLE([werror],
+    [AS_HELP_STRING([--enable-werror],
+                    [Turn on compile time warnings])],
+    [werror=$enableval], [werror=no])
 
 AC_ARG_ENABLE([sandbox], [AS_HELP_STRING([--enable-sandbox],
     [Build a sandbox installation [default=no]])],
@@ -65,6 +70,41 @@ AC_ARG_WITH([apxs], [AS_HELP_STRING([--with-apxs],
 AC_PROG_CC
 AC_PROG_CC_STDC
 
+ac_save_CFLAGS=$CFLAGS
+CFLAGS=
+
+if test "x$werror" != "xno"; then
+    AX_CHECK_COMPILE_FLAG([-Wall], [CFLAGS="$CFLAGS -Wall"])
+    AX_CHECK_COMPILE_FLAG([-Wextra], [CFLAGS="$CFLAGS -Wextra"])
+    AX_CHECK_COMPILE_FLAG([-Werror], [CFLAGS="$CFLAGS -Werror"])
+    AX_CHECK_COMPILE_FLAG([-Wmissing-prototypes], [CFLAGS="$CFLAGS -Wmissing-prototypes"])
+    AX_CHECK_COMPILE_FLAG([-Wstrict-prototypes], [CFLAGS="$CFLAGS -Wstrict-prototypes"])
+    AX_CHECK_COMPILE_FLAG([-Wmissing-declarations], [CFLAGS="$CFLAGS -Wmissing-declarations"])
+    AX_CHECK_COMPILE_FLAG([-Wpointer-arith], [CFLAGS="$CFLAGS -Wpointer-arith"])
+    # we like to use such things...
+    #AX_CHECK_COMPILE_FLAG([-Wdeclaration-after-statement], [CFLAGS="$CFLAGS -Wdeclaration-after-statement"])
+    AX_CHECK_COMPILE_FLAG([-Wformat-security], [CFLAGS="$CFLAGS -Wformat-security"])
+    AX_CHECK_COMPILE_FLAG([-Wwrite-strings], [CFLAGS="$CFLAGS -Wwrite-strings"])
+    AX_CHECK_COMPILE_FLAG([-Wshadow], [CFLAGS="$CFLAGS -Wshadow"])
+    AX_CHECK_COMPILE_FLAG([-Winline], [CFLAGS="$CFLAGS -Winline"])
+    AX_CHECK_COMPILE_FLAG([-Wnested-externs], [CFLAGS="$CFLAGS -Wnested-externs"])
+    AX_CHECK_COMPILE_FLAG([-Wfloat-equal], [CFLAGS="$CFLAGS -Wfloat-equal"])
+    AX_CHECK_COMPILE_FLAG([-Wundef], [CFLAGS="$CFLAGS -Wundef"])
+    AX_CHECK_COMPILE_FLAG([-Wendif-labels], [CFLAGS="$CFLAGS -Wendif-labels"])
+    AX_CHECK_COMPILE_FLAG([-Wempty-body], [CFLAGS="$CFLAGS -Wempty-body"])
+# does not make sense with APR as it prefers char* to void*
+#    AX_CHECK_COMPILE_FLAG([-Wcast-align], [CFLAGS="$CFLAGS -Wcast-align"])
+    AX_CHECK_COMPILE_FLAG([-Wclobbered], [CFLAGS="$CFLAGS -Wclobbered"])
+    AX_CHECK_COMPILE_FLAG([-Wvla], [CFLAGS="$CFLAGS -Wvla"])
+    AX_CHECK_COMPILE_FLAG([-Wpragmas], [CFLAGS="$CFLAGS -Wpragmas"])
+    AX_CHECK_COMPILE_FLAG([-Wunreachable-code], [CFLAGS="$CFLAGS -Wunreachable-code"])
+    AX_CHECK_COMPILE_FLAG([-Waddress], [CFLAGS="$CFLAGS -Waddress"])
+    AX_CHECK_COMPILE_FLAG([-Wattributes], [CFLAGS="$CFLAGS -Wattributes"])
+    AX_CHECK_COMPILE_FLAG([-Wdiv-by-zero], [CFLAGS="$CFLAGS -Wdiv-by-zero"])
+    AX_CHECK_COMPILE_FLAG([-Wshorten-64-to-32], [CFLAGS="$CFLAGS -Wshorten-64-to-32"])
+fi
+
+
 AC_MSG_NOTICE("configuring for $build_mode build")
 
 if test x"$build_mode" == "xsandbox"; then
@@ -83,11 +123,14 @@ if test x"$build_mode" == "xsandbox"; then
     CPPFLAGS="$CPPFLAGS -I${prefix}/include"
     export SYSCONF_DIR="$prefix/conf"
     export LIBEXEC_DIR="$prefix/modules"
-
     # On Ubuntu, we have a propblem with APR 1.5.1 and system includes that
     # causes compilation to abort since no definition of PATH_MAX can be found.
     # In sandbox build, we just define it therefore, as a quick workaround
     CPPFLAGS="$CPPFLAGS -DPATH_MAX=4096"
+
+    # we use a new nghttp2 in the sandbox which has these features
+    NGHTTP2_HAS_DATA_CB=1
+
 else
     # production, we need to find where the apxs is. which then
     # can tell us the various directories we need.
@@ -115,6 +158,9 @@ else
     AC_CHECK_LIB([nghttp2], [nghttp2_session_server_new2], ,
     [AC_MSG_ERROR("library nghttp2 not found")])
 
+    AC_CHECK_LIB([nghttp2], [nghttp2_session_callbacks_set_send_data_callback], 
+        [NGHTTP2_HAS_DATA_CB=1], [NGHTTP2_HAS_DATA_CB=0])
+
 fi
 
 # Checks for header files.
@@ -139,6 +185,7 @@ AC_CHECK_PROG([A2ENMOD],[a2enmod])
 AC_SUBST(BUILD_SUBDIRS)
 AC_SUBST(SYSCONF_DIR)
 AC_SUBST(LIBEXEC_DIR)
+AC_SUBST(NGHTTP2_HAS_DATA_CB)
 
 AC_CONFIG_FILES([
     Makefile

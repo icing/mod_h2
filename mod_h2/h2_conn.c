@@ -32,20 +32,18 @@
 #include "h2_stream.h"
 #include "h2_stream_set.h"
 #include "h2_task.h"
+#include "h2_worker.h"
 #include "h2_workers.h"
 #include "h2_conn.h"
 
 static struct h2_workers *workers;
 
 static apr_status_t h2_session_process(h2_session *session);
-static void after_stream_opened_cb(h2_session *session,
-                                h2_stream *stream, h2_task *task);
-static apr_status_t before_stream_close_cb(h2_session *session,
-                                           h2_stream *stream, h2_task *task,
-                                           int wait);
 
 static h2_mpm_type_t mpm_type = H2_MPM_UNKNOWN;
-static module *mpm_module = NULL;
+static module *mpm_module;
+
+static module *ssl_module;
 
 apr_status_t h2_conn_child_init(apr_pool_t *pool, server_rec *s)
 {
@@ -59,6 +57,20 @@ apr_status_t h2_conn_child_init(apr_pool_t *pool, server_rec *s)
     int threads_limit = 0;
     ap_mpm_query(AP_MPMQ_HARD_LIMIT_THREADS, &threads_limit);
     
+    if (minw <= 0) {
+        minw = max_threads_per_child;
+    }
+    if (maxw <= 0) {
+        maxw = threads_limit;
+        if (maxw < minw) {
+            maxw = minw;
+        }
+    }
+    
+    ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, s,
+                 "h2_workers: min=%d max=%d, mthrpchild=%d, thr_limit=%d", 
+                 minw, maxw, max_threads_per_child, threads_limit);
+    
     for (int i = 0; ap_loaded_modules[i]; ++i) {
         module *m = ap_loaded_modules[i];
         if (!strcmp("event.c", m->name)) {
@@ -69,37 +81,22 @@ apr_status_t h2_conn_child_init(apr_pool_t *pool, server_rec *s)
             mpm_type = H2_MPM_WORKER;
             mpm_module = m;
         }
-    }
-    
-    ap_log_error(APLOG_MARK, APLOG_INFO, 0, s,
-                 "h2_conn: child init with conf[%s]: "
-                 "min_workers=%d, max_workers=%d, "
-                 "mpm-threads=%d, mpm-threads-limit=%d, "
-                 "mpm-type=%d(%s)",
-                 config->name, config->min_workers, config->max_workers,
-                 max_threads_per_child, threads_limit, mpm_type,
-                 mpm_module? mpm_module->name : "unknown");
-    
-    if (minw <= 0) {
-        minw = max_threads_per_child / 2;
-    }
-    if (maxw <= 0) {
-        maxw = threads_limit / 2;
-        if (maxw < minw) {
-            maxw = minw;
+        else if (!strcmp("mod_ssl.c", m->name)) {
+            ssl_module = m;
         }
     }
+    
     workers = h2_workers_create(s, pool, minw, maxw);
     h2_workers_set_max_idle_secs(
-        workers, h2_config_geti(config, H2_CONF_MAX_WORKER_IDLE_SECS));
+                                 workers, h2_config_geti(config, H2_CONF_MAX_WORKER_IDLE_SECS));
     return status;
 }
 
-h2_mpm_type_t h2_conn_mpm_type() {
+h2_mpm_type_t h2_conn_mpm_type(void) {
     return mpm_type;
 }
 
-module *h2_conn_mpm_module() {
+module *h2_conn_mpm_module(void) {
     return mpm_module;
 }
 
@@ -113,7 +110,7 @@ apr_status_t h2_conn_rprocess(request_rec *r)
         return APR_EGENERAL;
     }
     
-    h2_session *session = h2_session_rcreate(r, config);
+    h2_session *session = h2_session_rcreate(r, config, workers);
     if (!session) {
         return APR_EGENERAL;
     }
@@ -131,7 +128,7 @@ apr_status_t h2_conn_main(conn_rec *c)
         return APR_EGENERAL;
     }
     
-    h2_session *session = h2_session_create(c, config);
+    h2_session *session = h2_session_create(c, config, workers);
     if (!session) {
         return APR_EGENERAL;
     }
@@ -142,6 +139,8 @@ apr_status_t h2_conn_main(conn_rec *c)
 apr_status_t h2_session_process(h2_session *session)
 {
     apr_status_t status = APR_SUCCESS;
+    int rv = 0;
+    
     /* Start talking to the client. Apart from protocol meta data,
      * we mainly will see new http/2 streams opened by the client, which
      * basically are http requests we need to dispatch.
@@ -176,14 +175,16 @@ apr_status_t h2_session_process(h2_session *session)
             filter = filter->next;
         }
     }
-
-    h2_session_set_stream_open_cb(session, after_stream_opened_cb);
-    h2_session_set_stream_close_cb(session, before_stream_close_cb);
     
-    status = h2_session_start(session);
-    ap_log_cerror(APLOG_MARK, APLOG_INFO, status, session->c,
-                  "h2_session(%ld): starting", session->id);
+    status = h2_session_start(session, &rv);
+    
+    h2_ctx *ctx = h2_ctx_get(session->c, 1);
+    ap_log_cerror(APLOG_MARK, APLOG_DEBUG, status, session->c,
+                  "h2_session(%ld): starting on %s:%d", session->id,
+                  ctx->hostname? ctx->hostname : "<default>",
+                  session->c->local_addr->port);
     if (status != APR_SUCCESS) {
+        h2_session_abort(session, status, rv);
         h2_session_destroy(session);
         return status;
     }
@@ -210,13 +211,13 @@ apr_status_t h2_session_process(h2_session *session)
             }
         }
         else {
-            ap_log_cerror( APLOG_MARK, APLOG_INFO, status, session->c,
+            ap_log_cerror( APLOG_MARK, APLOG_DEBUG, status, session->c,
                           "h2_session(%ld): writing, terminating",
                           session->id);
-            h2_session_abort(session, status);
+            h2_session_abort(session, status, 0);
             break;
         }
-
+        
         /* We would like to do blocking reads as often as possible as they
          * are more efficient in regard to server resources.
          * We can do them under the following circumstances:
@@ -240,18 +241,19 @@ apr_status_t h2_session_process(h2_session *session)
                 break;
             case APR_EAGAIN:
                 break;
+            case APR_EBADF:
             case APR_EOF:
             case APR_ECONNABORTED:
                 ap_log_cerror( APLOG_MARK, APLOG_DEBUG, status, session->c,
                               "h2_session(%ld): reading",
                               session->id);
-                h2_session_abort(session, status);
+                h2_session_abort(session, status, 0);
                 break;
             default:
                 ap_log_cerror( APLOG_MARK, APLOG_WARNING, status, session->c,
                               "h2_session(%ld): error reading, terminating",
                               session->id);
-                h2_session_abort(session, status);
+                h2_session_abort(session, status, 0);
                 break;
         }
         
@@ -266,7 +268,7 @@ apr_status_t h2_session_process(h2_session *session)
         }
     }
     
-    ap_log_cerror( APLOG_MARK, APLOG_INFO, status, session->c,
+    ap_log_cerror( APLOG_MARK, APLOG_DEBUG, status, session->c,
                   "h2_session(%ld): done", session->id);
     
     h2_session_close(session);
@@ -275,84 +277,45 @@ apr_status_t h2_session_process(h2_session *session)
     return DONE;
 }
 
-static void after_stream_opened_cb(h2_session *session,
-                                h2_stream *stream, h2_task *task)
-{
-    apr_status_t status = h2_workers_schedule(workers, task);
-    if (status != APR_SUCCESS) {
-        ap_log_cerror(APLOG_MARK, APLOG_ERR, status, session->c,
-                      "scheduling task(%ld-%d)",
-                      session->id, stream->id);
-    }
-}
-
-static apr_status_t before_stream_close_cb(h2_session *session,
-                                           h2_stream *stream, h2_task *task,
-                                           int wait)
-{
-    apr_status_t status = APR_SUCCESS;
-    if (task) {
-        h2_task_abort(task);
-        status = h2_workers_join(workers, task, wait);
-        if (status != APR_SUCCESS && status != APR_EAGAIN) {
-            ap_log_cerror( APLOG_MARK, APLOG_WARNING, status, session->c,
-                          "h2_session: error join task(%s)",
-                          h2_task_get_id(task));
-        }
-    }
-    return status;
-}
-
 
 static void fix_event_conn(conn_rec *c, conn_rec *master);
 
-h2_conn *h2_conn_create(const char *id, conn_rec *master, apr_pool_t *parent)
+h2_conn *h2_conn_create(conn_rec *master, apr_pool_t *pool)
 {
-    assert(master);
-    apr_status_t status = APR_SUCCESS;
-    apr_pool_t *pool;
+    AP_DEBUG_ASSERT(master);
     
-    status = apr_pool_create(&pool, parent);
-    if (status == APR_SUCCESS) {
-        /* Setup a apache connection record for this stream.
-         * General idea is borrowed from mod_spdy::slave_connection.cc,
-         * partly replaced with some more modern calls to ap infrastructure.
-         *
-         * Here, we are tasting some sweet, internal knowledge, e.g. that
-         * the core module is storing the connection socket as its config.
-         * "ap_run_create_connection() needs a real socket as it tries to
-         * detect local and client address information and fails if it is
-         * unable to get it.
-         * In case someone ever replaces these core hooks, this will probably
-         * break miserably.
-         */
-        h2_conn *conn = apr_pcalloc(pool, sizeof(*conn));
-        conn->id = id;
-        conn->pool = pool;
-        apr_pool_tag(pool, id);
-
-        conn->bucket_alloc = apr_bucket_alloc_create(conn->pool);
-        conn->socket = ap_get_module_config(master->conn_config,
-                                            &core_module);
-        conn->master = master;
-        
-        /* Not sure about the scoreboard handle. Reusing the one from the main
-         * connection could make sense, but I do not know enough to tell...
-         */
-        conn->c = ap_run_create_connection(conn->pool, conn->master->base_server,
-                                           conn->socket,
-                                           conn->master->id^((long)conn->pool), 
-                                           conn->master->sbh,
-                                           conn->bucket_alloc);
-        if (conn->c == NULL) {
-            ap_log_perror(APLOG_MARK, APLOG_ERR, APR_ENOMEM, conn->pool,
-                          "h2_task: creating conn");
-            return NULL;
-        }
-        
-        return conn;
+    /* Setup a conn_rec for this stream.
+     * General idea is borrowed from mod_spdy::slave_connection.cc,
+     * partly replaced with some more modern calls to ap infrastructure.
+     */
+    h2_conn *conn = apr_pcalloc(pool, sizeof(*conn));
+    conn->pool = pool;
+    conn->bucket_alloc = master->bucket_alloc;
+    conn->socket = ap_get_module_config(master->conn_config, &core_module);
+    
+    /* CAVEAT: it seems necessary to setup the conn_rec in the master
+     * connection thread. Other attempts crashed. 
+     * HOWEVER: we setup the connection using the pools and other items
+     * from the master connection, since we do not want to allocate 
+     * lots of resources here. 
+     * Lets allocated pools and everything else when we actually start
+     * working on this new connection.
+     */
+    /* Not sure about the scoreboard handle. Reusing the one from the main
+     * connection could make sense, but I do not know enough to tell...
+     */
+    conn->c = ap_run_create_connection(conn->pool, master->base_server,
+                                       conn->socket,
+                                       master->id^((long)conn->pool), 
+                                       master->sbh,
+                                       conn->bucket_alloc);
+    if (conn->c == NULL) {
+        ap_log_perror(APLOG_MARK, APLOG_ERR, APR_ENOMEM, conn->pool,
+                      "h2_task: creating conn");
+        return NULL;
     }
-    return NULL;
+    
+    return conn;
 }
 
 void h2_conn_destroy(h2_conn *conn)
@@ -361,16 +324,44 @@ void h2_conn_destroy(h2_conn *conn)
         /* more to do? */
         conn->c = NULL;
     }
-    if (conn->pool) {
-        apr_pool_destroy(conn->pool);
-        /* conn is gone */
-    }
 }
 
-apr_status_t h2_conn_prep(h2_conn *conn, apr_thread_t *thd)
+apr_status_t h2_conn_prep(h2_conn *conn, conn_rec *master, h2_worker *worker)
 {
-    assert(conn);
-   
+    h2_config *cfg = h2_config_get(master);
+    
+    ap_log_perror(APLOG_MARK, APLOG_TRACE3, 0, conn->pool,
+                  "h2_conn(%ld): created from master", master->id);
+    
+    /* Ok, we are just about to start processing the connection and
+     * the worker is calling us to setup all necessary resources.
+     * We can borrow some from the worker itself and some we do as
+     * sub-resources from it, so that we get a nice reuse of
+     * pools.
+     */
+    apr_pool_t *worker_pool = h2_worker_get_pool(worker);
+    
+    apr_pool_create(&conn->pool, worker_pool);
+    conn->bucket_alloc = h2_worker_get_bucket_alloc(worker);
+    conn->socket = h2_worker_get_socket(worker);
+    
+    conn->c->pool = conn->pool;
+    conn->c->bucket_alloc = conn->bucket_alloc;
+    conn->c->current_thread = h2_worker_get_thread(worker);
+    
+    ap_set_module_config(conn->c->conn_config, &core_module, 
+                         conn->socket);
+    
+    if (ssl_module) {
+        /* See #19, there is a range of SSL variables to be gotten from
+         * the main connection that should be available in request handlers
+         */
+        void *sslcfg = ap_get_module_config(master->conn_config, ssl_module);
+        if (sslcfg) {
+            ap_set_module_config(conn->c->conn_config, ssl_module, sslcfg);
+        }
+    }
+    
     /* This works for mpm_worker so far. Other mpm modules have 
      * different needs, unfortunately. The most interesting one 
      * being mpm_event...
@@ -380,54 +371,48 @@ apr_status_t h2_conn_prep(h2_conn *conn, apr_thread_t *thd)
             /* all fine */
             break;
         case H2_MPM_EVENT: 
-            fix_event_conn(conn->c, conn->master);
+            if (h2_config_geti(cfg, H2_CONF_HACK_MPM_EVENT)) {
+                fix_event_conn(conn->c, master);
+            }
             break;
         default:
             /* fingers crossed */
             break;
     }
     
-    ap_log_perror(APLOG_MARK, APLOG_TRACE3, 0, conn->pool,
-                  "h2_conn(%s): created from master %ld",
-                  conn->id, conn->master->id);
-    
-    conn->c->current_thread = thd;
-    
-    /* Furthermore, other code might want to see the socket for
-     * this connection. Allocate one without further function...
-     */
-    apr_status_t status = apr_socket_create(&conn->socket,
-                                            APR_INET, SOCK_STREAM,
-                                            APR_PROTO_TCP, conn->pool);
-    if (status != APR_SUCCESS) {
-        ap_log_cerror(APLOG_MARK, APLOG_ERR, status, conn->c,
-                      "h2_conn(%s): alloc socket", conn->id);
-        return status;
-    }
-    
-    ap_set_module_config(conn->c->conn_config, &core_module, 
-                         conn->socket);
-    return status;
+    return APR_SUCCESS;
 }
 
-apr_status_t h2_conn_process(h2_conn *conn)
+apr_status_t h2_conn_post(h2_conn *conn, h2_worker *worker)
 {
-    assert(conn);
-    assert(conn->c);
+    AP_DEBUG_ASSERT(conn);
+    (void)worker;
     
-    ap_process_connection(conn->c, conn->socket);
-    
-    if (conn->socket) {
-        apr_socket_close(conn->socket);
-        conn->socket = NULL;
+    /* The worker is done with this connection. release all allocated
+     * resource before we leave the worker's domain.
+     */
+    conn->socket = NULL;
+    conn->bucket_alloc = NULL;
+    apr_pool_destroy(conn->pool);
+    conn->pool = NULL;
+    /* be sure no one messes with this any more */
+    if (conn->c) {
+        memset(conn->c, 0, sizeof(conn_rec)); 
     }
     
     return APR_SUCCESS;
 }
 
-#define H2_EVENT_HACK   1
-
-#if H2_EVENT_HACK
+apr_status_t h2_conn_process(h2_conn *conn)
+{
+    AP_DEBUG_ASSERT(conn);
+    AP_DEBUG_ASSERT(conn->c);
+    
+    conn->c->clogging_input_filters = 1;
+    ap_process_connection(conn->c, conn->socket);
+    
+    return APR_SUCCESS;
+}
 
 /* This is an internal mpm event.c struct which is disguised
  * as a conn_state_t so that mpm_event can have special connection
@@ -482,17 +467,3 @@ static void fix_event_conn(conn_rec *c, conn_rec *master)
     c->cs = &(cs->pub);
 }
 
-#else /*if H2_EVENT_HACK */
-
-static int warned = 0;
-static void fix_event_conn(conn_rec *c, conn_rec *master) 
-{
-    if (!warned) {
-        ap_log_cerror(APLOG_MARK, APLOG_WARNING, 0, master,
-                      "running mod_h2 in an unhacked mpm_event server "
-                      "will most likely not work");
-        warned = 1;
-    }
-}
-
-#endif /*if H2_EVENT_HACK */

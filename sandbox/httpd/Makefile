@@ -15,15 +15,15 @@
 
 
 
-APR_VERSION  = 1.5.1
+APR_VERSION  = 1.5.2
 APR_DIR      = apr-$(APR_VERSION)
 APR_TAR      = $(APR_DIR).tar.gz
-APR_URL      = http://apache.mirror.iphh.net//apr/$(APR_TAR)
+APR_URL      = http://archive.apache.org/dist/apr/$(APR_TAR)
 
 APR-UTIL_VERSION = 1.5.4
 APR-UTIL_DIR = apr-util-$(APR-UTIL_VERSION)
 APR-UTIL_TAR = $(APR-UTIL_DIR).tar.gz
-APR-UTIL_URL = http://apache.mirror.iphh.net//apr/$(APR-UTIL_TAR)
+APR-UTIL_URL = http://archive.apache.org/dist/apr/$(APR-UTIL_TAR)
 
 HTTPD_VERSION = 2.4.12
 HTTPD_DIR    = httpd-$(HTTPD_VERSION)
@@ -41,6 +41,11 @@ OPENSSL_TAR = $(OPENSSL_DIR).tar.gz
 OPENSSL_URL = $(OPENSSL_BASE)/source/latest.tar.gz
 OPENSSL_CONF_CMD = CFLAGS=-fPIC ./Configure
 OPENSSL_CONF =  shared linux-x86_64
+
+FCGI_VERSION = 2.3.9
+FCGI_DIR     = mod_fcgid-$(FCGI_VERSION)
+FCGI_TAR     = $(FCGI_DIR).tar.gz
+FCGI_URL     = https://archive.apache.org/dist/httpd/mod_fcgid/$(FCGI_TAR)
 
 GEN          = gen
 INST_DIR     = ../install
@@ -93,7 +98,9 @@ clean:
 distclean:
 	@rm -rf $(GEN)
 
-install: $(INST_DIR)/.httpd-installed
+install: \
+    $(INST_DIR)/.httpd-installed \
+    $(INST_DIR)/.modules-installed
 
 setup: $(INST_DIR)/.httpd-setup
 
@@ -144,7 +151,8 @@ $(GEN)/$(HTTPD_DIR)/.httpd-configured: \
 $(GEN)/$(HTTPD_DIR)/.httpd-patched: \
 		$(GEN)/$(HTTPD_DIR)/.httpd-extracted
 	@echo applying patches...
-	@cd gen/$(HTTPD_DIR) && patch -p0 < ../../patches/alpn-trunk.unified.diff.patch
+	@cd gen/$(HTTPD_DIR) && patch -p0 < ../../patches/httpd-alpn-unified.diff.patch
+	@cd gen/$(HTTPD_DIR) && patch -p0 < ../../patches/httpd-npn.unified.diff.patch
 	@echo httpd patched.
 	@touch $(GEN)/$(HTTPD_DIR)/.httpd-patched
 #@cd gen/$(HTTPD_DIR) && patch -p0 < ../../patches/alpn-2.4.x.unified.diff.patch
@@ -187,6 +195,53 @@ $(GEN)/$(APR_TAR):
 $(GEN)/$(APR-UTIL_TAR):
 	@mkdir -p $(GEN)
 	curl $(CURL_OPTS) $(APR-UTIL_URL) > $(GEN)/$(APR-UTIL_TAR)
+
+################################################################################
+# Build + install additional modules
+#
+$(INST_DIR)/.modules-installed: \
+        $(INST_DIR)/.httpd-installed \
+        $(INST_DIR)/.mod_fcgid-installed
+	@touch $(INST_DIR)/.modules-installed
+
+################################################################################
+# Build + install mod_fcgid
+#
+$(INST_DIR)/.mod_fcgid-installed: \
+        $(INST_DIR)/.httpd-installed \
+        $(GEN)/$(FCGI_DIR)/.mod_fcgid-built
+	@echo -n installing mod_fcgid locally...
+	@cd $(GEN)/$(FCGI_DIR) && make install
+	@echo done.
+	@touch $(INST_DIR)/.mod_fcgid-installed
+
+$(GEN)/$(FCGI_DIR)/.mod_fcgid-built: \
+        $(GEN)/$(FCGI_DIR)/.mod_fcgid-configured
+	@echo -n building mod_fcgid...
+	@cd $(GEN)/$(FCGI_DIR) && make
+	@echo done.
+	@touch $(GEN)/$(FCGI_DIR)/.mod_fcgid-built
+
+
+$(GEN)/$(FCGI_DIR)/.mod_fcgid-configured: \
+        $(GEN)/$(FCGI_DIR)/.mod_fcgid-extracted
+	@echo -n configuring mod_fcgid...
+	@cd $(GEN)/$(FCGI_DIR) &&  APXS=../../$(INST_DIR)/bin/apxs ./configure.apxs
+	@echo done.
+	@touch $(GEN)/$(FCGI_DIR)/.mod_fcgid-configured
+
+$(GEN)/$(FCGI_DIR)/.mod_fcgid-extracted: \
+        $(GEN)/$(FCGI_TAR)
+	@rm -rf $(GEN)/$(FCGI_DIR)
+	@echo -n downloading and extracting mod_fcgid...
+	@cd gen; tar xfz $(FCGI_TAR)
+	@echo done.
+	@touch $(GEN)/$(FCGI_DIR)/.mod_fcgid-extracted
+
+$(GEN)/$(FCGI_TAR):
+	@mkdir -p $(GEN)
+	curl $(CURL_OPTS) $(FCGI_URL) > $(GEN)/$(FCGI_TAR)
+
 
 ################################################################################
 # Build + install a local opensll library (if needed)

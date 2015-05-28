@@ -5,7 +5,7 @@
  * You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
-
+ 
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -25,47 +25,43 @@
 #include <nghttp2/nghttp2.h>
 
 #include "h2_private.h"
-#include "h2_bucket.h"
 #include "h2_util.h"
 #include "h2_response.h"
 
-h2_response *h2_response_create(int stream_id,
-                                  apr_status_t task_status,
-                                  const char *http_status,
-                                  apr_array_header_t *hlines,
-                                  h2_bucket *data,
-                                  apr_pool_t *pool)
+static void convert_header(h2_response *response, apr_table_t *headers,
+                           const char *http_status, request_rec *r);
+static int ignore_header(const char *name) 
 {
-    apr_size_t nvmax = 1 + (hlines? hlines->nelts : 0);
-    /* we allocate one block for the h2_response and the array of
-     * nghtt2_nv structures.
-     */
-    h2_response *head = calloc(1, sizeof(h2_response)
-                                + (nvmax * sizeof(nghttp2_nv)));
-    if (head == NULL) {
+    return (H2_HD_MATCH_LIT_CS("connection", name)
+            || H2_HD_MATCH_LIT_CS("proxy-connection", name)
+            || H2_HD_MATCH_LIT_CS("upgrade", name)
+            || H2_HD_MATCH_LIT_CS("keep-alive", name)
+            || H2_HD_MATCH_LIT_CS("transfer-encoding", name));
+}
+
+h2_response *h2_response_create(int stream_id,
+                                const char *http_status,
+                                apr_array_header_t *hlines,
+                                apr_pool_t *pool)
+{
+    apr_table_t *header;
+    h2_response *response = apr_pcalloc(pool, sizeof(h2_response));
+    if (response == NULL) {
         return NULL;
     }
-
-    head->stream_id = stream_id;
-    head->task_status = task_status;
-    head->http_status = http_status;
-    head->data = data;
-    head->content_length = -1;
-
+    
+    response->stream_id = stream_id;
+    response->content_length = -1;
+    
     if (hlines) {
-        nghttp2_nv *nvs = (nghttp2_nv *)&head->nv;
-        H2_CREATE_NV_LIT_CS(nvs, ":status", http_status);
-
-        int seen_clen = 0;
-        int nvlen = 1;
+        header = apr_table_make(pool, hlines->nelts);        
         for (int i = 0; i < hlines->nelts; ++i) {
             char *hline = ((char **)hlines->elts)[i];
-            nghttp2_nv *nv = &nvs[nvlen];
             char *sep = strchr(hline, ':');
             if (!sep) {
                 ap_log_perror(APLOG_MARK, APLOG_WARNING, APR_EINVAL, pool,
                               "h2_response(%d): invalid header[%d] '%s'",
-                              head->stream_id, i, (char*)hline);
+                              response->stream_id, i, (char*)hline);
                 /* not valid format, abort */
                 return NULL;
             }
@@ -73,60 +69,167 @@ h2_response *h2_response_create(int stream_id,
             while (*sep == ' ' || *sep == '\t') {
                 ++sep;
             }
-            if (*sep) {
-                if (H2_HD_MATCH_LIT_CS("transfer-encoding", hline)) {
-                    /* never forward this header */
-                    if (!strcmp("chunked", sep)) {
-                        head->chunked = 1;
-                    }
-                }
-                else if (H2_HD_MATCH_LIT_CS("connection", hline)
-                         || H2_HD_MATCH_LIT_CS("proxy-connection", hline)
-                         || H2_HD_MATCH_LIT_CS("upgrade", hline)
-                         || H2_HD_MATCH_LIT_CS("keep-alive", hline)) {
-                    /* never forward, ch. 8.1.2.2 */
-                }
-                else {
-                    H2_CREATE_NV_CS_CS(nv, h2_strlwr(hline), sep);
-                    ++nvlen;
-                }
+            if (ignore_header(hline)) {
+                /* never forward, ch. 8.1.2.2 */
             }
             else {
-                /* reached end of line, an empty header value */
-                H2_CREATE_NV_CS_LIT(nv, h2_strlwr(hline), "");
-                ++nvlen;
-            }
-        }
-        head->nvlen = nvlen;
-
-        for (int i = 1; i < head->nvlen; ++i) {
-            const nghttp2_nv *nv = &(&head->nv)[i];
-            if (!head->chunked && !strcmp("content-length", (char*)nv->name)) {
-                char *end;
-                apr_int64_t clen = apr_strtoi64((char*)nv->value, &end, 10);
-                if (((char*)nv->value) == end) {
-                    ap_log_perror(APLOG_MARK, APLOG_WARNING, APR_EINVAL, pool,
-                                  "h2_response(%d): content-length value not parsed: %s",
-                                  head->stream_id, (char*)nv->value);
-                    return NULL;
+                apr_table_merge(header, hline, sep);
+                if (*sep && H2_HD_MATCH_LIT_CS("content-length", hline)) {
+                    char *end;
+                    response->content_length = apr_strtoi64(sep, &end, 10);
+                    if (sep == end) {
+                        ap_log_perror(APLOG_MARK, APLOG_WARNING, APR_EINVAL, 
+                                      pool, "h2_response(%d): content-length"
+                                      " value not parsed: %s", 
+                                      response->stream_id, sep);
+                        response->content_length = -1;
+                    }
                 }
-                head->content_length = clen;
             }
         }
     }
-    return head;
-}
-
-void h2_response_destroy(h2_response *head)
-{
-    if (head->data) {
-        h2_bucket_destroy(head->data);
-        head->data = NULL;
+    else {
+        header = apr_table_make(pool, 0);        
     }
-    free(head);
+    
+    convert_header(response, header, http_status, NULL);
+    return response->headers? response : NULL;
 }
 
-long h2_response_get_content_length(h2_response *resp)
+h2_response *h2_response_rcreate(int stream_id, request_rec *r,
+                                 apr_table_t *header, apr_pool_t *pool)
 {
-    return resp->content_length;
+    h2_response *response = apr_pcalloc(pool, sizeof(h2_response));
+    if (response == NULL) {
+        return NULL;
+    }
+    
+    response->stream_id = stream_id;
+    response->content_length = -1;
+    convert_header(response, header, apr_psprintf(pool, "%d", r->status), r);
+    
+    return response->headers? response : NULL;
 }
+
+void h2_response_cleanup(h2_response *response)
+{
+    if (response->headers) {
+        if (--response->headers->refs == 0) {
+            free(response->headers);
+        }
+        response->headers = NULL;
+    }
+}
+
+void h2_response_destroy(h2_response *response)
+{
+    h2_response_cleanup(response);
+}
+
+void h2_response_copy(h2_response *to, h2_response *from)
+{
+    h2_response_cleanup(to);
+    *to = *from;
+    if (from->headers) {
+        ++from->headers->refs;
+    }
+}
+
+typedef struct {
+    nghttp2_nv *nv;
+    size_t nvlen;
+    size_t nvstrlen;
+    size_t offset;
+    char *strbuf;
+    h2_response *response;
+    int debug;
+    request_rec *r;
+} nvctx_t;
+
+static int count_headers(void *ctx, const char *key, const char *value)
+{
+    if (!ignore_header(key)) {
+        nvctx_t *nvctx = (nvctx_t*)ctx;
+        nvctx->nvlen++;
+        nvctx->nvstrlen += strlen(key) + strlen(value) + 2;
+    }
+    return 1;
+}
+
+#define NV_ADD_LIT_CS(nv, k, v)     addnv_lit_cs(nv, k, sizeof(k) - 1, v, strlen(v))
+#define NV_ADD_CS_CS(nv, k, v)      addnv_cs_cs(nv, k, strlen(k), v, strlen(v))
+#define NV_BUF_ADD(nv, s, len)      memcpy(nv->strbuf, s, len); \
+s = nv->strbuf; \
+nv->strbuf += len + 1
+
+static void addnv_cs_cs(nvctx_t *ctx, const char *key, size_t key_len,
+                        const char *value, size_t val_len)
+{
+    nghttp2_nv *nv = &ctx->nv[ctx->offset];
+    
+    NV_BUF_ADD(ctx, key, key_len);
+    NV_BUF_ADD(ctx, value, val_len);
+    
+    nv->name = (uint8_t*)key;
+    nv->namelen = key_len;
+    nv->value = (uint8_t*)value;
+    nv->valuelen = val_len;
+    
+    ctx->offset++;
+}
+
+static void addnv_lit_cs(nvctx_t *ctx, const char *key, size_t key_len,
+                         const char *value, size_t val_len)
+{
+    nghttp2_nv *nv = &ctx->nv[ctx->offset];
+    
+    NV_BUF_ADD(ctx, value, val_len);
+    
+    nv->name = (uint8_t*)key;
+    nv->namelen = key_len;
+    nv->value = (uint8_t*)value;
+    nv->valuelen = val_len;
+    
+    ctx->offset++;
+}
+
+static int add_header(void *ctx, const char *key, const char *value)
+{
+    if (!ignore_header(key)) {
+        nvctx_t *nvctx = (nvctx_t*)ctx;
+        if (nvctx->debug) {
+            ap_log_rerror(APLOG_MARK, APLOG_WARNING, APR_EINVAL, 
+                          nvctx->r, "h2_response(%d) header -> %s: %s",
+                          nvctx->response->stream_id, key, value);
+        }
+        NV_ADD_CS_CS(ctx, key, value);
+    }
+    return 1;
+}
+
+static void convert_header(h2_response *response, apr_table_t *headers,
+                           const char *status, request_rec *r)
+{
+    nvctx_t ctx = { NULL, 1, strlen(status) + 1, 0, NULL, 
+        response, r? APLOGrdebug(r) : 0, r };
+    
+    apr_table_do(count_headers, &ctx, headers, NULL);
+    
+    size_t n =  (sizeof(h2_headers)
+                 + (ctx.nvlen * sizeof(nghttp2_nv)) + ctx.nvstrlen); 
+    h2_headers *h = calloc(1, n);
+    if (h) {
+        ctx.nv = (nghttp2_nv*)(h + 1);
+        ctx.strbuf = (char*)&ctx.nv[ctx.nvlen];
+        
+        NV_ADD_LIT_CS(&ctx, ":status", status);
+        apr_table_do(add_header, &ctx, headers, NULL);
+        
+        h->nv = ctx.nv;
+        h->nvlen = ctx.nvlen;
+        h->status = (const char *)ctx.nv[0].value;
+        h->refs = 1;
+        response->headers = h;
+    }
+}
+

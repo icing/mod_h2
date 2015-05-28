@@ -17,7 +17,7 @@
 #define __mod_h2__h2_mplx__
 
 /**
- * The stream multiplexer. It pushes h2_buckets from the connection
+ * The stream multiplexer. It pushes buckets from the connection
  * thread to the stream task threads and vice versa. It's thread-safe
  * to use.
  *
@@ -37,11 +37,38 @@
 struct apr_pool_t;
 struct apr_thread_mutex_t;
 struct apr_thread_cond_t;
-struct h2_bucket;
 struct h2_config;
 struct h2_response;
+struct h2_task;
+struct h2_io_set;
+struct apr_thread_cond_t;
+struct h2_workers;
+struct h2_stream_set;
+struct h2_task_queue;
+
+#include "h2_io.h"
 
 typedef struct h2_mplx h2_mplx;
+
+struct h2_mplx {
+    long id;
+    APR_RING_ENTRY(h2_mplx) link;
+    conn_rec *c;
+    apr_pool_t *pool;
+    apr_bucket_alloc_t *bucket_alloc;
+
+    struct h2_task_queue *q;
+    struct h2_io_set *stream_ios;
+    struct h2_io_set *ready_ios;
+    
+    apr_thread_mutex_t *lock;
+    struct apr_thread_cond_t *added_output;
+    
+    int aborted;
+    apr_size_t stream_max_mem;
+    
+    struct h2_workers *workers;
+};
 
 /*******************************************************************************
  * Object lifecycle and information.
@@ -50,7 +77,8 @@ typedef struct h2_mplx h2_mplx;
 /**
  * Create the multiplexer for the given HTTP2 session.
  */
-h2_mplx *h2_mplx_create(conn_rec *c, apr_pool_t *master);
+h2_mplx *h2_mplx_create(conn_rec *c, apr_pool_t *master, 
+                        struct h2_workers *workers);
 
 /**
  * Destroys the multiplexer. Cleans up memory. Should only be called
@@ -103,19 +131,32 @@ int h2_mplx_out_has_data_for(h2_mplx *m, int stream_id);
 apr_status_t h2_mplx_out_trywait(h2_mplx *m, apr_interval_time_t timeout,
                                  struct apr_thread_cond_t *iowait);
 
+apr_status_t h2_mplx_join_task(h2_mplx *m, struct h2_task *task, int wait);
+
+/*******************************************************************************
+ * Stream processing.
+ ******************************************************************************/
+
+/**
+ * Perform the task on the given stream.
+ */
+apr_status_t h2_mplx_do_task(h2_mplx *mplx, struct h2_task *task);
+
+struct h2_task *h2_mplx_pop_task(h2_mplx *mplx);
+
 /*******************************************************************************
  * Input handling of streams.
  ******************************************************************************/
 
 /**
- * Reads a h2_bucket for the given stream_id. Will return ARP_EAGAIN when
+ * Reads a buckets for the given stream_id. Will return ARP_EAGAIN when
  * called with APR_NONBLOCK_READ and no data present. Will return APR_EOF
  * when the end of the stream input has been reached.
  * The condition passed in will be used for blocking/signalling and will
  * be protected by the mplx's own mutex.
  */
-apr_status_t h2_mplx_in_read(h2_mplx *mplx, apr_read_type_e block,
-                             int stream_id, struct h2_bucket **pbucket,
+apr_status_t h2_mplx_in_read(h2_mplx *m, apr_read_type_e block,
+                             int stream_id, apr_bucket_brigade *bb,
                              struct apr_thread_cond_t *iowait);
 
 /**
@@ -123,7 +164,7 @@ apr_status_t h2_mplx_in_read(h2_mplx *mplx, apr_read_type_e block,
  * not subject to flow control.
  */
 apr_status_t h2_mplx_in_write(h2_mplx *mplx, int stream_id, 
-                              struct h2_bucket *bucket);
+                              apr_bucket_brigade *bb);
 
 /**
  * Closes the input for the given stream_id.
@@ -157,31 +198,43 @@ apr_status_t h2_mplx_in_update_windows(h2_mplx *m,
  ******************************************************************************/
 
 /**
- * Gets a response from a stream that is ready for submit. Will return
- * NULL if none is available.
+ * Get a stream whose response is ready for submit. Will set response and
+ * any out data available in stream. 
+ * @param m the mplxer to get a response from
+ * @param bb the brigade to place any existing repsonse body data into
  */
-struct h2_response *h2_mplx_pop_response(h2_mplx *m);
+struct h2_stream *h2_mplx_next_submit(h2_mplx *m, 
+                                      struct h2_stream_set *streams);
 
 /**
  * Reads output data from the given stream. Will never block, but
  * return APR_EAGAIN until data arrives or the stream is closed.
  */
 apr_status_t h2_mplx_out_read(h2_mplx *mplx, int stream_id, 
-                              struct h2_bucket **pbucket, int *peos);
+                              char *buffer, apr_size_t *plen, int *peos);
+
+apr_status_t h2_mplx_out_readx(h2_mplx *mplx, int stream_id, 
+                               h2_io_data_cb *cb, void *ctx, 
+                               apr_size_t *plen, int *peos);
 
 /**
  * Opens the output for the given stream with the specified response.
  */
 apr_status_t h2_mplx_out_open(h2_mplx *mplx, int stream_id,
-                              struct h2_response *response);
+                              struct h2_response *response,
+                              ap_filter_t* filter, apr_bucket_brigade *bb,
+                              struct apr_thread_cond_t *iowait);
 
 /**
- * Writes data to the output of the given stream. With APR_BLOCK_READ, it
- * is subject to flow control, otherwise it return APR_EAGAIN if the 
- * limit on queued data has been reached.
+ * Append the brigade to the stream output. Might block if amount
+ * of bytes buffered reaches configured max.
+ * @param stream_id the stream identifier
+ * @param filter the apache filter context of the data
+ * @param bb the bucket brigade to append
+ * @param iowait a conditional used for block/signalling in h2_mplx
  */
-apr_status_t h2_mplx_out_write(h2_mplx *mplx, apr_read_type_e block,
-                               int stream_id, struct h2_bucket *bucket,
+apr_status_t h2_mplx_out_write(h2_mplx *mplx, int stream_id, 
+                               ap_filter_t* filter, apr_bucket_brigade *bb,
                                struct apr_thread_cond_t *iowait);
 
 /**
@@ -191,13 +244,75 @@ apr_status_t h2_mplx_out_write(h2_mplx *mplx, apr_read_type_e block,
 apr_status_t h2_mplx_out_close(h2_mplx *m, int stream_id);
 
 /*******************************************************************************
- * Error handling of streams.
+ * h2_mplx list Manipulation.
  ******************************************************************************/
 
 /**
- * Resets the given stream. Indicate, which error occured, if any. This
- * (so far) only works when the response has not already been queued.
+ * The magic pointer value that indicates the head of a h2_mplx list
+ * @param  b The mplx list
+ * @return The magic pointer value
  */
-apr_status_t h2_mplx_out_reset(h2_mplx *m, int stream_id, apr_status_t status);
+#define H2_MPLX_LIST_SENTINEL(b)	APR_RING_SENTINEL((b), h2_mplx, link)
+
+/**
+ * Determine if the mplx list is empty
+ * @param b The list to check
+ * @return true or false
+ */
+#define H2_MPLX_LIST_EMPTY(b)	APR_RING_EMPTY((b), h2_mplx, link)
+
+/**
+ * Return the first mplx in a list
+ * @param b The list to query
+ * @return The first mplx in the list
+ */
+#define H2_MPLX_LIST_FIRST(b)	APR_RING_FIRST(b)
+
+/**
+ * Return the last mplx in a list
+ * @param b The list to query
+ * @return The last mplx int he list
+ */
+#define H2_MPLX_LIST_LAST(b)	APR_RING_LAST(b)
+
+/**
+ * Insert a single mplx at the front of a list
+ * @param b The list to add to
+ * @param e The mplx to insert
+ */
+#define H2_MPLX_LIST_INSERT_HEAD(b, e) do {				\
+h2_mplx *ap__b = (e);                                        \
+APR_RING_INSERT_HEAD((b), ap__b, h2_mplx, link);	\
+} while (0)
+
+/**
+ * Insert a single mplx at the end of a list
+ * @param b The list to add to
+ * @param e The mplx to insert
+ */
+#define H2_MPLX_LIST_INSERT_TAIL(b, e) do {				\
+h2_mplx *ap__b = (e);					\
+APR_RING_INSERT_TAIL((b), ap__b, h2_mplx, link);	\
+} while (0)
+
+/**
+ * Get the next mplx in the list
+ * @param e The current mplx
+ * @return The next mplx
+ */
+#define H2_MPLX_NEXT(e)	APR_RING_NEXT((e), link)
+/**
+ * Get the previous mplx in the list
+ * @param e The current mplx
+ * @return The previous mplx
+ */
+#define H2_MPLX_PREV(e)	APR_RING_PREV((e), link)
+
+/**
+ * Remove a mplx from its list
+ * @param e The mplx to remove
+ */
+#define H2_MPLX_REMOVE(e)	APR_RING_REMOVE((e), link)
+
 
 #endif /* defined(__mod_h2__h2_mplx__) */
