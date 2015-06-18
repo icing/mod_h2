@@ -45,7 +45,7 @@ distclean:
 
 distdir:
 	@mkdir -p $(distdir)
-	@tar cf - Makefile conf htdocs clients/Makefile *.txt *.sh | (cd $(distdir) && tar xf - )
+	@tar cf - Makefile bin conf htdocs clients/Makefile *.txt *.sh | (cd $(distdir) && tar xf - )
 	@rm -f $(distdir)/conf/ssl/mod-h2.greebytes.de*
 	@rm -f $(distdir)/conf/sites/mod-h2.greebytes.de.conf
 
@@ -79,14 +79,33 @@ test: \
 	@mkdir -p $(GEN)/tmp
 	@$(INST_DIR)/bin/apachectl restart
 	@bash test_curl_altsvc.sh http://$(HTTP_AUTH) https://$(HTTPS_AUTH)
+	@bash test_alt_host.sh https://$(HTTPS_AUTH)
 	@bash test_nghttp_get.sh  https://$(HTTPS_AUTH)
 	@bash test_nghttp_post.sh https://$(HTTPS_AUTH)
 	@bash test_curl_get.sh    https://$(HTTPS_AUTH)
 	@bash test_curl_post.sh   https://$(HTTPS_AUTH)
+	@bash test_nghttp_get.sh  https://$(HTTPS_AUTH)/proxy
+	@bash test_nghttp_post.sh https://$(HTTPS_AUTH)/proxy
+	@bash test_curl_get.sh    https://$(HTTPS_AUTH)/proxy
+	@bash test_curl_post.sh   https://$(HTTPS_AUTH)/proxy
+	@bash test_nghttp_get.sh  https://$(HTTPS_AUTH)/rewrite
+	@bash test_nghttp_post.sh https://$(HTTPS_AUTH)/rewrite
+	@bash test_curl_get.sh    https://$(HTTPS_AUTH)/rewrite
+	@bash test_curl_post.sh   https://$(HTTPS_AUTH)/rewrite
 	@bash test_nghttp_get.sh  http://$(HTTP_AUTH)
 	@bash test_nghttp_post.sh http://$(HTTP_AUTH)
 	@bash test_curl_get.sh    http://$(HTTP_AUTH)
 	@bash test_curl_post.sh   http://$(HTTP_AUTH)
+	@bash test_nghttp_get.sh  http://$(HTTP_AUTH) direct
+	@bash test_nghttp_post.sh http://$(HTTP_AUTH) direct
+	@bash test_nghttp_get.sh  http://$(HTTP_AUTH)/proxy
+	@bash test_nghttp_post.sh http://$(HTTP_AUTH)/proxy
+	@bash test_curl_get.sh    http://$(HTTP_AUTH)/proxy
+	@bash test_curl_post.sh   http://$(HTTP_AUTH)/proxy
+	@bash test_nghttp_get.sh  http://$(HTTP_AUTH)/rewrite
+	@bash test_nghttp_post.sh http://$(HTTP_AUTH)/rewrite
+	@bash test_curl_get.sh    http://$(HTTP_AUTH)/rewrite
+	@bash test_curl_post.sh   http://$(HTTP_AUTH)/rewrite
 
 ################################################################################
 # Load Test
@@ -141,11 +160,13 @@ $(INST_DIR)/.testdocs-setup: \
 $(INST_DIR)/.test-setup: \
 		$(INST_DIR)/.httpd-installed \
 		conf/*.conf \
-       		$(wildcard bin/*) \
+        $(wildcard bin/*) \
 		$(wildcard conf/sites/*.conf) \
         $(INST_DIR)/conf/mods-enabled/h2.load \
 		$(INST_DIR)/conf/ssl/test.example.org.key \
 		$(INST_DIR)/conf/ssl/test.example.org.pem \
+		$(INST_DIR)/conf/ssl/noh2.example.org.key \
+		$(INST_DIR)/conf/ssl/noh2.example.org.pem \
 		$(INST_DIR)/.testdocs-setup
 	@echo -n setup httpd locally...
 	@mkdir -p $(INST_DIR)/conf/sites
@@ -171,18 +192,38 @@ $(INST_DIR)/conf/ssl/test.example.org.key:
 $(INST_DIR)/conf/ssl/test.example.org.req: \
 		$(INST_DIR)/conf/ssl/test.example.org.key
 	openssl req -new -key $(INST_DIR)/conf/ssl/test.example.org.key \
-		-out $(INST_DIR)/conf/ssl/test.example.org.req < conf/ssl/x509.input
+		-out $(INST_DIR)/conf/ssl/test.example.org.req < conf/ssl/test.example.org.x509.input
 
 $(INST_DIR)/conf/ssl/test.example.org.pem: \
 		$(INST_DIR)/conf/ssl/test.example.org.key \
 		$(INST_DIR)/conf/ssl/test.example.org.req \
 		conf/ssl/extensions.conf \
-		conf/ssl/x509.input
+		conf/ssl/test.example.org.x509.input
 	openssl x509 -req -sha256 -days 1095 \
 		-signkey $(INST_DIR)/conf/ssl/test.example.org.key \
 		-in $(INST_DIR)/conf/ssl/test.example.org.req \
 		-out $(INST_DIR)/conf/ssl/test.example.org.pem \
-		-extfile conf/ssl/extensions.conf -extensions ssl_client < conf/ssl/x509.input
+		-extfile conf/ssl/extensions.conf -extensions ssl_client < conf/ssl/noh2.example.org.x509.input
+
+$(INST_DIR)/conf/ssl/noh2.example.org.key:
+	@mkdir -p $(INST_DIR)/conf/ssl
+	openssl genrsa -out $(INST_DIR)/conf/ssl/noh2.example.org.key 4096
+
+$(INST_DIR)/conf/ssl/noh2.example.org.req: \
+		$(INST_DIR)/conf/ssl/noh2.example.org.key
+	openssl req -new -key $(INST_DIR)/conf/ssl/noh2.example.org.key \
+		-out $(INST_DIR)/conf/ssl/noh2.example.org.req < conf/ssl/noh2.example.org.x509.input
+
+$(INST_DIR)/conf/ssl/noh2.example.org.pem: \
+		$(INST_DIR)/conf/ssl/noh2.example.org.key \
+		$(INST_DIR)/conf/ssl/noh2.example.org.req \
+		conf/ssl/extensions.conf \
+		conf/ssl/test.example.org.x509.input
+	openssl x509 -req -sha256 -days 1095 \
+		-signkey $(INST_DIR)/conf/ssl/noh2.example.org.key \
+		-in $(INST_DIR)/conf/ssl/noh2.example.org.req \
+		-out $(INST_DIR)/conf/ssl/noh2.example.org.pem \
+		-extfile conf/ssl/extensions.conf -extensions ssl_client < conf/ssl/noh2.example.org.x509.input
 
 $(INST_DIR)/conf/mods-available/h2.load:
 	@mkdir -p $(INST_DIR)/conf/mods-available

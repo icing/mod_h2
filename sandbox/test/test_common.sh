@@ -18,8 +18,14 @@
 #
 
 URL_PREFIX="$1"
+OPT_DIRECT="$2"
 AUTH="${URL_PREFIX#*://}"
 HOST="${AUTH%%:*}"
+URL_SCHEME="${URL_PREFIX%%:*}"
+URL_PATH="/${AUTH#*/}"
+if [ "$URL_PATH" = "/$AUTH" ]; then
+    URL_PATH=""
+fi
 
 INSTALL_DIR="../install"
 BIN_DIR="${INSTALL_DIR}/bin"
@@ -36,12 +42,20 @@ fail() {
     exit 1
 }
 
+case "$OPT_DIRECT" in
+  "direct")
+        ARG_UPGRADE=""
+        ;;
+    *)  
+        ARG_UPGRADE=" -u"
+        ;;
+esac
 
 curl_check_doc() {
     DOC="$1"; shift;
     MSG="$1"; shift;
     ARGS="$@"
-    echo -n "curl $URL_PREFIX/$DOC: $MSG..."
+    echo -n " * curl /$DOC: $MSG..."
     rm -rf $TMP
     mkdir -p $TMP
     ${CURL} $ARGS $URL_PREFIX/$DOC > $TMP/$DOC || fail
@@ -52,11 +66,11 @@ curl_check_doc() {
 nghttp_check_doc() {
     DOC="$1"; shift;
     MSG="$1"; shift;
-    ARGS="$@"
-    echo -n "nghttp $URL_PREFIX/$DOC: $MSG..."
+    ARGS="$@"$ARG_UPGRADE
+    echo -n " * nghttp /$DOC: $MSG..."
     rm -rf $TMP &&
     mkdir -p $TMP &&
-    ${NGHTTP} -u $ARGS $URL_PREFIX/$DOC > $TMP/$DOC || fail
+    ${NGHTTP} $ARGS $URL_PREFIX/$DOC > $TMP/$DOC || fail
     diff  $DOC_ROOT/$DOC $TMP/$DOC || fail
     echo ok.
 }
@@ -64,12 +78,12 @@ nghttp_check_doc() {
 nghttp_check_assets() {
     DOC="$1"; shift;
     MSG="$1"; shift;
-    ARGS="$@"
-    echo -n "nghttp $URL_PREFIX/$DOC: $MSG..."
+    ARGS="$@"$ARG_UPGRADE
+    echo -n " * nghttp /$DOC: $MSG..."
     rm -rf $TMP &&
     mkdir -p $TMP &&
     sort > $TMP/reference
-    ${NGHTTP} -uans $ARGS $URL_PREFIX/$DOC > $TMP/out || fail
+    ${NGHTTP} -ans $ARGS $URL_PREFIX/$DOC > $TMP/out || fail
     fgrep " /" $TMP/out | while read id begin end dur stat size path; do
         echo "$path $size $stat"
     done | sort > $TMP/output || fail
@@ -80,12 +94,11 @@ nghttp_check_assets() {
 nghttp_check_content() {
     DOC="$1"; shift;
     MSG="$1"; shift;
-    ARGS="$@"
     rm -rf $TMP
     mkdir -p $TMP
     cat > $TMP/expected
-    echo -n "nghttp $URL_PREFIX/$DOC: $MSG..."
-    ${NGHTTP} -u $ARGS $URL_PREFIX/$DOC > $TMP/$DOC || fail
+    echo -n " * nghttp /$DOC: $MSG..."
+    ${NGHTTP} "$@" $URL_PREFIX/$DOC > $TMP/$DOC || fail
     diff  $TMP/expected $TMP/$DOC || fail
     echo ok.
 }
@@ -94,12 +107,11 @@ nghttp_check_content() {
 curl_check_content() {
     DOC="$1"; shift;
     MSG="$1"; shift;
-    ARGS="$@"
     rm -rf $TMP
     mkdir -p $TMP
     cat > $TMP/expected
-    echo -n "curl $URL_PREFIX/$DOC: $MSG..."
-    ${CURL} $ARGS $URL_PREFIX/$DOC > $TMP/$DOC || fail
+    echo -n " * curl /$DOC: $MSG..."
+    ${CURL} "$@" $URL_PREFIX/$DOC > $TMP/$DOC || fail
     diff  $TMP/expected $TMP/$DOC || fail
     echo ok.
 }
@@ -109,7 +121,7 @@ curl_check_redir() {
     REF_DOC="$1"; shift;
     MSG="$1"; shift;
     ARGS="$@"
-    echo -n "curl redir $URL_PREFIX/$DOC: $MSG..."
+    echo -n " * curl redir /$DOC: $MSG..."
     rm -rf $TMP
     mkdir -p $TMP
     ${CURL} -D - $ARGS $URL_PREFIX/$DOC >$TMP/redir.out || fail
@@ -128,7 +140,7 @@ curl_check_necho() {
     ARGS="$@"
     rm -rf $TMP
     mkdir -p $TMP
-    echo -n "curl $URL_PREFIX/necho.py?count=$COUNT&text=$TEXT..."
+    echo -n " * curl /necho.py?count=$COUNT&text=$TEXT..."
     ${CURL} $ARGS -F count="$COUNT" -F text="$TEXT" $URL_PREFIX/necho.py > $TMP/echo || fail
     diff  $REF $TMP/echo || fail
     echo ok.
@@ -142,7 +154,7 @@ curl_post_file() {
     fname="$(basename $FILE)"
     rm -rf $TMP
     mkdir -p $TMP
-    echo -n "curl $URL_PREFIX/$DOC: $MSG..."
+    echo -n " * curl /$DOC: $MSG..."
     ${CURL} $ARGS --form file=@"$FILE" $URL_PREFIX/$DOC > $TMP/$DOC || fail "error uploading $fname"
     ${CURL} $ARGS $URL_PREFIX/files/"$fname" > $TMP/data.down || fail "error downloding $fname"
     diff  $FILE $TMP/data.down || fail
@@ -157,7 +169,7 @@ curl_post_data() {
     fname="$(basename $FILE)"
     rm -rf $TMP
     mkdir -p $TMP
-    echo -n "curl $URL_PREFIX/$DOC: $MSG..."
+    echo -n " * curl /$DOC: $MSG..."
     ${CURL} $ARGS --form file=@"$FILE" $URL_PREFIX/$DOC > $TMP/$DOC || fail
     ${CURL} $ARGS $URL_PREFIX/files/"$fname" > $TMP/data.down || fail
     diff  $FILE $TMP/data.down || fail
@@ -168,7 +180,7 @@ nghttp_remove_file() {
     DOC="$1"; shift;
     FILE="$1"; shift;
     MSG="$1"; shift;
-    ARGS="$@"
+    ARGS="$@"$ARG_UPGRADE
     fname="$(basename $FILE)"
     rm -rf $TMP
     mkdir -p $TMP
@@ -180,8 +192,8 @@ Content-Type: text/plain
 $fname
 --DSAJKcd9876--
 EOF
-    echo -n "nghttp $URL_PREFIX/$DOC: rm $fname..."
-    ${NGHTTP} -uv $ARGS --data=$TMP/updata -H'Content-Type: multipart/form-data; boundary=DSAJKcd9876' $URL_PREFIX/$DOC > $TMP/$DOC || fail "error removing $fname"
+    echo -n " * nghttp /$DOC: rm $fname..."
+    ${NGHTTP} -v $ARGS --data=$TMP/updata -H'Content-Type: multipart/form-data; boundary=DSAJKcd9876' $URL_PREFIX/$DOC > $TMP/$DOC || fail "error removing $fname"
     echo ok.
 }
 
@@ -189,7 +201,7 @@ nghttp_post_file() {
     DOC="$1"; shift;
     FILE="$1"; shift;
     MSG="$1"; shift;
-    ARGS="$@"
+    ARGS="$@"$ARG_UPGRADE
     fname="$(basename $FILE)"
     rm -rf $TMP
     mkdir -p $TMP
@@ -209,10 +221,10 @@ EOF
     echo >> $TMP/updata <<EOF
 --DSAJKcd9876--
 EOF
-    echo -n "nghttp $URL_PREFIX/$DOC: $MSG..."
-    ${NGHTTP} -uv $ARGS --data=$TMP/updata -H'Content-Type: multipart/form-data; boundary=DSAJKcd9876' $URL_PREFIX/$DOC > $TMP/$DOC || fail "error uploading $fname"
+    echo -n " * nghttp /$DOC: $MSG..."
+    ${NGHTTP} -v $ARGS --data=$TMP/updata -H'Content-Type: multipart/form-data; boundary=DSAJKcd9876' $URL_PREFIX/$DOC > $TMP/$DOC || fail "error uploading $fname"
 
-    ${NGHTTP} -u $URL_PREFIX/files/"$fname" > $TMP/data.down || fail "error downloding $fname"
+    ${NGHTTP} $ARG_UPGRADE $URL_PREFIX/files/"$fname" > $TMP/data.down || fail "error downloding $fname"
     diff  $FILE $TMP/data.down || fail
     echo ok.
 }
@@ -222,7 +234,7 @@ curl_check_altsvc() {
     EXP_ALT_SVC="$1"; shift;
     MSG="$1"; shift;
     mkdir -p $TMP
-    echo -n "curl check alt_svc at $URL_PREFIX/$DOC..."
+    echo -n " * curl check alt_svc at /$DOC..."
     ${CURL} "$@" -D $TMP/headers $URL_PREFIX/$DOC > /dev/null || fail
     alt_svc="$( fgrep -i 'Alt-Svc: ' $TMP/headers | tr -d "\r\n" )"
     alt_svc="${alt_svc#*: }"

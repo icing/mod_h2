@@ -25,6 +25,7 @@
 
 #include "h2_alt_svc.h"
 #include "h2_ctx.h"
+#include "h2_conn.h"
 #include "h2_config.h"
 #include "h2_private.h"
 
@@ -47,6 +48,7 @@ static h2_config defconf = {
     -1,               /* alt-svc max age */
     0,                /* serialize headers */
     1,                /* hack mpm event */
+    1,                /* h2 direct mode */
 };
 
 static void *h2_config_create(apr_pool_t *pool,
@@ -73,6 +75,7 @@ static void *h2_config_create(apr_pool_t *pool,
     conf->alt_svc_max_age = DEF_VAL;
     conf->serialize_headers = DEF_VAL;
     conf->hack_mpm_event = DEF_VAL;
+    conf->h2_direct      = DEF_VAL;
     return conf;
 }
 
@@ -113,6 +116,7 @@ void *h2_config_merge(apr_pool_t *pool, void *basev, void *addv)
     n->alt_svc_max_age = H2_CONFIG_GET(add, base, alt_svc_max_age);
     n->serialize_headers = H2_CONFIG_GET(add, base, serialize_headers);
     n->hack_mpm_event = H2_CONFIG_GET(add, base, hack_mpm_event);
+    n->h2_direct      = H2_CONFIG_GET(add, base, h2_direct);
     
     return n;
 }
@@ -142,6 +146,8 @@ int h2_config_geti(h2_config *conf, h2_config_var_t var)
             return H2_CONFIG_GET(conf, &defconf, serialize_headers);
         case H2_CONF_HACK_MPM_EVENT:
             return H2_CONFIG_GET(conf, &defconf, hack_mpm_event);
+        case H2_CONF_DIRECT:
+            return H2_CONFIG_GET(conf, &defconf, h2_direct);
         default:
             return DEF_VAL;
     }
@@ -151,9 +157,17 @@ static const char *h2_conf_set_engine(cmd_parms *parms,
                                       void *arg, const char *value)
 {
     h2_config *cfg = h2_config_sget(parms->server);
-    cfg->h2_enabled = !apr_strnatcasecmp(value, "On");
+    if (!strcasecmp(value, "On")) {
+        cfg->h2_enabled = 1;
+        return NULL;
+    }
+    else if (!strcasecmp(value, "Off")) {
+        cfg->h2_enabled = 0;
+        return NULL;
+    }
+    
     (void)arg;
-    return NULL;
+    return "value must be On or Off";
 }
 
 static const char *h2_conf_set_max_streams(cmd_parms *parms,
@@ -266,6 +280,15 @@ static const char *h2_conf_set_hack_mpm_event(cmd_parms *parms,
     return NULL;
 }
 
+static const char *h2_conf_set_direct(cmd_parms *parms,
+                                      void *arg, const char *value)
+{
+    h2_config *cfg = h2_config_sget(parms->server);
+    cfg->h2_direct = !apr_strnatcasecmp(value, "On");
+    (void)arg;
+    return NULL;
+}
+
 #pragma GCC diagnostic ignored "-Wmissing-braces"
 const command_rec h2_cmds[] = {
     AP_INIT_TAKE1("H2Engine", h2_conf_set_engine, NULL,
@@ -292,6 +315,8 @@ const command_rec h2_cmds[] = {
                   RSRC_CONF, "on to enable header serialization for compatibility"),
     AP_INIT_TAKE1("H2HackMpmEvent", h2_conf_set_hack_mpm_event, NULL,
                   RSRC_CONF, "on to enable a hack that makes mpm_event working with mod_h2"),
+    AP_INIT_TAKE1("H2Direct", h2_conf_set_direct, NULL,
+                  RSRC_CONF, "on to enable direct HTTP/2 mode on non-TLS"),
     { NULL, NULL, NULL, 0, 0, NULL }
 };
 
@@ -313,47 +338,46 @@ h2_config *h2_config_sget(server_rec *s)
 
 h2_config *h2_config_get(conn_rec *c)
 {
-    h2_ctx *ctx = h2_ctx_get(c, 1);
-    if (ctx) {
-        if (ctx->config) {
-            return ctx->config;
-        }
-        if (!ctx->server && ctx->hostname) {
-            /* We have a host agreed upon via TLS SNI, but no request yet.
-             * The sni host was accepted and therefore does match a server record
-             * (vhost) for it. But we need to know which one.
-             * Normally, it is enough to be set on the initial request on a
-             * connection, but we need it earlier. Simulate a request and call
-             * the vhost matching stuff.
-             */
-            apr_uri_t uri;
-            memset(&uri, 0, sizeof(uri));
-            uri.scheme = (char*)"https";
-            uri.hostinfo = (char*)ctx->hostname;
-            uri.hostname = (char*)ctx->hostname;
-            uri.port_str = (char*)"";
-            uri.port = c->local_addr->port;
-            uri.path = (char*)"/";
-            
-            request_rec r;
-            memset(&r, 0, sizeof(r));
-            r.uri = (char*)"/";
-            r.connection = c;
-            r.pool = c->pool;
-            r.hostname = ctx->hostname;
-            r.headers_in = apr_table_make(c->pool, 1);
-            r.parsed_uri = uri;
-            r.status = HTTP_OK;
-            
-            ap_update_vhost_from_headers(&r);
-            ctx->server = r.server;
-        }
-        
-        if (ctx->server) {
-            ctx->config = h2_config_sget(ctx->server);
-            return ctx->config;
-        }
+    h2_ctx *ctx = h2_ctx_get(c);
+    if (ctx->config) {
+        return ctx->config;
     }
+    if (!ctx->server && ctx->hostname) {
+        /* We have a host agreed upon via TLS SNI, but no request yet.
+         * The sni host was accepted and therefore does match a server record
+         * (vhost) for it. But we need to know which one.
+         * Normally, it is enough to be set on the initial request on a
+         * connection, but we need it earlier. Simulate a request and call
+         * the vhost matching stuff.
+         */
+        apr_uri_t uri;
+        memset(&uri, 0, sizeof(uri));
+        uri.scheme = (char*)"https";
+        uri.hostinfo = (char*)ctx->hostname;
+        uri.hostname = (char*)ctx->hostname;
+        uri.port_str = (char*)"";
+        uri.port = c->local_addr->port;
+        uri.path = (char*)"/";
+        
+        request_rec r;
+        memset(&r, 0, sizeof(r));
+        r.uri = (char*)"/";
+        r.connection = c;
+        r.pool = c->pool;
+        r.hostname = ctx->hostname;
+        r.headers_in = apr_table_make(c->pool, 1);
+        r.parsed_uri = uri;
+        r.status = HTTP_OK;
+        r.server = r.connection->base_server;
+        ap_update_vhost_from_headers(&r);
+        ctx->server = r.server;
+    }
+    
+    if (ctx->server) {
+        ctx->config = h2_config_sget(ctx->server);
+        return ctx->config;
+    }
+    
     return h2_config_sget(c->base_server);
 }
 

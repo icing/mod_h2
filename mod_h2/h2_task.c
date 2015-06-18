@@ -81,8 +81,27 @@ static apr_status_t h2_filter_read_response(ap_filter_t* f,
     return h2_from_h1_read_response(env->output->from_h1, f, bb);
 }
 
+/*******************************************************************************
+ * Register various hooks
+ */
+static const char *const mod_ssl[]        = { "mod_ssl.c", NULL};
+static int h2_task_pre_conn(conn_rec* c, void *arg);
+static int h2_task_process_conn(conn_rec* c);
+
 void h2_task_register_hooks(void)
 {
+    /* This hook runs on new connections before mod_ssl has a say.
+     * Its purpose is to prevent mod_ssl from touching our pseudo-connections
+     * for streams.
+     */
+    ap_hook_pre_connection(h2_task_pre_conn,
+                           NULL, mod_ssl, APR_HOOK_FIRST);
+    /* When the connection processing actually starts, we might to
+     * take over, if the connection is for a task.
+     */
+    ap_hook_process_connection(h2_task_process_conn, 
+                               NULL, NULL, APR_HOOK_FIRST);
+
     ap_register_output_filter("H2_RESPONSE", h2_response_output_filter,
                               NULL, AP_FTYPE_PROTOCOL);
     ap_register_input_filter("H2_TO_H1", h2_filter_stream_input,
@@ -93,22 +112,50 @@ void h2_task_register_hooks(void)
                               NULL, AP_FTYPE_PROTOCOL);
 }
 
-int h2_task_pre_conn(h2_task_env *env, conn_rec *c)
+static int h2_task_pre_conn(conn_rec* c, void *arg)
 {
-    AP_DEBUG_ASSERT(env);
-    /* Add our own, network level in- and output filters.
-     */
-    ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, c,
-                  "h2_stream(%s): task_pre_conn, installing filters",
-                  env->id);
+    (void)arg;
     
-    ap_add_input_filter("H2_TO_H1", env, NULL, c);
-    ap_add_output_filter("H1_TO_H2", env, NULL, c);
+    h2_ctx *ctx = h2_ctx_get(c);
+    if (h2_ctx_is_task(ctx)) {
+        h2_task_env *env = h2_ctx_get_task(ctx);
+        
+        /* This connection is a pseudo-connection used for a h2_task.
+         * Since we read/write directly from it ourselves, we need
+         * to disable a possible ssl connection filter.
+         */
+        h2_tls_disable(c);
+        
+        
+        ap_log_cerror(APLOG_MARK, APLOG_TRACE2, 0, c,
+                      "h2_h2, pre_connection, found stream task");
+        
+        /* Add our own, network level in- and output filters.
+         */
+        ap_add_input_filter("H2_TO_H1", env, NULL, c);
+        ap_add_output_filter("H1_TO_H2", env, NULL, c);
+        
+        /* prevent processing by anyone else, including httpd core */
+        ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, c,
+                      "h2_stream(%s): task_pre_conn, taking over", env->id);
+        return DONE;
+    }
+    return OK;
+}
+
+static int h2_task_process_conn(conn_rec* c)
+{
+    h2_ctx *ctx = h2_ctx_get(c);
     
-    /* prevent processing by anyone else, including httpd core */
-    ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, c,
-                  "h2_stream(%s): task_pre_conn, taking over", env->id);
-    return DONE;
+    if (h2_ctx_is_task(ctx)) {
+        if (!ctx->task_env->serialize_headers) {
+            ap_log_cerror(APLOG_MARK, APLOG_TRACE2, 0, c, 
+                          "h2_h2, processing request directly");
+            h2_task_process_request(ctx->task_env);
+            return DONE;
+        }
+    }
+    return DECLINED;
 }
 
 
@@ -134,7 +181,7 @@ h2_task *h2_task_create(long session_id,
     
     /* We would like to have this happening when our task is about
      * to be processed by the worker. But something corrupts our
-     * stream pool if we comment this out.
+     * stream pool if we shift this to the worker thread.
      * TODO.
      */
     task->conn = h2_conn_create(mplx->c, stream_pool);
@@ -187,7 +234,11 @@ apr_status_t h2_task_do(h2_task *task, h2_worker *worker)
     env.stream_id = task->stream_id;
     env.mplx = task->mplx;
     
-    /* TODO: clone? */
+    /* Not cloning these task fields:
+     * If the stream is destroyed before the task is done, this might
+     * be a problem. However that should never happen as stream destruction
+     * explicitly checks if task processing has finished.
+     */
     env.method = task->method;
     env.path = task->path;
     env.authority = task->authority;
@@ -229,15 +280,15 @@ apr_status_t h2_task_do(h2_task *task, h2_worker *worker)
         env.conn = NULL;
     }
     
-    h2_task_set_finished(task);
-    if (env.io) {
-        apr_thread_cond_signal(env.io);
-    }
-    
     if (env.output) {
         h2_task_output_close(env.output);
         h2_task_output_destroy(env.output);
         env.output = NULL;
+    }
+
+    h2_task_set_finished(task);
+    if (env.io) {
+        apr_thread_cond_signal(env.io);
     }
     
     return status;
@@ -263,6 +314,12 @@ int h2_task_has_finished(h2_task *task)
 void h2_task_set_finished(h2_task *task)
 {
     apr_atomic_set32(&task->has_finished, 1);
+}
+
+void h2_task_die(h2_task_env *env, int status, request_rec *r)
+{
+    (void)env;
+    ap_die(status, r);
 }
 
 static request_rec *h2_task_create_request(h2_task_env *env)
@@ -358,7 +415,10 @@ static request_rec *h2_task_create_request(h2_task_env *env)
     
     if (access_status != HTTP_OK
         || (access_status = ap_run_post_read_request(r))) {
-        ap_die(access_status, r);
+        /* Request check post hooks failed. An example of this would be a
+         * request for a vhost where h2 is disabled --> 421.
+         */
+        h2_task_die(env, access_status, r);
         ap_update_child_status(conn->sbh, SERVER_BUSY_LOG, r);
         ap_run_log_transaction(r);
         r = NULL;
@@ -383,6 +443,8 @@ apr_status_t h2_task_process_request(h2_task_env *env)
 
     r = h2_task_create_request(env);
     if (r && (r->status == HTTP_OK)) {
+        ap_update_child_status(c->sbh, SERVER_BUSY_READ, r);
+        
         if (cs)
             cs->state = CONN_STATE_HANDLER;
         ap_process_request(r);
@@ -395,7 +457,9 @@ apr_status_t h2_task_process_request(h2_task_env *env)
          */
         r = NULL;
     }
-    
+    ap_update_child_status(c->sbh, SERVER_BUSY_WRITE, NULL);
+    c->sbh = NULL;
+
     return APR_SUCCESS;
 }
 

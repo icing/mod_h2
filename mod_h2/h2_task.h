@@ -173,7 +173,6 @@ int h2_task_has_finished(h2_task *task);
 void h2_task_set_finished(h2_task *task);
 
 void h2_task_register_hooks(void);
-
-int h2_task_pre_conn(h2_task_env *env, conn_rec *c);
+void h2_task_die(h2_task_env *env, int status, request_rec *r);
 
 #endif /* defined(__mod_h2__h2_task__) */

@@ -72,7 +72,7 @@ endif
 
 OPENSSL_VERSION = $(shell openssl version -v | sed -e 's/OpenSSL *//g' -e 's/[a-z]* .*//g')
 
-ifeq ($(OPENSSL_VERSION), $(filter $(OPENSSL_VERSION),0.9.7 0.9.8 1.0.0))
+ifeq ($(OPENSSL_VERSION), $(filter $(OPENSSL_VERSION),0.9.7 0.9.8 1.0.0 1.0.1))
 	# Very old openssl without alpn support installed, need a newer one
 	HTTPD_DEPS  += $(INST_DIR)/.openssl-installed
 	HTTPD_CONF  += --with-ssl=$(BLD_PREFIX)
@@ -93,7 +93,8 @@ dirs:
 	@mkdir -p $(GEN)/build
 
 clean:
-	@rm -rf $(GEN)/$(PCRE_DIR) $(GEN)/$(OPENSSL_DIR) $(GEN)/$(HTTPD_DIR) $(GEN)/build
+	@rm -rf $(GEN)/$(PCRE_DIR) $(GEN)/$(OPENSSL_DIR) $(GEN)/$(HTTPD_DIR) \
+        $(GEN)/build $(INST_DIR)/.httpd-installed
 
 distclean:
 	@rm -rf $(GEN)
@@ -114,7 +115,7 @@ copy-mod_ssl:
 $(INST_DIR)/.httpd-installed:  $(GEN)/$(HTTPD_DIR)/.httpd-built
 	@mkdir -p $(INST_DIR)
 	@echo -n installing httpd locally...
-	@cd $(GEN)/$(HTTPD_DIR)/ && make install >> ../build.log
+	@cd $(GEN)/$(HTTPD_DIR)/ && make install
 	@echo done.
 	@touch $(INST_DIR)/.httpd-installed
 
@@ -125,7 +126,7 @@ $(INST_DIR)/.httpd-installed:  $(GEN)/$(HTTPD_DIR)/.httpd-built
 $(GEN)/$(HTTPD_DIR)/.httpd-built: \
 		$(GEN)/$(HTTPD_DIR)/.httpd-configured
 	@echo -n building httpd...
-	@cd $(GEN)/$(HTTPD_DIR)/ && make >> ../build.log
+	@cd $(GEN)/$(HTTPD_DIR)/ && make
 	@echo done.
 	@touch $(GEN)/$(HTTPD_DIR)/.httpd-built
 
@@ -141,7 +142,7 @@ $(GEN)/$(HTTPD_DIR)/.httpd-configured: \
 		$(GEN)/$(HTTPD_DIR)/.httpd-patched
 	@echo -n configuring httpd...
 	cd $(GEN)/$(HTTPD_DIR)/ && \
-	./configure --prefix=$(BLD_PREFIX) $(HTTPD_CONF) >> ../build.log
+	./configure --prefix=$(BLD_PREFIX) $(HTTPD_CONF)
 	@echo done.
 	@touch $(GEN)/$(HTTPD_DIR)/.httpd-configured
 
@@ -151,8 +152,8 @@ $(GEN)/$(HTTPD_DIR)/.httpd-configured: \
 $(GEN)/$(HTTPD_DIR)/.httpd-patched: \
 		$(GEN)/$(HTTPD_DIR)/.httpd-extracted
 	@echo applying patches...
-	@cd gen/$(HTTPD_DIR) && patch -p0 < ../../patches/httpd-alpn-unified.diff.patch
-	@cd gen/$(HTTPD_DIR) && patch -p0 < ../../patches/httpd-npn.unified.diff.patch
+	@cd gen/$(HTTPD_DIR) && patch -p0 < ../../patches/httpd-2.4.12-alpn-v5.patch
+	@cd gen/$(HTTPD_DIR) && patch -p0 < ../../patches/sni_misdirect.patch
 	@echo httpd patched.
 	@touch $(GEN)/$(HTTPD_DIR)/.httpd-patched
 #@cd gen/$(HTTPD_DIR) && patch -p0 < ../../patches/alpn-2.4.x.unified.diff.patch

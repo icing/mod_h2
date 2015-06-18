@@ -14,7 +14,7 @@
 #
 
 AC_PREREQ([2.69])
-AC_INIT([mod_h2], [0.6.0], [stefan.eissing@greenbytes.de])
+AC_INIT([mod_h2], [0.7.0], [stefan.eissing@greenbytes.de])
 
 LT_PREREQ([2.2.6])
 LT_INIT()
@@ -42,8 +42,6 @@ AM_INIT_AUTOMAKE([subdir-objects no-define])
 
 m4_ifdef([AM_SILENT_RULES], [AM_SILENT_RULES([yes])])
 
-CFLAGS=
-
 AC_CONFIG_SRCDIR([mod_h2/h2_config.c])
 AC_CONFIG_HEADERS([mod_h2/config.h])
 
@@ -69,9 +67,6 @@ AC_ARG_WITH([apxs], [AS_HELP_STRING([--with-apxs],
 # Checks for programs.
 AC_PROG_CC
 AC_PROG_CC_STDC
-
-ac_save_CFLAGS=$CFLAGS
-CFLAGS=
 
 if test "x$werror" != "xno"; then
     AX_CHECK_COMPILE_FLAG([-Wall], [CFLAGS="$CFLAGS -Wall"])
@@ -107,7 +102,7 @@ fi
 
 AC_MSG_NOTICE("configuring for $build_mode build")
 
-if test x"$build_mode" == "xsandbox"; then
+if test x"$build_mode" = "xsandbox"; then
     if test x"$request_apxs" != "xcheck"; then
         AC_MSG_ERROR([when sandbox mode is enabled, specifying apxs is not allowed])
     fi
@@ -135,9 +130,9 @@ else
     # production, we need to find where the apxs is. which then
     # can tell us the various directories we need.
     #
-    if test x"$request_apxs" == "xcheck"; then
+    if test x"$request_apxs" = "xcheck"; then
         AC_PATH_PROG([APXS], [apxs])
-        if test "x${APXS}" == "x"; then
+        if test "x${APXS}" = "x"; then
             AC_MSG_ERROR("no APXS installation found")
         fi
     else

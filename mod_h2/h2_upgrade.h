@@ -13,24 +13,12 @@
  * limitations under the License.
  */
 
-#ifndef mod_h2_h2_private_h
-#define mod_h2_h2_private_h
+#ifndef __mod_h2__h2_upgrade__
+#define __mod_h2__h2_upgrade__
 
-#include <nghttp2/nghttp2.h>
-
-extern module AP_MODULE_DECLARE_DATA h2_module;
-
-APLOG_USE_MODULE(h2);
+/* Specific function to HTTP/1 connection Upgradeds.
+ */
+void h2_upgrade_register_hooks(void);
 
 
-#define H2_HEADER_METHOD     ":method"
-#define H2_HEADER_METHOD_LEN 7
-#define H2_HEADER_SCHEME     ":scheme"
-#define H2_HEADER_SCHEME_LEN 7
-#define H2_HEADER_AUTH       ":authority"
-#define H2_HEADER_AUTH_LEN   10
-#define H2_HEADER_PATH       ":path"
-#define H2_HEADER_PATH_LEN   5
-#define H2_CRLF             "\r\n"
-
-#endif
+#endif /* defined(__mod_h2__h2_upgrade__) */

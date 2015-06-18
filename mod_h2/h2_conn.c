@@ -42,8 +42,33 @@ static apr_status_t h2_session_process(h2_session *session);
 
 static h2_mpm_type_t mpm_type = H2_MPM_UNKNOWN;
 static module *mpm_module;
-
 static module *ssl_module;
+static int checked;
+
+static void check_modules() 
+{
+    if (!checked) {
+        for (int i = 0; ap_loaded_modules[i]; ++i) {
+            module *m = ap_loaded_modules[i];
+            if (!strcmp("event.c", m->name)) {
+                mpm_type = H2_MPM_EVENT;
+                mpm_module = m;
+            }
+            else if (!strcmp("worker.c", m->name)) {
+                mpm_type = H2_MPM_WORKER;
+                mpm_module = m;
+            }
+            else if (!strcmp("prefork.c", m->name)) {
+                mpm_type = H2_MPM_PREFORK;
+                mpm_module = m;
+            }
+            else if (!strcmp("mod_ssl.c", m->name)) {
+                ssl_module = m;
+            }
+        }
+        checked = 1;
+    }
+}
 
 apr_status_t h2_conn_child_init(apr_pool_t *pool, server_rec *s)
 {
@@ -81,22 +106,29 @@ apr_status_t h2_conn_child_init(apr_pool_t *pool, server_rec *s)
             mpm_type = H2_MPM_WORKER;
             mpm_module = m;
         }
+        else if (!strcmp("prefork.c", m->name)) {
+            mpm_type = H2_MPM_PREFORK;
+            mpm_module = m;
+        }
         else if (!strcmp("mod_ssl.c", m->name)) {
             ssl_module = m;
         }
     }
     
     workers = h2_workers_create(s, pool, minw, maxw);
-    h2_workers_set_max_idle_secs(
-                                 workers, h2_config_geti(config, H2_CONF_MAX_WORKER_IDLE_SECS));
+    int idle_secs = h2_config_geti(config, H2_CONF_MAX_WORKER_IDLE_SECS);
+    h2_workers_set_max_idle_secs(workers, idle_secs);
+    
     return status;
 }
 
 h2_mpm_type_t h2_conn_mpm_type(void) {
+    check_modules();
     return mpm_type;
 }
 
 module *h2_conn_mpm_module(void) {
+    check_modules();
     return mpm_module;
 }
 
@@ -166,6 +198,9 @@ apr_status_t h2_session_process(h2_session *session)
      * TODO: implement graceful GO_AWAY after configurable idle time
      */
     
+    ap_update_child_status_from_conn(session->c->sbh, SERVER_BUSY_READ, 
+                                     session->c);
+
     if (APLOGctrace2(session->c)) {
         ap_filter_t *filter = session->c->input_filters;
         while (filter) {
@@ -178,10 +213,9 @@ apr_status_t h2_session_process(h2_session *session)
     
     status = h2_session_start(session, &rv);
     
-    h2_ctx *ctx = h2_ctx_get(session->c, 1);
     ap_log_cerror(APLOG_MARK, APLOG_DEBUG, status, session->c,
                   "h2_session(%ld): starting on %s:%d", session->id,
-                  ctx->hostname? ctx->hostname : "<default>",
+                  session->c->base_server->defn_name,
                   session->c->local_addr->port);
     if (status != APR_SUCCESS) {
         h2_session_abort(session, status, rv);
@@ -271,6 +305,9 @@ apr_status_t h2_session_process(h2_session *session)
     ap_log_cerror( APLOG_MARK, APLOG_DEBUG, status, session->c,
                   "h2_session(%ld): done", session->id);
     
+    ap_update_child_status_from_conn(session->c->sbh, SERVER_CLOSING, 
+                                     session->c);
+
     h2_session_close(session);
     h2_session_destroy(session);
     

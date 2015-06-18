@@ -13,7 +13,7 @@
 # limitations under the License.
 #
 
-NGHTTP2_VERSION = 0.7.15
+NGHTTP2_VERSION = 1.0.2
 NGHTTP2_DIR     = nghttp2-$(NGHTTP2_VERSION)
 NGHTTP2_TAR     = $(NGHTTP2_DIR).tar.gz
 NGHTTP2_URL     = https://github.com/tatsuhiro-t/nghttp2/releases/download/v$(NGHTTP2_VERSION)/$(NGHTTP2_TAR)
@@ -31,6 +31,15 @@ LIBEV_VERSION    = 4.19
 LIBEV_DIR        = libev-$(LIBEV_VERSION)
 LIBEV_TAR        = $(LIBEV_DIR).tar.gz
 LIBEV_URL        = http://dist.schmorp.de/libev/$(LIBEV_TAR)
+LIBEV_CONF_ENV   += PKG_CONFIG_PATH=$(BLD_PREFIX)/lib/pkgconfig \
+    LDFLAGS=-L$(BLD_PREFIX)/lib CFLAGS=-I$(BLD_PREFIX)/include
+
+LIBEVENT_VERSION = 2.0.22-stable
+LIBEVENT_DIR     = libevent-$(LIBEVENT_VERSION)
+LIBEVENT_TAR     = $(LIBEVENT_DIR).tar.gz
+LIBEVENT_URL     = https://github.com/libevent/libevent/releases/download/release-2.0.22-stable/$(LIBEVENT_TAR)
+LIBEVENT_CONF_ENV += PKG_CONFIG_PATH=$(BLD_PREFIX)/lib/pkgconfig \
+    LDFLAGS=-L$(BLD_PREFIX)/lib CFLAGS=-I$(BLD_PREFIX)/include
 
 GEN             = gen
 INST_DIR        = ../install
@@ -41,6 +50,10 @@ CURL_OPTS       = --progress-bar
 OS              = $(shell uname -s)
 
 
+NGHTTP2_CONF_ENV += PKG_CONFIG_PATH=$(BLD_PREFIX)/lib/pkgconfig \
+    LDFLAGS=-L$(BLD_PREFIX)/lib CFLAGS=-I$(BLD_PREFIX)/include
+
+
 # For OS X, we drag our own zlib in as the one installed is not
 # recognized by nghttp2 configure.
 # On other OS, we expect a proper zlib/zlib-dev installation
@@ -48,8 +61,10 @@ OS              = $(shell uname -s)
 ifeq ($(OS),Darwin)
     # we need our own zlib
     NGHTTP2_DEPS  += $(INST_DIR)/.zlib-installed $(INST_DIR)/.libev-installed
-    NGHTTP2_CONF_ENV += PKG_CONFIG_LIBDIR=$(BLD_PREFIX)/lib/pkgconfig \
-        LDFLAGS=-L$(BLD_PREFIX)/lib CFLAGS=-I$(BLD_PREFIX)/include
+else
+ifneq (,$(wildcard $(INST_DIR)/lib/pkgconfig/openssl.pc))
+    NGHTTP2_DEPS  += $(INST_DIR)/.libevent-installed
+endif
 endif
 
 all: install
@@ -129,6 +144,42 @@ $(GEN)/$(NGHTTP2_TAR):
 
 
 ################################################################################
+# Build + install a local libevent library (if needed)
+#
+$(INST_DIR)/.libevent-installed: \
+		$(GEN)/$(LIBEVENT_DIR)/.libevent-built
+	@echo -n installing libevent locally...
+	@cd $(GEN)/$(LIBEVENT_DIR) && make install >> ../build.log
+	@echo done.
+	@touch $(INST_DIR)/.libevent-installed
+
+$(GEN)/$(LIBEVENT_DIR)/.libevent-built: \
+		$(GEN)/$(LIBEVENT_DIR)/.libevent-configured
+	@echo -n building libevent locally...
+	@cd $(GEN)/$(LIBEVENT_DIR) && make >> ../build.log
+	@echo done.
+	@touch $(GEN)/$(LIBEVENT_DIR)/.libevent-built
+
+$(GEN)/$(LIBEVENT_DIR)/.libevent-configured: \
+        	$(GEN)/$(LIBEVENT_DIR)/.libevent-extracted
+	@echo -n configuring libevent...
+	@cd $(GEN)/$(LIBEVENT_DIR) && $(LIBEVENT_CONF_ENV) ./configure --prefix=$(BLD_PREFIX) --with-sysroot=$(BLD_PREFIX)
+	@echo done.
+	@touch $(GEN)/$(LIBEVENT_DIR)/.libevent-configured
+
+$(GEN)/$(LIBEVENT_DIR)/.libevent-extracted: \
+        $(GEN)/$(LIBEVENT_TAR)
+	@rm -rf $(GEN)/$(LIBEVENT_DIR)
+	@echo -n downloading and extracting libevent...
+	@cd gen; tar xfz $(LIBEVENT_TAR)
+	@echo done.
+	@touch $(GEN)/$(LIBEVENT_DIR)/.libevent-extracted
+
+$(GEN)/$(LIBEVENT_TAR):
+	@mkdir -p $(GEN)
+	curl $(CURL_OPTS) -L $(LIBEVENT_URL) > $(GEN)/$(LIBEVENT_TAR)
+
+################################################################################
 # Build + install a local libev library (if needed)
 #
 $(INST_DIR)/.libev-installed: \
@@ -149,7 +200,7 @@ $(GEN)/$(LIBEV_DIR)/.libev-configured: $(GEN)/$(LIBEV_TAR)
 	@rm -rf $(GEN)/$(LIBEV_DIR)
 	@cd $(GEN) && tar xfz $(LIBEV_TAR)
 	@echo -n configuring libev...
-	@cd $(GEN)/$(LIBEV_DIR) && ./configure --prefix=$(BLD_PREFIX)
+	@cd $(GEN)/$(LIBEV_DIR) && $(LIBEV_CONF_ENV) ./configure --prefix=$(BLD_PREFIX)
 	@echo done.
 	@touch $(GEN)/$(LIBEV_DIR)/.libev-configured
 

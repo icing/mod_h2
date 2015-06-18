@@ -1,3 +1,70 @@
+v0.7.0
+--------------------------------------------------------------------------------
+ * switching to nghttp2 v1.0.*, compilation + linkage with nghttp2 v0.7.* will
+   not work any more as there have been changes in nghttp2's API. The sandbox
+   builds against v1.0.2 and also pulls curl 7.43.0 which did the same version
+   switch.
+ * keeping support for h2-16/h2-14 ALPN identifiers until a 1.0 release
+ * varying h2 support (on|off) among virtual hosts on the same port is now
+   possible and should work correctly.
+ * improved mod_ssl alpn patch to correctly select the proper virtual host
+   even if the SSL library invokes SNI after ALPN callbacks.
+ * Disabled NPN support in sandbox built. The patch for httpd 2.4.x is still
+   there, but no longer applied.
+ * KNOWN ISSUE: when using mpm_event, the error 
+     "error scoreboard is full, not at MaxRequestWorkers" 
+   sometimes happens. Under investigation. mpm_worker ist stable and recommended
+   for now.
+
+
+v0.6.6
+--------------------------------------------------------------------------------
+ * adding sni_misdirect.patch for httpd/mod_ssl that changes status code when 
+   TLS connections are reused for other vhosts. 
+
+v0.6.5
+--------------------------------------------------------------------------------
+ * httpd scoreboard fixups: scoreboard handles are still updated on the main
+   connection from all stream request incoming from it, since it is not trivial
+   to get new handles for h2 workers. Updating of scoreboard status has been 
+   improved, no workers remain on "G"raceful shutdown in load tests any longer.
+ * some refacoring to isolate tls/alpn/upgrade code
+ * adding php-wrapper script to distribution, was missing
+
+v0.6.4
+--------------------------------------------------------------------------------
+ * accepting "h2" on Upgrade: headers and allowing also Upgrade to work on TLS
+   connections that talk HTTP/1.1.
+ * logging WARNING once when mod_h2 is used in a "prefork" mpm configuration.
+   There seem to be issues with mod_proxy/rewrite and dankging I/O.
+ * added test suites for combinations with mod_proxy and mod_rewrite
+ * added test for request with Host: header where h2 is not enabled
+ * sandbox now builds local openssl 1.0.2 if 1.0.1 or older are installed
+   on the system. Prior 1.0.1 was accepted, but NPN support will be disabled
+   soon.
+ * added "Known Problems" section in README
+ * direct mode should also work with TLS connections, untested currently.
+
+v0.6.3
+--------------------------------------------------------------------------------
+ * h2c direct mode is now enabled on http: virtual hosts. It can be disabled
+   by configuring "H2Direct off" for the base server. This works for clients
+   with prior knowledge that a http server supports h2c.
+
+v0.6.2
+--------------------------------------------------------------------------------
+ * added "H2Direct (on|off)" as config directive. On a non-TLS host, it enables
+   direct h2c communication without any Upgrade dance. Useful for testing, for
+   example with h2load.
+ * fixed concurrency issue observed on a mpm_event server when closing sessions
+
+v0.6.1
+--------------------------------------------------------------------------------
+ * relaxing task finished sync due to segfaults with mpm_event
+ * mod_reqtimeout enabled on stream processing again
+ * merged pr from ecovener, fix for ap_update_vhost_from_headers use
+ * tinkering with buffering on main connection
+
 v0.6.0
 --------------------------------------------------------------------------------
  * fiddling around with task/worker assignments to use the global h2_workers

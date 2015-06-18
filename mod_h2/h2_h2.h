@@ -16,35 +16,40 @@
 #ifndef __mod_h2__h2_h2__
 #define __mod_h2__h2_h2__
 
-/* Implementation of the "h2" specific parts for enabling HTTP2
- * over a TLS connection.
+/**
+ * List of ALPN protocol identifiers that we support in ALPN/NPN 
+ * negotiations.
  */
+extern const char *h2_alpn_protos[];
+extern apr_size_t h2_alpn_protos_len;
+
+/**
+ * List of ALPN protocol identifiers that we suport in HTTP/1 Upgrade:
+ * negotiations.
+ */
+extern const char *h2_upgrade_protos[];
+extern apr_size_t h2_upgrade_protos_len;
+
+/**
+ * The magic PRIamble of RFC 7540 that is always sent when starting
+ * a h2 communication.
+ */
+extern const char *H2_MAGIC_TOKEN;
 
 /*
  * One time, post config intialization.
  */
 apr_status_t h2_h2_init(apr_pool_t *pool, server_rec *s);
 
-/*
- * Once per child process initialization.
- */
-apr_status_t h2_h2_child_init(apr_pool_t *pool, server_rec *s);
-
-/* Hooks for processing incoming connections:
- * - pre_conn resgiters for NPN/ALPN handling
- * - process_conn takes of the connection instead of core should "h2"
- *            have been selected
- * - stream_pre_conn disables mod_ssl connection filters for our
- *            stream pseudo connections
- */
-int h2_h2_pre_conn(conn_rec* c, void *arg);
-int h2_h2_process_conn(conn_rec* c);
-int h2_h2_cleanup_conn(conn_rec* c);
-int h2_h2_stream_pre_conn(conn_rec* c, void *arg);
-
 /* Is the connection a TLS connection?
  */
 int h2_h2_is_tls(conn_rec *c);
+
+/* Disable SSL for this connection, can only be invoked in a pre-
+ * connection hook before mod_ssl.
+ * @return != 0 iff disable worked
+ */
+int h2_tls_disable(conn_rec *c);
 
 /* Register apache hooks for h2 protocol
  */
