@@ -12,6 +12,120 @@
                                 <!--[if lt IE 9]>
                                  <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
                                  <![endif]-->
+                                <script type="text/javascript"
+                                    src="https://www.google.com/jsapi?autoload={
+                                    'modules':[{
+                                    'name':'visualization',
+                                    'version':'1',
+                                    'packages':['line']
+                                    }]
+                                    }"></script>
+                                
+                                <script type="text/javascript">
+                                    var series        = [ '1', '2', '3', '4', '5',
+                                                          '6', '7', '8', '9', '10',
+                                                          '15', '20', '40', '100' ];
+                                    var h2_i5_1k      = [ 11902.40, 14078.90, 15825.00, 16989.10, 17276.90, 
+                                                          16739.40, 16308.00, 15776.10, 15947.30, 15654.40, 
+                                                          15972.10, 15997.30, 16214.00, 16581.00 ];
+                                    var h2_i5_2k      = [ 11438.60, 13624.00, 15529.60, 16697.60, 16482.60, 
+                                                          16403.20, 16075.40, 15649.20, 15373.10, 15307.10, 
+                                                          15465.00, 15703.40, 16008.50, 16377.10 ];
+                                    var h2_i5_4k      = [ 10662.10, 12500.40, 13939.90, 13655.30, 13664.40, 
+                                                          13869.00, 13894.40, 13917.20, 13994.00, 13972.50, 
+                                                         14231.10, 14282.40, 14528.10, 14759.20 ];
+                                    var h2_i5_7k      = [ 9903.40, 11324.40, 11643.20, 11784.00, 11875.80, 
+                                                          11986.20, 12077.20, 12071.80, 12140.30, 12262.80, 
+                                                          12378.20, 12423.20, 12468.30, 12594.20 ];
+                                    var h2_i5_10k     = [ 9268.10, 9895.70, 10179.10, 10201.10, 
+                                                          10236.60, 10258.20, 10287.70, 10275.40, 10275.40, 
+                                                          10285.50, 10290.90, 10278.60, 10271.60, 10069.30 ];
+                                    var h2_i7_7k      = [ 14615, 14473, 14411, 14180, 14170, 
+                                                          14580, 15042, 15143, 14672, 14438, 
+                                                          14626, 14282, 14983, 14811];
+                                    var h2_i7_1k      = [ 16261, 28623, 28562, 27193, 27294, 
+                                                          27008, 26814, 26373, 26252, 26657, 
+                                                          27592, 27638, 27825, 28212];
+                                    var max_1gbps_7k  = [ 16231, 16231, 16231, 16231, 16231, 
+                                                          16231, 16231, 16231, 16231, 16231, 
+                                                          16231, 16231, 16231, 16231];
+                                    var max_1gbps_10k = [ 11286, 11286, 11286, 11286, 11286, 
+                                                          11286, 11286, 11286, 11286, 11286,
+                                                          11286, 11286, 11286, 11286];
+                                     var wrk_7k =[ 8519, 8519, 8519, 8519, 8519, 
+                                                   8519, 8519, 8519, 8519, 8519, 
+                                                   8519, 8519, 8519, 8519 ];
+                                                          
+
+                                    function addSeries(table, options, typename, title, data, color) {
+                                        var n = table.getNumberOfColumns();
+                                        
+                                        table.addColumn(typename, title);
+                                        if (n) {
+                                            for (var i = 0; i < data.length; ++i) {
+                                                table.setCell(i, n, data[i]);
+                                            }
+                                        }
+                                        else {
+                                            var rows = [];
+                                            for (var i = 0; i < data.length; ++i) {
+                                                rows.push([data[i]]);
+                                            }
+                                            table.addRows(rows);
+                                        }
+                                        
+                                        if (color) {
+                                            var colors = options.colors || [];
+                                            colors.push(color);
+                                            options.colors = colors;
+                                        }
+                                    }
+                                
+                                    google.setOnLoadCallback(drawCharts);
+                                    
+                                    function drawCharts() {
+                                        var data = new google.visualization.DataTable();
+                                        var options = {
+                                            chart: {
+                                                title: 'mod_h2 size and parallelism',
+                                                subtitle: 'requests/second on a 1Gbps ethernet, for various resource sizes'
+                                            },
+                                            legend: { position: 'bottom' }
+                                        };
+                                        addSeries(data, options, 'string', '# of parallel requests', series);
+                                        addSeries(data, options, 'number', 'mod_h2, 1024 bytes',     h2_i5_1k, '#90cc00');
+                                        addSeries(data, options, 'number', 'mod_h2, 2005 bytes',     h2_i5_2k, '#a0cc60');
+                                        addSeries(data, options, 'number', 'mod_h2, 4310 bytes',     h2_i5_4k, '#b0cc90');
+                                        addSeries(data, options, 'number', 'mod_h2, 7526 bytes',     h2_i5_7k, '#4444aa');
+                                        addSeries(data, options, 'number', '1 Gbps Ethernet, 7.5k',  max_1gbps_7k, '#9999ff');
+                                        addSeries(data, options, 'number', 'wrk, http/1, 7.5k',      wrk_7k, '#ddddff');
+                                        addSeries(data, options, 'number', 'mod_h2, 10844 bytes',    h2_i5_10k, '#bd8047');
+                                        addSeries(data, options, 'number', '1 Gbps Ethernet, 10k',   max_1gbps_10k, '#bda087');
+                                        
+                                        var chart = new google.charts.Line(document.getElementById('chart_1'));
+                                        chart.draw(data, options);
+                                        
+
+                                        data = new google.visualization.DataTable();
+                                        options = {
+                                            chart: {
+                                                title: 'mod_h2 size and power',
+                                                subtitle: 'requests/second on a 1Gbps ethernet, CPU power differences'
+                                            },
+                                            legend: { position: 'bottom' }
+                                        };
+                                        addSeries(data, options, 'string', '# of parallel requests', series);
+                                        addSeries(data, options, 'number', 'mod_h2, i5 2010, 1k',    h2_i5_1k, '#90cc00');
+                                        addSeries(data, options, 'number', 'mod_h2, i7 2012, 1k',    h2_i7_1k, '#b0ff00');
+                                        addSeries(data, options, 'number', 'mod_h2, i5 2010, 7.5k',  h2_i5_7k, '#4444aa');
+                                        addSeries(data, options, 'number', '1 Gbps Ethernet, 7.5k',  max_1gbps_7k, '#9999ff');
+                                        addSeries(data, options, 'number', 'mod_h2, i7 2012, 7.5k',  h2_i7_7k, '#222288');
+                                                      
+                                        var chart2 = new google.charts.Line(document.getElementById('chart_2'));
+                                        chart2.draw(data, options);
+                                    }
+                                </script>
+                                
                                 </head>
     <body>
         <div class="wrapper">
@@ -38,6 +152,55 @@
                 are permitted in any medium without royalty provided the copyright
                 notice and this notice are preserved.  This file is offered as-is,
                 without warranty of any kind. See LICENSE for details.</p>
+                
+                <h2><a id="par-pwr" class="anchor" href="#par-pwr" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    Parallelism and Power<div class="post-date">2015-06-19</div>
+                </h2>
+                <p>
+                I did some measurements between two machines linked with a 1 Gbps ethernet to see what the effect of requested
+                resource size played with the number of parallel streams. Some surprises.
+                </p><p>
+                A 1 Gbps ethernet can theoretically carry 81000 full 1518 byte frames per second 
+                (<a href="http://rickardnobel.se/actual-throughput-on-gigabit-ethernet/">source</a>) which gives a max throughput 
+                of 122958000 bytes or 117 MB/sec. <br>
+                When transferring a resource of 10844 bytes 500000 times, this amounts to 5422000000 bytes or 5170 MB. Of payload. 
+                <code>h2load</code> reports that 25063966 bytes were transferred additionally, so about 24 MB, short of 5%. This
+                gives a theoretical maximum of 44.3 seconds to transfer this amount of data. Or, broken down by the 500000 requests,
+                a maximum of 11286 requests/second.
+                </p><p>
+                Similarly, for the resource with 7526 bytes, h2load transferred 3787560677 bytes in total. Which gives a theoretical
+                maximum of 16231 requests/second.
+                </p><p>
+                <div id="chart_1" class="chart"></div>
+                </p><p> 
+                For the 10k resource, <code>mod_h2</code> comes close to the maximum throughput. For 7k resources, not so much. Compared
+                to the <code>HTTP/1.1</code> measurements using <code><a href="https://github.com/wg/wrk">wrk</a></code>, the module looks
+                    fine (there is suspicion that wrk and h2load are not directly comparablem though).
+                </p><p> 
+                As resource sizes become smaller and smaller, there is a peculiar <em>wave</em> effect. When using more than 4-5 requests
+                in parallel, performance gets worse and recovers slowly with every increasing parallelism. What is going on here?
+                </p><p> 
+                This became clearer when I swapped the server test machine, a iMac i5 2010 with my Powerbook i7 2012:
+                </p><p>
+                <div id="chart_2" class="chart"></div>
+                </p><p>
+                This leads me to the following observations:
+                <ul>
+                    <li><code>h2</code> performance for small resources is superior to <code>h1</code>, even if no parallel requests
+                    are made. The binary format and header compression pays off.</li>
+                    <li><code>h2</code> parallelism burns server CPU cycles and is not for free. This - currently - is visible when
+                    requesting very small resources and performance <em>decreases</em> with more parallelism. (This is the current
+                        theory on the measured 'wave', it may be an implementation issue.)</li>
+                    <li>With the dual core i5 from 2010, we can fill up the 1Gpbs pipe with 10k resources. The larger the resources,
+                    the easier it will be. With a quad core i7, we can achieve the same for 7.5 k sized resources (All on 100 simultaneous, busy
+                        connections). It works.</li>
+                    <li>If you consider implementing a large <code>h2</code> client, the tradeoff/benefit in number of connections used
+                    vs. number of parallel requests is not easily answered. Putting all actions into a single connection will run
+                    into multi-threading overhead for any implementation out there. The "at least 100" parallel streams
+                    a server should offer needs more thought.</li>
+                    <li>The less CPU cycles a server burns per request, the better. But this is old news, since it was already true for <code>h1</code>. For <code>mod_h2</code> there are several areas where optimizations are still possible. More effort is needed (Time &amp; Brains).</li>
+                </ul>
+                </p>
                 
                 <h2><a id="large-transfers" class="anchor" href="#large-transfers" aria-hidden="true"><span class="octicon octicon-link"></span></a>
                     Large Transfers<div class="post-date">2015-05-12</div>
@@ -102,22 +265,22 @@
                 <p class="fn">
                 <sup>*)</sup>In my test scenarios. If you have proof to the contrary, please submit a test case!
                 </p>
-
-
-
+                
+                
+                
                 <h2><a id="tests" class="anchor" href="#tests" aria-hidden="true"><span class="octicon octicon-link"></span></a>
                     Parallelism<div class="post-date">2015-04-15</div>
                 </h2>
                 <p>
-                   With release <code>v0.5.0</code> I did some improvements internally that reflect in less memory
-                   consumptiona and better performance. I also did a detailed look at the effect that parallel stream
-                   numbers have on the overall results.
+                With release <code>v0.5.0</code> I did some improvements internally that reflect in less memory
+                consumptiona and better performance. I also did a detailed look at the effect that parallel stream
+                numbers have on the overall results.
                 </p>
                 <p>
-                  The tests were again done on my trustworthy MacBook with a Parallels (hah!) Ubuntu 14.04 image. All tests
-                  ran in the sandbox. The numbers are samples from several runs, not really averaged and with variation
-                  and all that stuff that I should know and do as a mathematician...but I want just to give a feel
-                  for it.
+                The tests were again done on my trustworthy MacBook with a Parallels (hah!) Ubuntu 14.04 image. All tests
+                ran in the sandbox. The numbers are samples from several runs, not really averaged and with variation
+                and all that stuff that I should know and do as a mathematician...but I want just to give a feel
+                for it.
                 </p>
                 <table>
                     <thead>
@@ -168,36 +331,36 @@
                 </table>
                 <p>
                 Interpretation? I think it is safe to say the following:
-                    <ul>
-                        <li>The <code>-m 1</code> numbers show that the cost of a single request is still 20% higher 
-                            in <code>mod_h2</code> compared to <code>nghttpd</code>.</li>
-                        <li>The overall performance of HTTP/2 is better than HTTP/1 if the number of parallel requests
+                <ul>
+                    <li>The <code>-m 1</code> numbers show that the cost of a single request is still 20% higher 
+                        in <code>mod_h2</code> compared to <code>nghttpd</code>.</li>
+                    <li>The overall performance of HTTP/2 is better than HTTP/1 if the number of parallel requests
                         exceeds 2-5, depending on implementation.</li>
-                        <li>The scaling of the <code>nghttpd</code> is fabulous, however the <code>-m 100</code> case shows
+                    <li>The scaling of the <code>nghttpd</code> is fabulous, however the <code>-m 100</code> case shows
                         that it keeps files open until streams are done and runs out of file handles rather soon. (I am sure
-                            now that I mentioned it that the next nghttp2 release will fix this and keep the performance, too!).</li>
-                        <li><code>mod_h2</code> hits is ceiling with 10-20 parallel streams very soon. But the good news is it
+                        now that I mentioned it that the next nghttp2 release will fix this and keep the performance, too!).</li>
+                    <li><code>mod_h2</code> hits is ceiling with 10-20 parallel streams very soon. But the good news is it
                         stays stable with increased stream numbers. </li>
-                    </ul>
-                    <code>mod_h2</code> stays stable with increasing parallel stream numbers because files for static content
-                    get converted into byte buffers before worker threads turn to other streams. That limits the number of
-                    open files to the number of worker threads. 
+                </ul>
+                <code>mod_h2</code> stays stable with increasing parallel stream numbers because files for static content
+                get converted into byte buffers before worker threads turn to other streams. That limits the number of
+                open files to the number of worker threads. 
                 </p>
                 <p>
-                    This is a compromise in the current processing model. The HTTP/2 connection terminates in a specific 
-                    worker process and that process has a limit on the number of open files. No spawning of new processes
-                    will really help the connection. If HTTP/2 connections should expose long lifetimes and bursty, parallel
-                    streams, resources need to be allocated carefully.
+                This is a compromise in the current processing model. The HTTP/2 connection terminates in a specific 
+                worker process and that process has a limit on the number of open files. No spawning of new processes
+                will really help the connection. If HTTP/2 connections should expose long lifetimes and bursty, parallel
+                streams, resources need to be allocated carefully.
                 </p>
                 <p>
-                   The <code>v0.5.0</code> release allocates everything for stream handling per worker. The worker has a
-                   memory pool, bucket allocators and pseudo connection socket and rents those out to the stream that it
-                   processes. The stream is done, if all its output data has been sent or sits in the, size limited, output
-                   buffers of the HTTP/2 session. So, opening a new stream will allocate only a few bytes. Only when processing
-                   of the stream actually starts will more resources be allocated, most of them on hot standby in the worker
-                   itself. Therefore the stable performance with increasing parallel stream numbers.
+                The <code>v0.5.0</code> release allocates everything for stream handling per worker. The worker has a
+                memory pool, bucket allocators and pseudo connection socket and rents those out to the stream that it
+                processes. The stream is done, if all its output data has been sent or sits in the, size limited, output
+                buffers of the HTTP/2 session. So, opening a new stream will allocate only a few bytes. Only when processing
+                of the stream actually starts will more resources be allocated, most of them on hot standby in the worker
+                itself. Therefore the stable performance with increasing parallel stream numbers.
                 </p>
-
+                
                 <h2><a id="tests" class="anchor" href="#tests" aria-hidden="true"><span class="octicon octicon-link"></span></a>
                     Tests<div class="post-date">2015-04-02</div>
                 </h2>
@@ -205,14 +368,14 @@
                 <p><em style="font-weight: bold; font-size: 14pt;">Important update below!</em>
                 </p>
                 <p>
-                    I did two tests in three combinations, using the <code>mod_h2</code> sandbox setup on an Ubuntu Parallels Image. 
-                    I used <code>h2load</code> for the HTTP/2 test cases and the nice <code>wrk</code> (see <a href="https://github.com/wg/wrk">https://github.com/wg/wrk</a>) for the HTTP/1.1 numbers.
+                I did two tests in three combinations, using the <code>mod_h2</code> sandbox setup on an Ubuntu Parallels Image. 
+                I used <code>h2load</code> for the HTTP/2 test cases and the nice <code>wrk</code> (see <a href="https://github.com/wg/wrk">https://github.com/wg/wrk</a>) for the HTTP/1.1 numbers.
                 </p>
                 <p>
                 The performance tests invoked were:
                 <pre><code>
-wrk wrk -t10 -c100 -d30s https://test.example.org:12346/&lt;file&gt;
-h2load -c 100 -t 10 -n 740000 https://test.example.org:12346/&lt;file&gt;
+                    wrk wrk -t10 -c100 -d30s https://test.example.org:12346/&lt;file&gt;
+                    h2load -c 100 -t 10 -n 740000 https://test.example.org:12346/&lt;file&gt;
                 </code></pre>
                 where wrk was tested against Apache httpd 2.4.12 with TLS+http/1.1 and h2load was tested
                 with <code>nghttpd</code>, the server that comes with nghttp2, and mod_h2 in the Apache httpd 2.4.12 setup.
@@ -228,7 +391,7 @@ h2load -c 100 -t 10 -n 740000 https://test.example.org:12346/&lt;file&gt;
                     <tbody>
                         <tr>
                             <td>wrk + apache(2.4.12)</td><td>req/s</td><td class="num"> 25139 </td><td class="num"> 7941 </td>
-                            </tr>
+                        </tr>
                         <tr>
                             <td></td><td>MB/s</td><td class="num"> 23.1 </td><td class="num"> 686.8 </td>
                         </tr>
@@ -264,13 +427,13 @@ h2load -c 100 -t 10 -n 740000 https://test.example.org:12346/&lt;file&gt;
                 <ul>
                     <li><code>libnghttp2</code> uses a <code>dataprovider</code> callback API that needs to return a memory buffer with the data. It then shuffles this data around internally until it is read to send it out (properly framed). This means that static files (mmap'ed) will be copied at least twice. In comparison, the Apache <code>bucket brigade</code> architecture will do this only once and in a very efficient manner.</li>
                     <li>the additional work that <code>mod_h2</code> does when collecting response DATA from different threads and feeding it to <code>nghttp2</code> does not limit performance (in this case). This seems to be the benefit of having own data bucket structures that are passed between threads without copying.</li>
-                    </ul>
+                </ul>
                 </p>
                 <p>
                 Anyway, those are the two area to work on: data copying and Apache core integration. There's probably a lot of fun ahead. Feedback always welcome.
                 </p>
-
-
+                
+                
                 <h2><a id="update" class="anchor" href="#update" aria-hidden="true"><span class="octicon octicon-link"></span></a>Update</h2>
                 <p>
                 And feedback I got: Tatsuhiro Tsujikawa (the author of nghttp2) pointed out that <code>h2load</code> without the 

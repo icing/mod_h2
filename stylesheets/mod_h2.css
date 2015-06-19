@@ -102,3 +102,9 @@ td.num {
 .fn {
     font-size: smaller;
 }
+
+/* chart styling */
+.chart {
+    width: 120%;
+    height: 600px;
+}
