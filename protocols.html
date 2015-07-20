@@ -1,0 +1,153 @@
+<!doctype html>
+<html>
+    <head>
+        <meta charset="utf-8">
+            <meta http-equiv="X-UA-Compatible" content="chrome=1">
+                <title>mod_h2 by icing</title>
+                
+                <link rel="stylesheet" href="stylesheets/styles.css">
+                    <link rel="stylesheet" href="stylesheets/pygment_trac.css">
+                        <link rel="stylesheet" href="stylesheets/mod_h2.css">
+                            <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+                                <!--[if lt IE 9]>
+                                 <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+                                 <![endif]-->
+                                </head>
+    <body>
+        <div class="wrapper">
+            <div class="backlogo">
+                <a href="https://github.com/icing/mod_h2/releases">Available Releases on GitHub</a>
+            </div>
+            <header>
+                <h1>mod_h2</h1>
+                <p>bringing HTTP/2 to Apache</p>
+                
+                <ul>
+                    <li><a href="https://github.com/icing/mod_h2/zipball/master">Download <strong>ZIP File</strong></a></li>
+                    <li><a href="https://github.com/icing/mod_h2/tarball/master">Download <strong>TAR Ball</strong></a></li>
+                    <li><a href="https://github.com/icing/mod_h2">View On <strong>GitHub</strong></a></li>
+                </ul>
+            </header>
+            <section>
+                <h1>
+                    <a class="anchor" href="#ap_protocols" aria-hidden="true"><span class="octicon octicon-link"></span></a>Apache Protocols directive</h1>
+                
+                <p>The introduction of ALPN and mod_h2 into Apache httpd was done
+                by enhancing mod_ssl with callback functions and registrations similar
+                to what google had done for spdy.</p>
+
+                <p>
+                Now that mod_h2 gets tightly integrated into httpd, a little broader
+                handling of protocol upgrades is desired. TLS+ALPN as well as the
+                HTTP/1 Upgrade header (and possible future transoorts) should be
+                configurable with the same directives.
+                </p>
+                
+                <p>This is a proposal how the API of httpd core could look like. </p>
+                
+                <h3>The directives</h3>
+                <code><pre>
+# default  "http/1.1" ("http/1.1" as umbrella for 0.9-1.1 support)
+Protocols h2 http/1.1 spdy/3.1
+
+# default "Server"
+ProtocolsOrdering Server|Client
+
+                </pre></code>
+
+                <h3>The API Additions</h3>
+            <code><pre>
+define AP_PROTOCOL_HTTP1		"http/1.1"
+
+/**
+ * Callback that may DECLINE an upgrade form the existing to 
+ * the new protocol. If a request_rec is given, the upgrade 
+ * needs to happen with the answer to this request. There might 
+ * be data in previous protocol format on the connection *if* 
+ * the request had a body. Implementations not supporting such 
+ * a scenario should DECLINE.
+ *
+ * from the protocol currently in place
+ * to the protocol to upgrade to
+ * c the connection to possibly upgrade
+ * r the optional request in progress (Upgrade header)
+ * ctx client supplied data
+ * return OK/DECLINED
+ */
+typedef int ap_protocol_check_cb(const char *from, const char *to, 
+                                 conn_rec *c, request_rec *r, 
+                                 void *ctx);
+
+/**
+ * Callback that need to perform the protocol upgrade on the 
+ * connection. No request is currently active. The connection 
+ * is clean of any previous protocol data. The callback may 
+ * register connection level filters and return immediately. 
+ *
+ * from the protocol currently in place
+ * to the protocol to upgrade to
+ * c the connection to upgrade
+ * ctx client supplied data
+ */
+typedef apr_status_r ap_protocol_cupgrade(const char *from, 
+                                          const char *to, 
+                                          conn_rec *c, 
+                                          request_rec *r, 
+                                          void *ctx);
+
+/**
+ * Callback that need to perform the protocol upgrade on 
+ * the request. The callback needs to answer the request 
+ * in an upgraded form. The callback needs to take over 
+ * connection processing from here and should not return 
+ * until it is done handling the connection.
+ *
+ * from the protocol currently in place
+ * to the protocol to upgrade to
+ * r the request to upgrade
+ * ctx client supplied data
+ */
+typedef apr_status_r ap_protocol_rupgrade(const char *from, 
+                                          const char *to,  
+                                          request_rec *r, 
+                                          void *ctx);
+
+/** 
+ * Register a protocol identifier with callback 
+ * functions and user data. Any existing registration 
+ * under that name is overwritten. Registrations can
+ * be done for connection level upgrades (like TLS+ALPN)  
+ * or request triggered upgrade (HTTP Upgrade header) or both.
+ */
+apr_status_t ap_protocol_register(const char *protocol, 
+                                  ap_protocol_check_cb *check, 
+                                  ap_protocol_cupgrade *ccb, 
+                                  ap_protocol_rupgrade *rcb, 
+                                  void *ctx);
+
+/**
+ * Select a protocol for the given connection and 
+ * optional request. Will always select a protocol. This 
+ * might be the procotol already active, which results 
+ * in no further action taken.
+ */
+const char *ap_protocol_select(conn_rec *c, request_rec *r, 
+                               apr_array_header_t *client_list);
+
+/**
+ * Get the currently active procotol for the connection. 
+ * Always non-null.
+ */
+const char *ap_protocol_get( conn_rec *c );
+            </pre></code>
+            
+            </section>
+            <footer>
+                <p>This project is maintained by <a href="https://github.com/icing">icing</a></p>
+                <p><small>Hosted on GitHub Pages &mdash; Theme by <a href="https://github.com/orderedlist">orderedlist</a></small></p>
+            </footer>
+        </div>
+        <script src="javascripts/scale.fix.js"></script>
+        
+    </body>
+</html>
