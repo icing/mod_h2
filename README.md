@@ -173,8 +173,8 @@ certificate with the world. If there is a better way to test browser interop,
 I am happy to be given pointers.
 
 #Known Problems
-* If you use the "prefork" mpm, there are reported problems with using mod_h2 and mod_prody/mod_rewrite against another server which disappear when using mpm_event or mpm_worker in the otherwise unchanged configuration.
 * If you test chrome/firefox against a httpd with mod_h2 and get "ERR_SPDY_INADEQUATE_TRANSPORT_SECURITY", this means that the browser considers the installed SSL certificates as not good enough to use HTTP/2. This will happen with the sandbox installation, as that one has only a self-signed certificate. If you disable mod_h2, chrome/firefox will seem to be working fine again against your server. This is due to the fact that SSL requirements are, for backward compatibility, relaxed when talking HTTP/1. Unfortunately, chrome/firefox do currently not offer a better user experience in indicating what part of the certificate was considered inadequate. For example, certain signing algorithms in combination with expiration dates are no longer accepted. This becomes pretty hard to debug for someone not fluent in TLS and PKI.
+* If you have virtual hosts that share the same certificate, any unpatched Apache httpd will answer requests with a 400 when mixed requests are sent by the browser. A mitigation for this is the sni_misdirect.patch included in the sandbox, however performance might degrade considerably.
 
 
 ##TODO
