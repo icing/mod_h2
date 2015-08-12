@@ -55,92 +55,102 @@ ProtocolsOrdering Server|Client
 
                 </pre></code>
 
-                <h3>The API Additions</h3>
-            <code><pre>
-define AP_PROTOCOL_HTTP1		"http/1.1"
+                <h3>The API Additions in <code>http_protocol.h</code></h3>
+            <code><pre style="font-size: 8pt; margin-right: -4em;">
+#define AP_PROTOCOL_HTTP1		"http/1.1"
 
 /**
- * Callback that may DECLINE an upgrade form the existing to 
- * the new protocol. If a request_rec is given, the upgrade 
- * needs to happen with the answer to this request. There might 
- * be data in previous protocol format on the connection *if* 
- * the request had a body. Implementations not supporting such 
- * a scenario should DECLINE.
+ * Negotiate a possible protocol switch on the connection. The negotiation
+ * may start without any request sent, in which case the request is NULL. Or
+ * it may be triggered by the request received, e.g. through the "Upgrade"
+ * header.
+ * 
+ * The identifiers for protocols are taken from the TLS extension type ALPN:
+ * https://www.iana.org/assignments/tls-extensiontype-values/tls-extensiontype-values.xml
  *
- * from the protocol currently in place
- * to the protocol to upgrade to
- * c the connection to possibly upgrade
- * r the optional request in progress (Upgrade header)
- * ctx client supplied data
- * return OK/DECLINED
- */
-typedef int ap_protocol_check_cb(const char *from, const char *to, 
-                                 conn_rec *c, request_rec *r, 
-                                 void *ctx);
-
-/**
- * Callback that need to perform the protocol upgrade on the 
- * connection. No request is currently active. The connection 
- * is clean of any previous protocol data. The callback may 
- * register connection level filters and return immediately. 
+ * If no protocols are added to the proposals, the server will always fallback
+ * to "http/1.1" which is the default protocol for connections that Apache
+ * handles. If the protocol selected from the proposals is the protocol
+ * already in place, no "protocol_switch" will be invoked.
  *
- * from the protocol currently in place
- * to the protocol to upgrade to
- * c the connection to upgrade
- * ctx client supplied data
+ * All hooks are run, unless one returns an error. Proposals may contain
+ * duplicates. The order in which proposals are added is usually ignored.
+ * 
+ * @param c The current connection
+ * @param r The current request or NULL
+ * @param offers a list of protocol identifiers offered by the client
+ * @param proposals the list of protocol identifiers proposed by the hooks
+ * @return OK or DECLINED
  */
-typedef apr_status_r ap_protocol_cupgrade(const char *from, 
-                                          const char *to, 
-                                          conn_rec *c, 
-                                          request_rec *r, 
-                                          void *ctx);
+AP_DECLARE_HOOK(int,protocol_propose,(conn_rec *c, request_rec *r,
+                                      const apr_array_header_t *offers,
+                                      apr_array_header_t *proposals))
 
 /**
- * Callback that need to perform the protocol upgrade on 
- * the request. The callback needs to answer the request 
- * in an upgraded form. The callback needs to take over 
- * connection processing from here and should not return 
- * until it is done handling the connection.
+ * Perform a protocol switch on the connection. The exact requirements for
+ * that depend on the protocol in place and the one switched to. The first 
+ * protocol module to handle the switch is the last module run.
+ * 
+ * For a connection level switch (r == NULL), the handler must on return
+ * leave the conn_rec in a state suitable for processing the switched
+ * protocol, e.g. correct filters in place.
  *
- * from the protocol currently in place
- * to the protocol to upgrade to
- * r the request to upgrade
- * ctx client supplied data
+ * For a request triggered switch (r != NULL), the protocol switch is done
+ * before the response is sent out. When switching from "http/1.1" via Upgrade
+ * header, the 101 intermediate response will have been sent. The
+ * hook needs then to process the connection until it can be closed. Which
+ * the server will enforce on hook return.
+ * Any error the hook might encounter must already be sent by the hook itself
+ * to the client in whatever form the new protocol requires.
+ *
+ * @param c The current connection
+ * @param r The current request or NULL
+ * @param choices a list of protocol identifiers, normally the clients whishes
+ * @param proposals the list of protocol identifiers proposed by the hooks
+ * @return OK or DECLINED
  */
-typedef apr_status_r ap_protocol_rupgrade(const char *from, 
-                                          const char *to,  
-                                          request_rec *r, 
-                                          void *ctx);
-
-/** 
- * Register a protocol identifier with callback 
- * functions and user data. Any existing registration 
- * under that name is overwritten. Registrations can
- * be done for connection level upgrades (like TLS+ALPN)  
- * or request triggered upgrade (HTTP Upgrade header) or both.
- */
-apr_status_t ap_protocol_register(const char *protocol, 
-                                  ap_protocol_check_cb *check, 
-                                  ap_protocol_cupgrade *ccb, 
-                                  ap_protocol_rupgrade *rcb, 
-                                  void *ctx);
+AP_DECLARE_HOOK(int,protocol_switch,(conn_rec *c, request_rec *r,
+                                     const char *protocol))
 
 /**
- * Select a protocol for the given connection and 
- * optional request. Will always select a protocol. This 
- * might be the procotol already active, which results 
- * in no further action taken.
+ * Return the protocol used on the connection. This is either the
+ * default protocol of the connection or the one last switched to.
+ * This allows modules to extends the type of connections that 
+ * Apache understands.
+ * @param c The current connection
+ * @return The identifier of the protocol in place
  */
-const char *ap_protocol_select(conn_rec *c, request_rec *r, 
-                               apr_array_header_t *client_list);
+AP_DECLARE_HOOK(const char *,protocol_get,(const conn_rec *c))
+    
+/**
+ * Select a protocol for the given connection and optional request. Will return
+ * the protocol identifier selected which may be the protocol already in place
+ * on the connection. The server may ignore the choices given.
+ *
+ * @param c The current connection
+ * @param r The current request or NULL
+ * @param choices a list of protocol identifiers, normally the clients whishes
+ * @return the selected protocol
+ */
+AP_DECLARE(const char *) ap_select_protocol(conn_rec *c, request_rec *r, 
+                                            apr_array_header_t *choices);
 
 /**
- * Get the currently active procotol for the connection. 
- * Always non-null.
+ * Perform the actual protocol switch. The protocol given must have been
+ * selected before on the very same connection and request pair.
+ *
+ * @param c The current connection
+ * @param r The current request or NULL
+ * @param protocol the protocol to switch to
+ * @return APR_SUCCESS, if caller may continue processing as usual
+ *         APR_EOF,     if caller needs to stop processing the connection
+ *         APR_EINVAL,  if the protocol is already in place
+ *         APR_NOTIMPL, if no module performed the switch
+ *         Other errors where appropriate
  */
-const char *ap_protocol_get( conn_rec *c );
+AP_DECLARE(apr_status_t) ap_switch_protocol(conn_rec *c, request_rec *r, 
+                                            const char *protocol);
             </pre></code>
-            
             </section>
             <footer>
                 <p>This project is maintained by <a href="https://github.com/icing">icing</a></p>
