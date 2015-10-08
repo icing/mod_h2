@@ -1,0 +1,268 @@
+<!doctype html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="chrome=1">
+        <title>how to h2 in apache</title>
+                
+        <link rel="stylesheet" href="stylesheets/styles.css">
+        <link rel="stylesheet" href="stylesheets/pygment_trac.css">
+        <link rel="stylesheet" href="stylesheets/mod_h2.css">
+        <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+        <!--[if lt IE 9]>
+        <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+        <![endif]-->
+    </head>
+    <body>
+        <div class="wrapper">
+            <div class="backlogo" style="background-image: none; padding-top: 0; top: 10em;">
+              Sections:
+              <ul>
+                <li><a href="#source">Sources</a>
+                    <ul>
+                        <li><a href="#build">Building</a>
+                        <li><a href="#openssl">TLS Support</a>
+                    </ul>
+                </li>
+                <li><a href="#configure">Configuration</a>
+                    <ul>
+                        <li><a href="#conf1">Protocols</a>
+                        <li><a href="#conf1">SSL Parameter</a>
+                    </ul>
+                </li>
+                <li><a href="#checking">Checking</a>
+                    <ul>
+                        <li><a href="#nghttp">nghttp</a>
+                        <li><a href="#curl">curl</a>
+                    </ul>
+                </li>
+              </ul>
+            </div>
+            <header>
+                <h1>mod_h[ttp]2</h1>
+                <p>HTTP/2 module for <a href="https://httpd.apache.org/download.cgi">Apache httpd</a></p>
+            </header>
+            <section>
+                <h1>
+                    <a id="mod_h2-howto" class="anchor" href="#top" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    how to h2 in apache
+                </h1>
+                
+                <p>Copyright (C) 2015 greenbytes GmbH</p>
+                <p>
+                    Support for HTTP/2 is finally being released with Apache httpd 2.4.17! This pages gives advice on
+                    how to build/deploy/configure it. The plan is to update this as people find out new things (read: bugs)
+                    or give recommendations on what works best for them.
+                </p>
+                <p>
+                    Ultimately, this will then flow back into the official Apache documentation and this page will only
+                    contain a single link to it. But we are not quite there yet...
+                </p>
+                
+                <h2>
+                    <a id="source" class="anchor" href="#source" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    Sources
+                </h2>
+                <p>
+                    You can get the Apache release from <a href="https://httpd.apache.org/download.cgi">here</a>. HTTP/2 support 
+                    is included in Apache 2.4.17 and upwards. I will not repeat instructions on how to build the server in general.
+                    There is excellent material available in several places, for example <a href="https://httpd.apache.org/docs/2.4/install.html">here</a>.
+                </p>
+                <p>
+                    (Any links to experimental packages? Drop me a note on twitter @icing.)
+                </p>
+
+                <h3>
+                    <a id="build" class="anchor" href="#build" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    Building with HTTP/2 Support
+                </h3>
+                <p>
+                    Should you build from a release, you will need to <code>configure</code> first. There are tons of options. The ones specific for HTTP/2 are:
+                    <ul>
+                        <li><code>--enable-http2</code><br/>
+                         This enables the module 'http2' which does implement the protocol inside the Apache server.</li> 
+                        <li><code>--with-nghttp2=&lt;dir&gt;</code><br/>
+                         This specifies a non-standard location for the library <code>libnghttp2</code> which is necessary for the http2 module. If nghttp2 is in a standard place, the configure process will pick it up automatically.</li>
+                        <li><code>--enable-nghttp2-staticlib-deps</code><br/>
+                         Ultra-rarely needed option that you may use to <em>static link</em> the nghttp2 library to the server. On most platforms, this only has an effect when there is no shared nghttp2 library to be found.</li>
+                    </ul>
+                </p>
+                <p>
+                    In case you want to build <code>nghttp2</code> for yourself, you find documentation at <a href="https://nghttp2.org">nghttp2.org</a>. The library is also being shipped in the latest Fedora and other distros will follow.
+                </p>
+
+                <h3>
+                    <a id="openssl" class="anchor" href="#openssl" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    TLS Support
+                </h3>
+                <p>
+                    Most people will want to use HTTP/2 with browsers and browser only support it on TLS connections (<code>https://</code> urls).
+                    You'll need proper configuration for that which I cover below. But foremost what you will need is an TLS library that 
+                    supports the ALPN extension.
+                </p>
+                <p>
+                    ALPN is neccessary to <em>negotiate</em> the protocol to use between server and client. If it is not implemented by the TLS lib on your
+                    server, the client will only ever talk HTTP/1.1. So, who does link with Apache and support it?
+                    <ul>
+                        <li><code>OpenSSL 1.0.2</code> and onward.</li>
+                        <li>???</li>
+                    </ul>
+                    If you get your OpenSSL library from your Linux distro, the version number used there might be different from the 
+                    official OpenSSL releases. Check with your distro in case of doubt.
+                </p>
+
+                <h2>
+                    <a id="configure" class="anchor" href="#configure" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    Configuration
+                </h2>
+
+                <p>
+                    One useful addition to your server is to set a good logging level for the
+                    http2 module. Add this:
+                    <pre>
+# this needs to be somewhere
+LoadModule http2_module modules/mod_http2.so
+
+&lt;IfModule http2_module>
+    LogLevel http2:info
+&lt;/IfModule></pre>
+                    When you start your server and look in the error log, you should see one line like:
+                    <pre>
+[timestamp] [http2:info] [pid XXXXX:tid numbers] 
+  mod_http2 (v1.0.0, nghttp2 1.3.4), initializing...</pre>
+                </p>
+
+                <h3>
+                    <a id="conf1" class="anchor" href="#conf1" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    Protocols
+                </h3>
+                <p>
+                    So, assume you have the server built and deployed, the TLS library is bleeding edge (sorry), your server starts,
+                    you open your browser and...how do you know it is working?
+                </p>
+                <p>
+                    If you have not added more to your server config, it probably isn't.
+                </p>
+                <p>
+                    You need to tell the server where to use the protocol. By default, the HTTP/2
+                    protocol is not enabled <em>anywhere</em> in your server. Because that is
+                    the safe route and you might have an existing deployment should continue to work.
+                </p>
+                <p>
+                    You enable the HTTP/2 protocol with the new <code>Protocols</code> directive:
+                    <pre>
+# for a https server
+Protocols h2 http/1.1
+...
+
+# for a http server
+Protocols h2c http/1.1</pre>
+                    You can add this for the server in general or for specific <code>vhosts</code>.
+                </p>
+
+                <h3>
+                    <a id="sslparams" class="anchor" href="#sslparams" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    SSL Parameter
+                </h3>
+                <p>
+                
+                TBD.
+                </p>
+
+
+
+                
+
+                <h2>
+                    <a id="checking" class="anchor" href="#checking" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    Checking
+                </h2>
+                <p>
+                    There are several way of checking that you get a HTTP/2 connection:
+                </p>
+                
+                <h4>
+                   <a id="nghttp" class="anchor" href="#nghttp" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                   nghttp</h4>
+                <p>
+                    <code>nghttp2</code> has its own client and servers that can be build with it. If you have the
+                    client on your system, you can verify your installation by simply retrieving a resource:
+                    <pre>
+> nghttp https://&lt;yourserver>/</pre>
+                    which will either show you the resource or print an error like this:
+                    <pre>
+[ERROR] HTTP/2 protocol was not selected. (nghttp2 expects h2)</pre>
+                    There are two possiblities for this which you can check by adding <code>-v</code>. Either your get this:
+                    <pre>
+> nghttp -v https://&lt;yourserver>/
+[  0.034] Connected
+[ERROR] HTTP/2 protocol was not selected. (nghttp2 expects h2)</pre>
+                    This means that the TLS library your server uses does not implement ALPN. Getting this installtion
+                    correct is sometimes tricky. Use stackoverflow. 
+                    </p><p>
+                    Or you get this:<pre>
+> nghttp -v https://&lt;yourserver>/
+[  0.034] Connected
+The negotiated protocol: http/1.1
+[ERROR] HTTP/2 protocol was not selected. (nghttp2 expects h2)</pre>
+                which means ALPN is working, only the h2 protocol was not selected. You need to check that <code>Protocols</code> 
+                is set as described above for <code>yourserver</code>. Try setting it in the general section, in case you do not
+                get it working in a <code>vhost</code> at first.
+                </p>
+
+
+                <h4>
+                   <a id="curl" class="anchor" href="#curl" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    curl</h4>
+                <p>
+                Of course, <em>the</em> command line client for network resources. If you have curl on your system, there is
+                an easy way to check its http/2 support:
+                <pre>
+> curl -V
+curl 7.43.0 (x86_64-apple-darwin15.0) libcurl/7.43.0 SecureTransport zlib/1.2.5
+Protocols: dict file ftp ftps gopher http https imap imaps ldap ldaps pop3 pop3s rtsp smb smbs smtp smtps telnet tftp 
+Features: AsynchDNS IPv6 Largefile GSS-API Kerberos SPNEGO NTLM NTLM_WB SSL libz UnixSockets 
+                </pre>
+                which is no good. There is no 'HTTP2' among the features. You'd want something like this:
+                <pre>
+> curl -V
+url 7.45.0 (x86_64-apple-darwin15.0.0) libcurl/7.45.0 OpenSSL/1.0.2d zlib/1.2.8 nghttp2/1.3.4
+Protocols: dict file ftp ftps gopher http https imap imaps ldap ldaps pop3 pop3s rtsp smb smbs smtp smtps telnet tftp 
+Features: IPv6 Largefile NTLM NTLM_WB SSL libz TLS-SRP HTTP2 UnixSockets</pre>
+                </p>
+                <p>
+                If you have a <code>curl</code> with the HTTP2 feature, you may check your server
+                with some simple commands:
+                <pre>
+> curl -kv --http2 https://&lt;yourserver>/
+...
+* ALPN, offering h2
+* ALPN, offering http/1.1
+...
+* ALPN, server accepted to use h2
+...
+&lt;the resource></pre>
+                Congratulations, it's working!
+                </p>
+                
+                <p></p>
+                <p>Münster, 08.10.2015,</p>
+                
+                <p>Stefan Eissing, greenbytes GmbH</p>
+
+                <p>Copying and distribution of this file, with or without modification,
+                are permitted in any medium without royalty provided the copyright
+                notice and this notice are preserved.  This file is offered as-is,
+                without warranty of any kind. See LICENSE for details.
+                </p>
+                
+            </section>
+            <footer>
+                <p>This project is maintained by <a href="https://github.com/icing">icing</a></p>
+                <p><small>Hosted on GitHub Pages &mdash; Theme by <a href="https://github.com/orderedlist">orderedlist</a></small></p>
+            </footer>
+        </div>
+        <script src="javascripts/scale.fix.js"></script>
+        
+    </body>
+</html>
