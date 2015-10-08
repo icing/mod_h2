@@ -13,13 +13,17 @@
 # limitations under the License.
 #
 
-HOST_NAME    = test.example.org
+HOST_NAME      = test.example.org
+HOST_NAME_2    = test2.example.org
+HOST_SER_NAME  = test-ser.example.org
 
-HTTP_PORT    = 12345
-HTTPS_PORT   = 12346
+HTTP_PORT      = 12345
+HTTPS_PORT     = 12346
 
-HTTP_AUTH    = $(HOST_NAME):$(HTTP_PORT)
-HTTPS_AUTH   = $(HOST_NAME):$(HTTPS_PORT)
+HTTP_AUTH      = $(HOST_NAME):$(HTTP_PORT)
+HTTPS_AUTH     = $(HOST_NAME):$(HTTPS_PORT)
+HTTPS_AUTH_2   = $(HOST_NAME_2):$(HTTPS_PORT)
+HTTPS_AUTH_SER = $(HOST_SER_NAME):$(HTTPS_PORT)
 
 GEN          = gen
 INST_DIR     = ../install
@@ -72,40 +76,47 @@ install:
 ################################################################################
 # Test the local httpd
 #
+
+TESTRUN = PREFIX=$(prefix) NGHTTP=$(NGHTTP) CURL=$(CURL) bash
+
 test: \
 		$(INST_DIR)/.test-setup \
 		$(INST_DIR)/.curl-installed
 	@rm -rf $(GEN)/tmp
 	@mkdir -p $(GEN)/tmp
-	@$(INST_DIR)/bin/apachectl restart
-	@bash test_curl_altsvc.sh http://$(HTTP_AUTH) https://$(HTTPS_AUTH)
-	@bash test_alt_host.sh https://$(HTTPS_AUTH)
-	@bash test_nghttp_get.sh  https://$(HTTPS_AUTH)
-	@bash test_nghttp_post.sh https://$(HTTPS_AUTH)
-	@bash test_curl_get.sh    https://$(HTTPS_AUTH)
-	@bash test_curl_post.sh   https://$(HTTPS_AUTH)
-	@bash test_nghttp_get.sh  https://$(HTTPS_AUTH)/proxy
-	@bash test_nghttp_post.sh https://$(HTTPS_AUTH)/proxy
-	@bash test_curl_get.sh    https://$(HTTPS_AUTH)/proxy
-	@bash test_curl_post.sh   https://$(HTTPS_AUTH)/proxy
-	@bash test_nghttp_get.sh  https://$(HTTPS_AUTH)/rewrite
-	@bash test_nghttp_post.sh https://$(HTTPS_AUTH)/rewrite
-	@bash test_curl_get.sh    https://$(HTTPS_AUTH)/rewrite
-	@bash test_curl_post.sh   https://$(HTTPS_AUTH)/rewrite
-	@bash test_nghttp_get.sh  http://$(HTTP_AUTH)
-	@bash test_nghttp_post.sh http://$(HTTP_AUTH)
-	@bash test_curl_get.sh    http://$(HTTP_AUTH)
-	@bash test_curl_post.sh   http://$(HTTP_AUTH)
-	@bash test_nghttp_get.sh  http://$(HTTP_AUTH) direct
-	@bash test_nghttp_post.sh http://$(HTTP_AUTH) direct
-	@bash test_nghttp_get.sh  http://$(HTTP_AUTH)/proxy
-	@bash test_nghttp_post.sh http://$(HTTP_AUTH)/proxy
-	@bash test_curl_get.sh    http://$(HTTP_AUTH)/proxy
-	@bash test_curl_post.sh   http://$(HTTP_AUTH)/proxy
-	@bash test_nghttp_get.sh  http://$(HTTP_AUTH)/rewrite
-	@bash test_nghttp_post.sh http://$(HTTP_AUTH)/rewrite
-	@bash test_curl_get.sh    http://$(HTTP_AUTH)/rewrite
-	@bash test_curl_post.sh   http://$(HTTP_AUTH)/rewrite
+	@$(TESTRUN) test_curl_altsvc.sh http://$(HTTP_AUTH) https://$(HTTPS_AUTH)
+	@$(TESTRUN) test_proto_order.sh https://$(HTTPS_AUTH) https://$(HTTPS_AUTH_2)
+	@$(TESTRUN) test_alt_host.sh    https://$(HTTPS_AUTH) https://$(HTTPS_AUTH_2)
+	@$(TESTRUN) test_nghttp_get.sh  https://$(HTTPS_AUTH)
+	@$(TESTRUN) test_nghttp_post.sh https://$(HTTPS_AUTH)
+	@$(TESTRUN) test_curl_get.sh    https://$(HTTPS_AUTH)
+	@$(TESTRUN) test_curl_post.sh   https://$(HTTPS_AUTH)
+	@$(TESTRUN) test_nghttp_get.sh  https://$(HTTPS_AUTH)/proxy alpn "HTTP/1.1"
+	@$(TESTRUN) test_nghttp_post.sh https://$(HTTPS_AUTH)/proxy alpn "HTTP/1.1"
+	@$(TESTRUN) test_curl_get.sh    https://$(HTTPS_AUTH)/proxy alpn "HTTP/1.1"
+	@$(TESTRUN) test_curl_post.sh   https://$(HTTPS_AUTH)/proxy alpn "HTTP/1.1"
+	@$(TESTRUN) test_nghttp_get.sh  https://$(HTTPS_AUTH)/rewrite alpn "HTTP/1.1"
+	@$(TESTRUN) test_nghttp_post.sh https://$(HTTPS_AUTH)/rewrite alpn "HTTP/1.1"
+	@$(TESTRUN) test_curl_get.sh    https://$(HTTPS_AUTH)/rewrite alpn "HTTP/1.1"
+	@$(TESTRUN) test_curl_post.sh   https://$(HTTPS_AUTH)/rewrite alpn "HTTP/1.1"
+	@$(TESTRUN) test_nghttp_get.sh  http://$(HTTP_AUTH)
+	@$(TESTRUN) test_nghttp_post.sh http://$(HTTP_AUTH)
+	@$(TESTRUN) test_curl_get.sh    http://$(HTTP_AUTH)
+	@$(TESTRUN) test_curl_post.sh   http://$(HTTP_AUTH)
+	@$(TESTRUN) test_nghttp_get.sh  http://$(HTTP_AUTH) direct
+	@$(TESTRUN) test_nghttp_post.sh http://$(HTTP_AUTH) direct
+	@$(TESTRUN) test_nghttp_get.sh  http://$(HTTP_AUTH)/proxy alpn "HTTP/1.1"
+	@$(TESTRUN) test_nghttp_post.sh http://$(HTTP_AUTH)/proxy alpn "HTTP/1.1"
+	@$(TESTRUN) test_curl_get.sh    http://$(HTTP_AUTH)/proxy alpn "HTTP/1.1"
+	@$(TESTRUN) test_curl_post.sh   http://$(HTTP_AUTH)/proxy alpn "HTTP/1.1"
+	@$(TESTRUN) test_nghttp_get.sh  http://$(HTTP_AUTH)/rewrite alpn "HTTP/1.1"
+	@$(TESTRUN) test_nghttp_post.sh http://$(HTTP_AUTH)/rewrite alpn "HTTP/1.1"
+	@$(TESTRUN) test_curl_get.sh    http://$(HTTP_AUTH)/rewrite alpn "HTTP/1.1"
+	@$(TESTRUN) test_curl_post.sh   http://$(HTTP_AUTH)/rewrite alpn "HTTP/1.1"
+	@$(TESTRUN) test_nghttp_get.sh  https://$(HTTPS_AUTH_SER) alpn "HTTP/1.1"
+	@$(TESTRUN) test_nghttp_post.sh https://$(HTTPS_AUTH_SER) alpn "HTTP/1.1"
+	@$(TESTRUN) test_curl_get.sh    https://$(HTTPS_AUTH_SER) alpn "HTTP/1.1"
+	@$(TESTRUN) test_curl_post.sh   https://$(HTTPS_AUTH_SER) alpn "HTTP/1.1"
 
 ################################################################################
 # Load Test
@@ -144,9 +155,34 @@ xtest: \
 	@bash test_nghttp_post.sh https://$(HTTPS_AUTH)
 
 ################################################################################
+# Switch mpm modules
+#
+mpm_worker: $(INST_DIR)/.testdocs-setup
+	@test -L $(INST_DIR)/conf/mods-enabled/mpm_worker.load || \
+        (rm -f $(INST_DIR)/conf/mods-enabled/mpm_*; \
+        ln -s ../mods-available/mpm_worker.load $(INST_DIR)/conf/mods-enabled/ && \
+        echo "mpm_worker configured, please restart.")
+
+mpm_event: $(INST_DIR)/.testdocs-setup
+	@test -L $(INST_DIR)/conf/mods-enabled/mpm_event.load || \
+	    (rm -f $(INST_DIR)/conf/mods-enabled/mpm_*; \
+	    ln -s ../mods-available/mpm_event.load $(INST_DIR)/conf/mods-enabled/ && \
+	    echo "mpm_event configured, please restart.")
+
+mpm_prefork: $(INST_DIR)/.testdocs-setup
+	@test -L $(INST_DIR)/conf/mods-enabled/mpm_prefork.load || \
+	    (rm -f $(INST_DIR)/conf/mods-enabled/mpm_*; \
+	    ln -s ../mods-available/mpm_prefork.load $(INST_DIR)/conf/mods-enabled/ && \
+	    echo "mpm_prefork configured, please restart.")
+
+
+################################################################################
 # Setup the local httpd for our tests
 #
-SETUP_FILES = $(wildcard conf/*.conf) $(wildcard conf/sites/*.conf) $(wildcard bin/*)
+SETUP_FILES = $(wildcard conf/*.conf) \
+    $(wildcard conf/mods-available/*.*) \
+    $(wildcard conf/sites/*.conf) \
+    $(wildcard bin/*)
 
 $(INST_DIR)/.testdocs-setup: \
 	$(wildcard conf/*) \
@@ -158,19 +194,19 @@ $(INST_DIR)/.testdocs-setup: \
 	@touch $(INST_DIR)/.testdocs-setup
 
 $(INST_DIR)/.test-setup: \
+        Makefile \
 		$(INST_DIR)/.httpd-installed \
 		conf/*.conf \
         $(wildcard bin/*) \
+        $(wildcard conf/mods-available/*.*) \
 		$(wildcard conf/sites/*.conf) \
         $(INST_DIR)/conf/mods-enabled/h2.load \
 		$(INST_DIR)/conf/ssl/test.example.org.key \
 		$(INST_DIR)/conf/ssl/test.example.org.pem \
-		$(INST_DIR)/conf/ssl/noh2.example.org.key \
-		$(INST_DIR)/conf/ssl/noh2.example.org.pem \
 		$(INST_DIR)/.testdocs-setup
 	@echo -n setup httpd locally...
 	@mkdir -p $(INST_DIR)/conf/sites
-	@mkdir -p $(INST_DIR)/conf/mods
+	@mkdir -p $(INST_DIR)/conf/mods-enabled
 	@mkdir -p $(INST_DIR)/conf/ssl
 	@for file in $(SETUP_FILES); do \
 		sed -e "s,SUBST_SERVER_ROOT_SUBST,$(BLD_PREFIX),g" \
@@ -182,6 +218,7 @@ $(INST_DIR)/.test-setup: \
 	done
 	@for i in bin/*; do chmod +x $(INST_DIR)/$$i; done
 	@cp conf/ssl/*.* $(INST_DIR)/conf/ssl
+	@test -L $(INST_DIR)/conf/mods-enabled/mpm*load || ln -s ../mods-available/mpm_worker.load $(INST_DIR)/conf/mods-enabled/
 	@echo done.
 	@touch $(INST_DIR)/.test-setup
 
@@ -190,40 +227,21 @@ $(INST_DIR)/conf/ssl/test.example.org.key:
 	openssl genrsa -out $(INST_DIR)/conf/ssl/test.example.org.key 4096
 
 $(INST_DIR)/conf/ssl/test.example.org.req: \
-		$(INST_DIR)/conf/ssl/test.example.org.key
+		$(INST_DIR)/conf/ssl/test.example.org.key \
+        conf/ssl/req-template.conf
 	openssl req -new -key $(INST_DIR)/conf/ssl/test.example.org.key \
-		-out $(INST_DIR)/conf/ssl/test.example.org.req < conf/ssl/test.example.org.x509.input
+        -out $(INST_DIR)/conf/ssl/test.example.org.req \
+        -config conf/ssl/req-template.conf
 
 $(INST_DIR)/conf/ssl/test.example.org.pem: \
 		$(INST_DIR)/conf/ssl/test.example.org.key \
 		$(INST_DIR)/conf/ssl/test.example.org.req \
-		conf/ssl/extensions.conf \
-		conf/ssl/test.example.org.x509.input
+		conf/ssl/extensions.conf
 	openssl x509 -req -sha256 -days 1095 \
 		-signkey $(INST_DIR)/conf/ssl/test.example.org.key \
 		-in $(INST_DIR)/conf/ssl/test.example.org.req \
 		-out $(INST_DIR)/conf/ssl/test.example.org.pem \
-		-extfile conf/ssl/extensions.conf -extensions ssl_client < conf/ssl/noh2.example.org.x509.input
-
-$(INST_DIR)/conf/ssl/noh2.example.org.key:
-	@mkdir -p $(INST_DIR)/conf/ssl
-	openssl genrsa -out $(INST_DIR)/conf/ssl/noh2.example.org.key 4096
-
-$(INST_DIR)/conf/ssl/noh2.example.org.req: \
-		$(INST_DIR)/conf/ssl/noh2.example.org.key
-	openssl req -new -key $(INST_DIR)/conf/ssl/noh2.example.org.key \
-		-out $(INST_DIR)/conf/ssl/noh2.example.org.req < conf/ssl/noh2.example.org.x509.input
-
-$(INST_DIR)/conf/ssl/noh2.example.org.pem: \
-		$(INST_DIR)/conf/ssl/noh2.example.org.key \
-		$(INST_DIR)/conf/ssl/noh2.example.org.req \
-		conf/ssl/extensions.conf \
-		conf/ssl/test.example.org.x509.input
-	openssl x509 -req -sha256 -days 1095 \
-		-signkey $(INST_DIR)/conf/ssl/noh2.example.org.key \
-		-in $(INST_DIR)/conf/ssl/noh2.example.org.req \
-		-out $(INST_DIR)/conf/ssl/noh2.example.org.pem \
-		-extfile conf/ssl/extensions.conf -extensions ssl_client < conf/ssl/noh2.example.org.x509.input
+        -extfile conf/ssl/extensions.conf -extensions ssl_test
 
 $(INST_DIR)/conf/mods-available/h2.load:
 	@mkdir -p $(INST_DIR)/conf/mods-available

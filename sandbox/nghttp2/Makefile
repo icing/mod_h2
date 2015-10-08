@@ -13,7 +13,7 @@
 # limitations under the License.
 #
 
-NGHTTP2_VERSION = 1.0.2
+NGHTTP2_VERSION = 1.3.0
 NGHTTP2_DIR     = nghttp2-$(NGHTTP2_VERSION)
 NGHTTP2_TAR     = $(NGHTTP2_DIR).tar.gz
 NGHTTP2_URL     = https://github.com/tatsuhiro-t/nghttp2/releases/download/v$(NGHTTP2_VERSION)/$(NGHTTP2_TAR)
@@ -27,7 +27,7 @@ ZLIB_DIR        = zlib-$(ZLIB_VERSION)
 ZLIB_TAR        = $(ZLIB_DIR).tar.gz
 ZLIB_URL        = http://zlib.net/$(ZLIB_TAR)
 
-LIBEV_VERSION    = 4.19
+LIBEV_VERSION    = 4.20
 LIBEV_DIR        = libev-$(LIBEV_VERSION)
 LIBEV_TAR        = $(LIBEV_DIR).tar.gz
 LIBEV_URL        = http://dist.schmorp.de/libev/$(LIBEV_TAR)
@@ -46,6 +46,7 @@ INST_DIR        = ../install
 BLD_PREFIX      = $(shell dirname $$PWD)/install
 
 CURL_OPTS       = --progress-bar
+PYTHONPATH      = $(BLD_PREFIX)/lib/python2.7/site-packages
 
 OS              = $(shell uname -s)
 
@@ -90,7 +91,8 @@ install:  $(INST_DIR)/.nghttp2-installed
 #
 $(INST_DIR)/.nghttp2-installed:  $(GEN)/$(NGHTTP2_DIR)/.nghttp2-built
 	@echo -n installing nghttp2 locally...
-	@cd $(GEN)/$(NGHTTP2_DIR)/ && make install >> ../build.log
+	@mkdir -p $(PYTHONPATH)
+	@cd $(GEN)/$(NGHTTP2_DIR)/ && PYTHONPATH=$(PYTHONPATH) make install >> ../build.log
 	@echo done.
 	@touch $(INST_DIR)/.nghttp2-installed
 

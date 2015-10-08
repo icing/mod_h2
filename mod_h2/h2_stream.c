@@ -26,6 +26,7 @@
 #include <nghttp2/nghttp2.h>
 
 #include "h2_private.h"
+#include "h2_conn.h"
 #include "h2_mplx.h"
 #include "h2_request.h"
 #include "h2_response.h"
@@ -45,27 +46,17 @@ static void set_state(h2_stream *stream, h2_stream_state_t state)
     }
 }
 
-h2_stream *h2_stream_create(int id, apr_pool_t *master, 
-                            apr_bucket_alloc_t *bucket_alloc, 
-                            struct h2_mplx *m)
+h2_stream *h2_stream_create(int id, apr_pool_t *pool, struct h2_mplx *m)
 {
-    apr_pool_t *spool = NULL;
-    apr_status_t status = apr_pool_create(&spool, master);
-    if (status != APR_SUCCESS) {
-        return NULL;
-    }
-    
-    h2_stream *stream = apr_pcalloc(spool, sizeof(h2_stream));
+    h2_stream *stream = apr_pcalloc(pool, sizeof(h2_stream));
     if (stream != NULL) {
         stream->id = id;
         stream->state = H2_STREAM_ST_IDLE;
-        stream->pool = spool;
-        stream->bucket_alloc = bucket_alloc;
+        stream->pool = pool;
         stream->m = m;
-        stream->request = h2_request_create(id, spool, stream->bucket_alloc);
-        ap_log_cerror(APLOG_MARK, APLOG_DEBUG, 0, h2_mplx_get_conn(m),
-                      "h2_stream(%ld-%d): created",
-                      h2_mplx_get_id(stream->m), stream->id);
+        stream->request = h2_request_create(id, pool, m->c->bucket_alloc);
+        ap_log_cerror(APLOG_MARK, APLOG_DEBUG, 0, m->c,
+                      "h2_stream(%ld-%d): created", m->id, stream->id);
     }
     return stream;
 }
@@ -76,27 +67,13 @@ void h2_stream_cleanup(h2_stream *stream)
         h2_request_destroy(stream->request);
         stream->request = NULL;
     }
-    if (stream->m) {
-        h2_mplx_close_io(stream->m, stream->id);
-        stream->m = NULL;
-    }
 }
 
 apr_status_t h2_stream_destroy(h2_stream *stream)
 {
     AP_DEBUG_ASSERT(stream);
-    
-    if (stream->task && !h2_task_has_finished(stream->task)) {
-        ap_log_cerror(APLOG_MARK, APLOG_DEBUG, 0, 
-                      h2_mplx_get_conn(stream->m),
-                      "h2_stream(%ld-%d): refused to be destroyed",
-                      h2_mplx_get_id(stream->m), (int)stream->id);
-        return APR_EAGAIN;
-    }
-
-    ap_log_cerror(APLOG_MARK, APLOG_DEBUG, 0, h2_mplx_get_conn(stream->m),
-                  "h2_stream(%ld-%d): destroy",
-                  h2_mplx_get_id(stream->m), stream->id);
+    ap_log_cerror(APLOG_MARK, APLOG_DEBUG, 0, stream->m->c,
+                  "h2_stream(%ld-%d): destroy", stream->m->id, stream->id);
     h2_stream_cleanup(stream);
     
     if (stream->task) {
@@ -107,6 +84,18 @@ apr_status_t h2_stream_destroy(h2_stream *stream)
         apr_pool_destroy(stream->pool);
     }
     return APR_SUCCESS;
+}
+
+void h2_stream_attach_pool(h2_stream *stream, apr_pool_t *pool)
+{
+    stream->pool = pool;
+}
+
+apr_pool_t *h2_stream_detach_pool(h2_stream *stream)
+{
+    apr_pool_t *pool = stream->pool;
+    stream->pool = NULL;
+    return pool;
 }
 
 void h2_stream_abort(h2_stream *stream)
@@ -122,9 +111,9 @@ apr_status_t h2_stream_set_response(h2_stream *stream, h2_response *response,
     if (bb && !APR_BRIGADE_EMPTY(bb)) {
         if (!stream->bbout) {
             stream->bbout = apr_brigade_create(stream->pool, 
-                                               stream->bucket_alloc);
+                                               stream->m->c->bucket_alloc);
         }
-        return h2_util_move(stream->bbout, bb, 16 * 1024, 1, NULL, 
+        return h2_util_move(stream->bbout, bb, 16 * 1024, NULL,  
                             "h2_stream_set_response");
     }
     return APR_SUCCESS;
@@ -150,42 +139,47 @@ static int set_closed(h2_stream *stream)
 
 apr_status_t h2_stream_rwrite(h2_stream *stream, request_rec *r)
 {
+    apr_status_t status;
     AP_DEBUG_ASSERT(stream);
     set_state(stream, H2_STREAM_ST_OPEN);
-    apr_status_t status = h2_request_rwrite(stream->request, r, stream->m);
+    status = h2_request_rwrite(stream->request, r, stream->m);
     return status;
 }
 
 apr_status_t h2_stream_write_eoh(h2_stream *stream, int eos)
 {
+    apr_status_t status;
     AP_DEBUG_ASSERT(stream);
-    conn_rec *c = h2_mplx_get_conn(stream->m);
-    stream->task = h2_task_create(h2_mplx_get_id(stream->m), stream->id, 
-                                  stream->pool, stream->m);
     
-    apr_status_t status = h2_request_end_headers(stream->request, 
-                                                 stream->m, stream->task, eos);
+    /* Seeing the end-of-headers, we have everything we need to 
+     * start processing it.
+     */
+    status = h2_mplx_create_task(stream->m, stream);
     if (status == APR_SUCCESS) {
-        status = h2_mplx_do_task(stream->m, stream->task);
+        status = h2_request_end_headers(stream->request, 
+                                        stream->m, stream->task, eos);
+        if (status == APR_SUCCESS) {
+            status = h2_mplx_do_task(stream->m, stream->task);
+        }
+        if (eos) {
+            status = h2_stream_write_eos(stream);
+        }
+        ap_log_cerror(APLOG_MARK, APLOG_DEBUG, status, stream->m->c,
+                      "h2_mplx(%ld-%d): start stream, task %s %s (%s)",
+                      stream->m->id, stream->id,
+                      stream->request->method, stream->request->path,
+                      stream->request->authority);
+        
     }
-    if (eos) {
-        status = h2_stream_write_eos(stream);
-    }
-    ap_log_cerror(APLOG_MARK, APLOG_DEBUG, status, c,
-                  "h2_stream(%ld-%d): end header, task %s %s (%s)",
-                  h2_mplx_get_id(stream->m), stream->id,
-                  stream->request->method, stream->request->path,
-                  stream->request->authority);
-    
     return status;
 }
 
 apr_status_t h2_stream_write_eos(h2_stream *stream)
 {
     AP_DEBUG_ASSERT(stream);
-    ap_log_cerror(APLOG_MARK, APLOG_DEBUG, 0, h2_mplx_get_conn(stream->m),
+    ap_log_cerror(APLOG_MARK, APLOG_DEBUG, 0, stream->m->c,
                   "h2_stream(%ld-%d): closing input",
-                  h2_mplx_get_id(stream->m), stream->id);
+                  stream->m->id, stream->id);
     if (set_closed(stream)) {
         return h2_request_close(stream->request);
     }
@@ -246,10 +240,9 @@ apr_status_t h2_stream_prep_read(h2_stream *stream,
     if (status == APR_SUCCESS && !*peos && !*plen) {
         status = APR_EAGAIN;
     }
-    ap_log_cerror(APLOG_MARK, APLOG_TRACE1, status, 
-                  h2_mplx_get_conn(stream->m),
+    ap_log_cerror(APLOG_MARK, APLOG_TRACE1, status, stream->m->c,
                   "h2_stream(%ld-%d): prep_read %s, len=%ld eos=%d",
-                  h2_mplx_get_id(stream->m), stream->id, 
+                  stream->m->id, stream->id, 
                   src, (long)*plen, *peos);
     return status;
 }
@@ -265,27 +258,6 @@ apr_status_t h2_stream_readx(h2_stream *stream,
                              cb, ctx, plen, peos);
 }
 
-
-apr_status_t h2_stream_read(h2_stream *stream, char *buffer, 
-                            apr_size_t *plen, int *peos)
-{
-    apr_status_t status = APR_SUCCESS;
-    const char *src;
-    if (stream->bbout && !APR_BRIGADE_EMPTY(stream->bbout)) {
-        src = "stream";
-        status = h2_util_bb_read(stream->bbout, buffer, plen, peos);
-    }
-    else {
-        src = "mplx";
-        status = h2_mplx_out_read(stream->m, stream->id, buffer, plen, peos);
-    }
-    ap_log_cerror(APLOG_MARK, APLOG_TRACE1, status, 
-                  h2_mplx_get_conn(stream->m),
-                  "h2_stream(%ld-%d): read %s, len=%ld eos=%d",
-                  h2_mplx_get_id(stream->m), stream->id, 
-                  src, (long)*plen, *peos);
-    return status;
-}
 
 void h2_stream_set_suspended(h2_stream *stream, int suspended)
 {

@@ -26,11 +26,11 @@
 #include "h2_task.h"
 #include "h2_worker.h"
 
-static void *execute(apr_thread_t *thread, void *wctx)
+static void* APR_THREAD_FUNC execute(apr_thread_t *thread, void *wctx)
 {
     h2_worker *worker = (h2_worker *)wctx;
     apr_status_t status = APR_SUCCESS;
-    const int n = 1000000;
+    h2_mplx *m;
     (void)thread;
     
     /* Furthermore, other code might want to see the socket for
@@ -41,44 +41,27 @@ static void *execute(apr_thread_t *thread, void *wctx)
                                APR_PROTO_TCP, worker->pool);
     if (status != APR_SUCCESS) {
         ap_log_perror(APLOG_MARK, APLOG_ERR, status, worker->pool,
-                      "h2_worker(%d): alloc socket", worker->id);
+                      APLOGNO(02948) "h2_worker(%d): alloc socket", 
+                      worker->id);
         worker->worker_done(worker, worker->ctx);
         return NULL;
     }
     
     worker->task = NULL;
-    worker->current = NULL;
+    m = NULL;
     while (!worker->aborted) {
+        status = worker->get_next(worker, &m, &worker->task, worker->ctx);
         
-        if (worker->current) {
-            status = APR_SUCCESS;
-            worker->task = h2_mplx_pop_task(worker->current);
-            for (int i = 0; !worker->aborted && worker->task; ++i) {
-                
-                h2_task_do(worker->task, worker);
-                
-                apr_thread_cond_signal(h2_worker_get_cond(worker));
-                
-                if (i >= n) {
-                    /* Do a maximum of n tasks per given mplx before giving
-                     * other connections a chance. */
-                    worker->task = NULL;
-                    status = APR_EAGAIN;
-                    break;
-                }
-                worker->task = h2_mplx_pop_task(worker->current);
-            }
-            
+        if (worker->task) {            
+            h2_task_do(worker->task, worker);
             worker->task = NULL;
-            worker->current = worker->mplx_done(worker, worker->current,
-                                                status, worker->ctx);
-        }
-        
-        if (!worker->current) {
-            status = worker->get_next(worker, &worker->current, worker->ctx);
+            apr_thread_cond_signal(h2_worker_get_cond(worker));
         }
     }
 
+    status = worker->get_next(worker, &m, NULL, worker->ctx);
+    m = NULL;
+    
     if (worker->socket) {
         apr_socket_close(worker->socket);
         worker->socket = NULL;
@@ -92,12 +75,12 @@ h2_worker *h2_worker_create(int id,
                             apr_pool_t *parent_pool,
                             apr_threadattr_t *attr,
                             h2_worker_mplx_next_fn *get_next,
-                            h2_worker_mplx_done_fn *mplx_done,
                             h2_worker_done_fn *worker_done,
                             void *ctx)
 {
     apr_allocator_t *allocator = NULL;
     apr_pool_t *pool = NULL;
+    h2_worker *w;
     
     apr_status_t status = apr_allocator_create(&allocator);
     if (status != APR_SUCCESS) {
@@ -108,8 +91,9 @@ h2_worker *h2_worker_create(int id,
     if (status != APR_SUCCESS) {
         return NULL;
     }
-    
-    h2_worker *w = apr_pcalloc(pool, sizeof(h2_worker));
+    apr_allocator_owner_set(allocator, pool);
+
+    w = apr_pcalloc(pool, sizeof(h2_worker));
     if (w) {
         APR_RING_ELEM_INIT(w, link);
         
@@ -118,7 +102,6 @@ h2_worker *h2_worker_create(int id,
         w->bucket_alloc = apr_bucket_alloc_create(pool);
 
         w->get_next = get_next;
-        w->mplx_done = mplx_done;
         w->worker_done = worker_done;
         w->ctx = ctx;
         
@@ -139,12 +122,8 @@ apr_status_t h2_worker_destroy(h2_worker *worker)
         worker->io = NULL;
     }
     if (worker->pool) {
-        apr_allocator_t *allocator = apr_pool_allocator_get(worker->pool);
         apr_pool_destroy(worker->pool);
         /* worker is gone */
-        if (allocator) {
-            apr_allocator_destroy(allocator);
-        }
     }
     return APR_SUCCESS;
 }

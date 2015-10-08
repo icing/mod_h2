@@ -14,6 +14,9 @@
 #
 
 
+OS           = $(shell uname -s)
+MACHINE      = $(shell uname -m)
+
 
 APR_VERSION  = 1.5.2
 APR_DIR      = apr-$(APR_VERSION)
@@ -25,10 +28,13 @@ APR-UTIL_DIR = apr-util-$(APR-UTIL_VERSION)
 APR-UTIL_TAR = $(APR-UTIL_DIR).tar.gz
 APR-UTIL_URL = http://archive.apache.org/dist/apr/$(APR-UTIL_TAR)
 
-HTTPD_VERSION = 2.4.12
+HTTPD_VERSION = 2.4.16
 HTTPD_DIR    = httpd-$(HTTPD_VERSION)
 HTTPD_TAR    = httpd-$(HTTPD_VERSION).tar.gz
 HTTPD_URL    = https://archive.apache.org/dist/httpd/$(HTTPD_TAR)
+
+HTTPD_CONF   = --enable-mpms-shared=all --with-included-apr
+HTTPD_DEPS   = $(GEN)/$(HTTPD_DIR)/.apr-extracted
 
 PCRE_VERSION = 8.36
 PCRE_DIR     = pcre-$(PCRE_VERSION)
@@ -39,8 +45,8 @@ OPENSSL_BASE = http://www.openssl.org
 OPENSSL_DIR = openssl-latest
 OPENSSL_TAR = $(OPENSSL_DIR).tar.gz
 OPENSSL_URL = $(OPENSSL_BASE)/source/latest.tar.gz
-OPENSSL_CONF_CMD = CFLAGS=-fPIC ./Configure
-OPENSSL_CONF =  shared linux-x86_64
+OPENSSL_CONF_CMD = ./config
+OPENSSL_CONF =  shared -fPIC
 
 FCGI_VERSION = 2.3.9
 FCGI_DIR     = mod_fcgid-$(FCGI_VERSION)
@@ -52,11 +58,6 @@ INST_DIR     = ../install
 BLD_PREFIX   = $(shell dirname $$PWD)/install
 
 CURL_OPTS    = --progress-bar
-
-OS           = $(shell uname -s)
-
-HTTPD_CONF   = --enable-mpms-shared=all --with-included-apr
-HTTPD_DEPS   = $(GEN)/$(HTTPD_DIR)/.apr-extracted
 
 # For OS X, we drag our own PCRE lib in as the one installed is not
 # recognized by the httpd configure (and pbly rightly so).
@@ -75,10 +76,11 @@ OPENSSL_VERSION = $(shell openssl version -v | sed -e 's/OpenSSL *//g' -e 's/[a-
 ifeq ($(OPENSSL_VERSION), $(filter $(OPENSSL_VERSION),0.9.7 0.9.8 1.0.0 1.0.1))
 	# Very old openssl without alpn support installed, need a newer one
 	HTTPD_DEPS  += $(INST_DIR)/.openssl-installed
-	HTTPD_CONF  += --with-ssl=$(BLD_PREFIX)
+    HTTPD_CONF  += --enable-ssl --with-ssl=$(BLD_PREFIX)
 	ifeq ($(OS),Darwin)
-        OPENSSL_CONF = darwin64-x86_64-cc
         OPENSSL_CONF_CMD = ./Configure
+        OPENSSL_CONF = darwin64-x86_64-cc
+        HTTPD_CONF  += --enable-ssl-staticlib-deps
 	endif
 endif
 
@@ -152,11 +154,9 @@ $(GEN)/$(HTTPD_DIR)/.httpd-configured: \
 $(GEN)/$(HTTPD_DIR)/.httpd-patched: \
 		$(GEN)/$(HTTPD_DIR)/.httpd-extracted
 	@echo applying patches...
-	@cd gen/$(HTTPD_DIR) && patch -p0 < ../../patches/httpd-2.4.12-alpn-v5.patch
-	@cd gen/$(HTTPD_DIR) && patch -p0 < ../../patches/sni_misdirect.patch
+	@cd gen/$(HTTPD_DIR) && patch -p0 < ../../patches/core-protocols-release-v6.patch
 	@echo httpd patched.
 	@touch $(GEN)/$(HTTPD_DIR)/.httpd-patched
-#@cd gen/$(HTTPD_DIR) && patch -p0 < ../../patches/alpn-2.4.x.unified.diff.patch
 
 ################################################################################
 # Extract apache source tree
@@ -248,33 +248,43 @@ $(GEN)/$(FCGI_TAR):
 # Build + install a local opensll library (if needed)
 #
 $(INST_DIR)/.openssl-installed: \
-		$(GEN)/$(OPENSSL_DIR)/.openssl-built
+		$(GEN)/$(OPENSSL_DIR)/.built
 	@mkdir -p $(INST_DIR)
 	@echo -n installing openssl locally, may take some time...
 	@cd $(GEN)/$(OPENSSL_DIR) && make install_sw >> ../build.log
 	@echo done.
 	@touch $(INST_DIR)/.openssl-installed
 
-$(GEN)/$(OPENSSL_DIR)/.openssl-built: \
-		$(GEN)/$(OPENSSL_DIR)/.openssl-configured
+$(GEN)/$(OPENSSL_DIR)/.built: \
+		$(GEN)/$(OPENSSL_DIR)/.configured
 	@echo -n building openssl locally...
 	@cd $(GEN)/$(OPENSSL_DIR) && make
 	@echo done.
-	@touch $(GEN)/$(OPENSSL_DIR)/.openssl-built
+	@touch $(GEN)/$(OPENSSL_DIR)/.built
 
-$(GEN)/$(OPENSSL_DIR)/.openssl-configured: \
-        $(GEN)/$(OPENSSL_DIR)/.openssl-extracted
+$(GEN)/$(OPENSSL_DIR)/.configured: \
+        $(GEN)/$(OPENSSL_DIR)/.patched
 	@echo -n configuring openssl...
 	cd $(GEN)/$(OPENSSL_DIR) && $(OPENSSL_CONF_CMD) --openssldir=$(BLD_PREFIX) $(OPENSSL_CONF)
 	@echo done.
-	@touch $(GEN)/$(OPENSSL_DIR)/.openssl-configured
+	@touch $(GEN)/$(OPENSSL_DIR)/.configured
 
-$(GEN)/$(OPENSSL_DIR)/.openssl-extracted:
+$(GEN)/$(OPENSSL_DIR)/.patched: \
+		$(GEN)/$(OPENSSL_DIR)/.extracted
+	@echo applying patches...
+	# experimental patch to solve SNI+ALPN callback ordering in openssl
+	# not vital with latest httpd-alpn patch. We leave this out of our sandbox
+	# to have it running against an unpatched ssl for better test coverage.
+	#@cd gen/$(OPENSSL_DIR) && patch -p1 < ../../patches/openssl-1.0.2-alpn.patch
+	@echo openssl patched.
+	@touch $(GEN)/$(OPENSSL_DIR)/.patched
+
+$(GEN)/$(OPENSSL_DIR)/.extracted:
 	@echo -n downloading and extracting openssl...
 	@mkdir -p $(GEN)
 	@bash get-openssl-latest.sh $(OPENSSL_URL) $(GEN)/$(OPENSSL_DIR)
 	@echo done.
-	@touch $(GEN)/$(OPENSSL_DIR)/.openssl-extracted
+	@touch $(GEN)/$(OPENSSL_DIR)/.extracted
 
 ################################################################################
 # Build + install a local pcre library (if needed)

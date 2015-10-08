@@ -40,6 +40,7 @@ struct apr_thread_cond_t;
 struct h2_config;
 struct h2_response;
 struct h2_task;
+struct h2_stream;
 struct h2_io_set;
 struct apr_thread_cond_t;
 struct h2_workers;
@@ -53,6 +54,7 @@ typedef struct h2_mplx h2_mplx;
 struct h2_mplx {
     long id;
     APR_RING_ENTRY(h2_mplx) link;
+    volatile apr_uint32_t refs;
     conn_rec *c;
     apr_pool_t *pool;
     apr_bucket_alloc_t *bucket_alloc;
@@ -63,11 +65,15 @@ struct h2_mplx {
     
     apr_thread_mutex_t *lock;
     struct apr_thread_cond_t *added_output;
+    struct apr_thread_cond_t *join_wait;
     
     int aborted;
     apr_size_t stream_max_mem;
     
+    apr_pool_t *spare_pool;           /* spare pool, ready for next stream */
+    struct h2_stream_set *closed;     /* streams closed, but task ongoing */
     struct h2_workers *workers;
+    int file_handles_allowed;
 };
 
 /*******************************************************************************
@@ -75,31 +81,30 @@ struct h2_mplx {
  ******************************************************************************/
 
 /**
- * Create the multiplexer for the given HTTP2 session.
+ * Create the multiplexer for the given HTTP2 session. 
+ * Implicitly has reference count 1.
  */
 h2_mplx *h2_mplx_create(conn_rec *c, apr_pool_t *master, 
                         struct h2_workers *workers);
 
 /**
- * Destroys the multiplexer. Cleans up memory. Should only be called
- * upon session destruction.
+ * Increase the reference counter of this mplx.
  */
-void h2_mplx_destroy(h2_mplx *mplx);
+void h2_mplx_reference(h2_mplx *m);
 
 /**
- * Get the id of the multiplexer, same as the session id it belongs to.
+ * Decreases the reference counter of this mplx.
  */
-long h2_mplx_get_id(h2_mplx *mplx);
-
+void h2_mplx_release(h2_mplx *m);
 /**
- * Get the memory pool used by the multiplexer itself.
- */
-apr_pool_t *h2_mplx_get_pool(h2_mplx *mplx);
-
-/**
- * Get the main connection this multiplexer works for.
- */
-conn_rec *h2_mplx_get_conn(h2_mplx *mplx);
+ * Decreases the reference counter of this mplx and waits for it
+ * to reached 0, destroy the mplx afterwards.
+ * This is to be called from the thread that created the mplx in
+ * the first place.
+ * @param m the mplx to be released and destroyed
+ * @param wait condition var to wait on for ref counter == 0
+ */ 
+apr_status_t h2_mplx_release_and_join(h2_mplx *m, struct apr_thread_cond_t *wait);
 
 /**
  * Aborts the multiplexer. It will answer all future invocation with
@@ -107,18 +112,20 @@ conn_rec *h2_mplx_get_conn(h2_mplx *mplx);
  */
 void h2_mplx_abort(h2_mplx *mplx);
 
+void h2_mplx_task_done(h2_mplx *m, int stream_id);
+
 /*******************************************************************************
  * IO lifetime of streams.
  ******************************************************************************/
 /**
  * Prepares the multiplexer to handle in-/output on the given stream id.
  */
-apr_status_t h2_mplx_open_io(h2_mplx *mplx, int stream_id);
+struct h2_stream *h2_mplx_open_io(h2_mplx *mplx, int stream_id);
 
 /**
- * Ends handling of in-/ouput on the given stream id.
+ * Ends cleanup of a stream in sync with execution thread.
  */
-void h2_mplx_close_io(h2_mplx *mplx, int stream_id);
+apr_status_t h2_mplx_cleanup_stream(h2_mplx *m, struct h2_stream *stream);
 
 /* Return != 0 iff the multiplexer has data for the given stream. 
  */
@@ -131,8 +138,6 @@ int h2_mplx_out_has_data_for(h2_mplx *m, int stream_id);
 apr_status_t h2_mplx_out_trywait(h2_mplx *m, apr_interval_time_t timeout,
                                  struct apr_thread_cond_t *iowait);
 
-apr_status_t h2_mplx_join_task(h2_mplx *m, struct h2_task *task, int wait);
-
 /*******************************************************************************
  * Stream processing.
  ******************************************************************************/
@@ -142,7 +147,9 @@ apr_status_t h2_mplx_join_task(h2_mplx *m, struct h2_task *task, int wait);
  */
 apr_status_t h2_mplx_do_task(h2_mplx *mplx, struct h2_task *task);
 
-struct h2_task *h2_mplx_pop_task(h2_mplx *mplx);
+struct h2_task *h2_mplx_pop_task(h2_mplx *mplx, int *has_more);
+
+apr_status_t h2_mplx_create_task(h2_mplx *mplx, struct h2_stream *stream);
 
 /*******************************************************************************
  * Input handling of streams.
@@ -210,9 +217,6 @@ struct h2_stream *h2_mplx_next_submit(h2_mplx *m,
  * Reads output data from the given stream. Will never block, but
  * return APR_EAGAIN until data arrives or the stream is closed.
  */
-apr_status_t h2_mplx_out_read(h2_mplx *mplx, int stream_id, 
-                              char *buffer, apr_size_t *plen, int *peos);
-
 apr_status_t h2_mplx_out_readx(h2_mplx *mplx, int stream_id, 
                                h2_io_data_cb *cb, void *ctx, 
                                apr_size_t *plen, int *peos);

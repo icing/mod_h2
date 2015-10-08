@@ -1,3 +1,94 @@
+v0.9.8
+-------------------------------------------------------------------------------- 
+ * server protocol of requests served via mod_h2 is now `HTTP/2`
+ * directive `H2SerializeHeaders` had no effect any longer, fixed.
+ * requests served in `H2SerializeHeaders on` hosts, report `HTTP/1.1` as
+   protocol. This is the mode to enabled when having compatiblity issues.
+
+v0.9.7
+-------------------------------------------------------------------------------- 
+ * update of core-protocols.patch to v4
+ * "Protocols" default changed. servers/vhosts need to explicitly enable h2/h2c 
+   now. For example with `Protocols h2 http/1.1`
+ * adding test cases for "Protocols" ordering
+ * configuration option -enable-werror now sets compiler flags to go for Apache
+   httpd standard code restrictions.
+
+v0.9.6
+-------------------------------------------------------------------------------- 
+ * for closed h2 connections proper state is set. Fixes resource/worker handling
+   issues in mpm_event
+ * upgrade the core-protocols patch to the latest relevant apache changes
+ * if not explicitly configured, H2SessionExtraFiles gets a default usable in
+   proecsses with 256 max file handles and depending on mpm used.
+ * upgraded sandbox to nghttp2 1.3.0
+
+v0.9.5
+-------------------------------------------------------------------------------- 
+ * fix for resource management when running with mpm_event
+
+v0.9.4
+-------------------------------------------------------------------------------- 
+ * mod_h2 is a copy of the module in Apache httpd trunk
+ * requires a patched httpd for new Protocols feature. Patch applied in sandbox,
+   available for own use in sandbox/httpd/patches/core_protocols_release.patch.
+ * See README.me about changes, especially the chapter about Migration
+ * Several H2* directives have disappeared, also see Migration in README.md
+ * This version should be close to the release candidate. Report any issues
+   here at github or on the apache httpd dev mailing list
+
+v0.8.3
+-------------------------------------------------------------------------------- 
+ * Fixed typo in module setup during installation that broke enabling the module
+   via a2enmod.
+
+v0.8.2
+-------------------------------------------------------------------------------- 
+ * In case "H2SerializeHeaders On" is configured, errorneous requests led to
+   500 responses. Fixed by installing post_read hooks really early now.
+
+v0.8.1
+-------------------------------------------------------------------------------- 
+ * added some defensive code for configurations at user that produced duplicate
+   response headers
+ * added httpd/trunk fix to allocate task memory pools under mplx locking
+
+v0.8.0
+-------------------------------------------------------------------------------- 
+ * when serving static files, these are kept open longer (and buffer copied
+   less). Use config "H2SessionExtraFiles" to change the value. The more you
+   can give per connection, the better. But you may run out of open file 
+   handles, if not careful. Default value is 5, which seems to work on my
+   config with mpms worker, event and prefork. Basically, eaach httpd process
+   needs at least #connections + #workers + (#conn * #extrafiles) available.
+ * main connection buffering, buffer sizes and write sizes are configurable,
+   see README.md for the list of options. buffer sizes and write sizes influence
+   the TLS performance. Defaults seem reasonably, but ymmv.
+ * general performance improved due to better handling of stream close and
+   resource cleanup
+ * prefork mpm confirmed working. Unless configured otherwise, each session
+   will only have 1 worker thread. Raise this with "H2MaxWorkers"
+ * changed sandbox cipher config to mozilla recommendation (thanks Lucas)
+ * sandbox update to nghttp2 1.0.5
+
+v0.7.3
+--------------------------------------------------------------------------------
+ * sandbox update to nghttp2 1.0.4
+ * rework of stream scheduling and thread sync
+ * test suite runs with mpm_prefork on OS X and Ubuntu (feedback welcome)
+
+v0.7.2
+--------------------------------------------------------------------------------
+ * fixes crash with certain modules that (correctly) expected their 
+   pre_connection hooks to work. Solves #28
+ * fixes log statements and Makefile to compile sandbox on 32bit linux
+
+v0.7.1
+--------------------------------------------------------------------------------
+ * h2_mplx now uses reference counting to enable a controlled destruction on
+   session termination. If this fixes all the crashes reported, remains to
+   be seen.
+
 v0.7.0
 --------------------------------------------------------------------------------
  * switching to nghttp2 v1.0.*, compilation + linkage with nghttp2 v0.7.* will

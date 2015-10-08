@@ -21,6 +21,8 @@
 #include <http_log.h>
 #include <http_vhost.h>
 
+#include <ap_mpm.h>
+
 #include <apr_strings.h>
 
 #include "h2_alt_svc.h"
@@ -36,9 +38,7 @@
 
 static h2_config defconf = {
     "default",
-    0,                /* enabled */
     100,              /* max_streams */
-    16 * 1024,        /* max_hl_size */
     64 * 1024,        /* window_size */
     -1,               /* min workers */
     -1,               /* max workers */
@@ -47,9 +47,35 @@ static h2_config defconf = {
     NULL,             /* no alt-svcs */
     -1,               /* alt-svc max age */
     0,                /* serialize headers */
-    1,                /* hack mpm event */
-    1,                /* h2 direct mode */
+    -1,               /* h2 direct mode */
+    -1,               /* # session extra files */
 };
+
+static int files_per_session = 0;
+
+void h2_config_init(apr_pool_t *pool) {
+    /* Determine a good default for this platform and mpm?
+     * TODO: not sure how APR wants to hand out this piece of 
+     * information.
+     */
+    int max_files = 256;
+    int conn_threads = 1;
+    int tx_files = max_files / 4;
+    
+    (void)pool;
+    ap_mpm_query(AP_MPMQ_MAX_THREADS, &conn_threads);
+    switch (h2_conn_mpm_type()) {
+        case H2_MPM_PREFORK:
+        case H2_MPM_WORKER:
+        case H2_MPM_EVENT:
+            /* allow that many transfer open files per mplx */
+            files_per_session = (tx_files / conn_threads);
+            break;
+        default:
+            /* don't know anything about it, stay safe */
+            break;
+    }
+}
 
 static void *h2_config_create(apr_pool_t *pool,
                               const char *prefix, const char *x)
@@ -57,25 +83,23 @@ static void *h2_config_create(apr_pool_t *pool,
     h2_config *conf = (h2_config *)apr_pcalloc(pool, sizeof(h2_config));
     
     const char *s = x? x : "unknown";
-    char *name = (char *)apr_pcalloc(pool, strlen(prefix) + strlen(s) + 20);
+    char *name = apr_pcalloc(pool, strlen(prefix) + strlen(s) + 20);
     strcpy(name, prefix);
     strcat(name, "[");
     strcat(name, s);
     strcat(name, "]");
     
-    conf->name           = name;
-    conf->h2_enabled     = DEF_VAL;
-    conf->h2_max_streams = DEF_VAL;
-    conf->h2_max_hl_size = DEF_VAL;
-    conf->h2_window_size = DEF_VAL;
-    conf->min_workers    = DEF_VAL;
-    conf->max_workers    = DEF_VAL;
+    conf->name                 = name;
+    conf->h2_max_streams       = DEF_VAL;
+    conf->h2_window_size       = DEF_VAL;
+    conf->min_workers          = DEF_VAL;
+    conf->max_workers          = DEF_VAL;
     conf->max_worker_idle_secs = DEF_VAL;
-    conf->stream_max_mem_size = DEF_VAL;
-    conf->alt_svc_max_age = DEF_VAL;
-    conf->serialize_headers = DEF_VAL;
-    conf->hack_mpm_event = DEF_VAL;
-    conf->h2_direct      = DEF_VAL;
+    conf->stream_max_mem_size  = DEF_VAL;
+    conf->alt_svc_max_age      = DEF_VAL;
+    conf->serialize_headers    = DEF_VAL;
+    conf->h2_direct            = DEF_VAL;
+    conf->session_extra_files  = DEF_VAL;
     return conf;
 }
 
@@ -95,8 +119,7 @@ void *h2_config_merge(apr_pool_t *pool, void *basev, void *addv)
     h2_config *add = (h2_config *)addv;
     h2_config *n = (h2_config *)apr_pcalloc(pool, sizeof(h2_config));
 
-    char *name = (char *)apr_pcalloc(pool,
-        20 + strlen(add->name) + strlen(base->name));
+    char *name = apr_pcalloc(pool, 20 + strlen(add->name) + strlen(base->name));
     strcpy(name, "merged[");
     strcat(name, add->name);
     strcat(name, ", ");
@@ -104,9 +127,7 @@ void *h2_config_merge(apr_pool_t *pool, void *basev, void *addv)
     strcat(name, "]");
     n->name = name;
 
-    n->h2_enabled     = H2_CONFIG_GET(add, base, h2_enabled);
     n->h2_max_streams = H2_CONFIG_GET(add, base, h2_max_streams);
-    n->h2_max_hl_size = H2_CONFIG_GET(add, base, h2_max_hl_size);
     n->h2_window_size = H2_CONFIG_GET(add, base, h2_window_size);
     n->min_workers    = H2_CONFIG_GET(add, base, min_workers);
     n->max_workers    = H2_CONFIG_GET(add, base, max_workers);
@@ -115,21 +136,18 @@ void *h2_config_merge(apr_pool_t *pool, void *basev, void *addv)
     n->alt_svcs = add->alt_svcs? add->alt_svcs : base->alt_svcs;
     n->alt_svc_max_age = H2_CONFIG_GET(add, base, alt_svc_max_age);
     n->serialize_headers = H2_CONFIG_GET(add, base, serialize_headers);
-    n->hack_mpm_event = H2_CONFIG_GET(add, base, hack_mpm_event);
     n->h2_direct      = H2_CONFIG_GET(add, base, h2_direct);
+    n->session_extra_files = H2_CONFIG_GET(add, base, session_extra_files);
     
     return n;
 }
 
 int h2_config_geti(h2_config *conf, h2_config_var_t var)
 {
+    int n;
     switch(var) {
-        case H2_CONF_ENABLED:
-            return H2_CONFIG_GET(conf, &defconf, h2_enabled);
         case H2_CONF_MAX_STREAMS:
             return H2_CONFIG_GET(conf, &defconf, h2_max_streams);
-        case H2_CONF_MAX_HL_SIZE:
-            return H2_CONFIG_GET(conf, &defconf, h2_max_hl_size);
         case H2_CONF_WIN_SIZE:
             return H2_CONFIG_GET(conf, &defconf, h2_window_size);
         case H2_CONF_MIN_WORKERS:
@@ -144,31 +162,27 @@ int h2_config_geti(h2_config *conf, h2_config_var_t var)
             return H2_CONFIG_GET(conf, &defconf, alt_svc_max_age);
         case H2_CONF_SER_HEADERS:
             return H2_CONFIG_GET(conf, &defconf, serialize_headers);
-        case H2_CONF_HACK_MPM_EVENT:
-            return H2_CONFIG_GET(conf, &defconf, hack_mpm_event);
         case H2_CONF_DIRECT:
             return H2_CONFIG_GET(conf, &defconf, h2_direct);
+        case H2_CONF_SESSION_FILES:
+            n = H2_CONFIG_GET(conf, &defconf, session_extra_files);
+            if (n < 0) {
+                n = files_per_session;
+            }
+            return n;
         default:
             return DEF_VAL;
     }
 }
 
-static const char *h2_conf_set_engine(cmd_parms *parms,
-                                      void *arg, const char *value)
+h2_config *h2_config_sget(server_rec *s)
 {
-    h2_config *cfg = h2_config_sget(parms->server);
-    if (!strcasecmp(value, "On")) {
-        cfg->h2_enabled = 1;
-        return NULL;
-    }
-    else if (!strcasecmp(value, "Off")) {
-        cfg->h2_enabled = 0;
-        return NULL;
-    }
-    
-    (void)arg;
-    return "value must be On or Off";
+    h2_config *cfg = (h2_config *)ap_get_module_config(s->module_config, 
+                                                       &h2_module);
+    AP_DEBUG_ASSERT(cfg);
+    return cfg;
 }
+
 
 static const char *h2_conf_set_max_streams(cmd_parms *parms,
                                            void *arg, const char *value)
@@ -176,6 +190,9 @@ static const char *h2_conf_set_max_streams(cmd_parms *parms,
     h2_config *cfg = h2_config_sget(parms->server);
     cfg->h2_max_streams = (int)apr_atoi64(value);
     (void)arg;
+    if (cfg->h2_max_streams < 1) {
+        return "value must be > 0";
+    }
     return NULL;
 }
 
@@ -185,15 +202,9 @@ static const char *h2_conf_set_window_size(cmd_parms *parms,
     h2_config *cfg = h2_config_sget(parms->server);
     cfg->h2_window_size = (int)apr_atoi64(value);
     (void)arg;
-    return NULL;
-}
-
-static const char *h2_conf_set_max_hl_size(cmd_parms *parms,
-                                           void *arg, const char *value)
-{
-    h2_config *cfg = h2_config_sget(parms->server);
-    cfg->h2_max_hl_size = (int)apr_atoi64(value);
-    (void)arg;
+    if (cfg->h2_window_size < 1024) {
+        return "value must be > 1k";
+    }
     return NULL;
 }
 
@@ -203,6 +214,9 @@ static const char *h2_conf_set_min_workers(cmd_parms *parms,
     h2_config *cfg = h2_config_sget(parms->server);
     cfg->min_workers = (int)apr_atoi64(value);
     (void)arg;
+    if (cfg->min_workers < 1) {
+        return "value must be > 1";
+    }
     return NULL;
 }
 
@@ -212,6 +226,9 @@ static const char *h2_conf_set_max_workers(cmd_parms *parms,
     h2_config *cfg = h2_config_sget(parms->server);
     cfg->max_workers = (int)apr_atoi64(value);
     (void)arg;
+    if (cfg->max_workers < 1) {
+        return "value must be > 1";
+    }
     return NULL;
 }
 
@@ -221,6 +238,9 @@ static const char *h2_conf_set_max_worker_idle_secs(cmd_parms *parms,
     h2_config *cfg = h2_config_sget(parms->server);
     cfg->max_worker_idle_secs = (int)apr_atoi64(value);
     (void)arg;
+    if (cfg->max_worker_idle_secs < 1) {
+        return "value must be > 1";
+    }
     return NULL;
 }
 
@@ -232,6 +252,9 @@ static const char *h2_conf_set_stream_max_mem_size(cmd_parms *parms,
     
     cfg->stream_max_mem_size = (int)apr_atoi64(value);
     (void)arg;
+    if (cfg->stream_max_mem_size < 1024) {
+        return "value must be > 1k";
+    }
     return NULL;
 }
 
@@ -262,43 +285,61 @@ static const char *h2_conf_set_alt_svc_max_age(cmd_parms *parms,
     return NULL;
 }
 
-static const char *h2_conf_set_serialize_headers(cmd_parms *parms,
-                                                 void *arg, const char *value)
+static const char *h2_conf_set_session_extra_files(cmd_parms *parms,
+                                                   void *arg, const char *value)
 {
     h2_config *cfg = h2_config_sget(parms->server);
-    cfg->serialize_headers = !apr_strnatcasecmp(value, "On");
+    apr_int64_t max = (int)apr_atoi64(value);
+    if (max <= 0) {
+        return "value must be a positive number";
+    }
+    cfg->session_extra_files = (int)max;
     (void)arg;
     return NULL;
 }
 
-static const char *h2_conf_set_hack_mpm_event(cmd_parms *parms,
-                                              void *arg, const char *value)
+static const char *h2_conf_set_serialize_headers(cmd_parms *parms,
+                                                 void *arg, const char *value)
 {
     h2_config *cfg = h2_config_sget(parms->server);
-    cfg->hack_mpm_event = !apr_strnatcasecmp(value, "On");
+    if (!strcasecmp(value, "On")) {
+        cfg->serialize_headers = 1;
+        return NULL;
+    }
+    else if (!strcasecmp(value, "Off")) {
+        cfg->serialize_headers = 0;
+        return NULL;
+    }
+    
     (void)arg;
-    return NULL;
+    return "value must be On or Off";
 }
 
 static const char *h2_conf_set_direct(cmd_parms *parms,
                                       void *arg, const char *value)
 {
     h2_config *cfg = h2_config_sget(parms->server);
-    cfg->h2_direct = !apr_strnatcasecmp(value, "On");
+    if (!strcasecmp(value, "On")) {
+        cfg->h2_direct = 1;
+        return NULL;
+    }
+    else if (!strcasecmp(value, "Off")) {
+        cfg->h2_direct = 0;
+        return NULL;
+    }
+    
     (void)arg;
-    return NULL;
+    return "value must be On or Off";
 }
 
-#pragma GCC diagnostic ignored "-Wmissing-braces"
+#define AP_END_CMD     AP_INIT_TAKE1(NULL, NULL, NULL, RSRC_CONF, NULL)
+
+
 const command_rec h2_cmds[] = {
-    AP_INIT_TAKE1("H2Engine", h2_conf_set_engine, NULL,
-                  RSRC_CONF, "on to enable HTTP/2 protocol handling"),
     AP_INIT_TAKE1("H2MaxSessionStreams", h2_conf_set_max_streams, NULL,
                   RSRC_CONF, "maximum number of open streams per session"),
-    AP_INIT_TAKE1("H2InitialWindowSize", h2_conf_set_window_size, NULL,
-                  RSRC_CONF, "initial window size on client DATA"),
-    AP_INIT_TAKE1("H2MaxHeaderListSize", h2_conf_set_max_hl_size, NULL, 
-                  RSRC_CONF, "maximum acceptable size of request headers"),
+    AP_INIT_TAKE1("H2WindowSize", h2_conf_set_window_size, NULL,
+                  RSRC_CONF, "window size on client DATA"),
     AP_INIT_TAKE1("H2MinWorkers", h2_conf_set_min_workers, NULL,
                   RSRC_CONF, "minimum number of worker threads per child"),
     AP_INIT_TAKE1("H2MaxWorkers", h2_conf_set_max_workers, NULL,
@@ -313,11 +354,11 @@ const command_rec h2_cmds[] = {
                   RSRC_CONF, "set the maximum age (in seconds) that client can rely on alt-svc information"),
     AP_INIT_TAKE1("H2SerializeHeaders", h2_conf_set_serialize_headers, NULL,
                   RSRC_CONF, "on to enable header serialization for compatibility"),
-    AP_INIT_TAKE1("H2HackMpmEvent", h2_conf_set_hack_mpm_event, NULL,
-                  RSRC_CONF, "on to enable a hack that makes mpm_event working with mod_h2"),
     AP_INIT_TAKE1("H2Direct", h2_conf_set_direct, NULL,
-                  RSRC_CONF, "on to enable direct HTTP/2 mode on non-TLS"),
-    { NULL, NULL, NULL, 0, 0, NULL }
+                  RSRC_CONF, "on to enable direct HTTP/2 mode"),
+    AP_INIT_TAKE1("H2SessionExtraFiles", h2_conf_set_session_extra_files, NULL,
+                  RSRC_CONF, "number of extra file a session might keep open"),
+    AP_END_CMD
 };
 
 
@@ -328,52 +369,14 @@ h2_config *h2_config_rget(request_rec *r)
     return cfg? cfg : h2_config_sget(r->server); 
 }
 
-h2_config *h2_config_sget(server_rec *s)
-{
-    h2_config *cfg = (h2_config *)ap_get_module_config(s->module_config, 
-                                                       &h2_module);
-    AP_DEBUG_ASSERT(cfg);
-    return cfg;
-}
-
 h2_config *h2_config_get(conn_rec *c)
 {
     h2_ctx *ctx = h2_ctx_get(c);
+    
     if (ctx->config) {
         return ctx->config;
     }
-    if (!ctx->server && ctx->hostname) {
-        /* We have a host agreed upon via TLS SNI, but no request yet.
-         * The sni host was accepted and therefore does match a server record
-         * (vhost) for it. But we need to know which one.
-         * Normally, it is enough to be set on the initial request on a
-         * connection, but we need it earlier. Simulate a request and call
-         * the vhost matching stuff.
-         */
-        apr_uri_t uri;
-        memset(&uri, 0, sizeof(uri));
-        uri.scheme = (char*)"https";
-        uri.hostinfo = (char*)ctx->hostname;
-        uri.hostname = (char*)ctx->hostname;
-        uri.port_str = (char*)"";
-        uri.port = c->local_addr->port;
-        uri.path = (char*)"/";
-        
-        request_rec r;
-        memset(&r, 0, sizeof(r));
-        r.uri = (char*)"/";
-        r.connection = c;
-        r.pool = c->pool;
-        r.hostname = ctx->hostname;
-        r.headers_in = apr_table_make(c->pool, 1);
-        r.parsed_uri = uri;
-        r.status = HTTP_OK;
-        r.server = r.connection->base_server;
-        ap_update_vhost_from_headers(&r);
-        ctx->server = r.server;
-    }
-    
-    if (ctx->server) {
+    else if (ctx->server) {
         ctx->config = h2_config_sget(ctx->server);
         return ctx->config;
     }

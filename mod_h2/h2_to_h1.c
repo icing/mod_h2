@@ -33,27 +33,34 @@
 
 h2_to_h1 *h2_to_h1_create(int stream_id, apr_pool_t *pool, 
                           apr_bucket_alloc_t *bucket_alloc, 
-                          const char *method, const char *path,
-                          const char *authority, struct h2_mplx *m)
+                          const char *method, 
+                          const char *scheme, 
+                          const char *authority, 
+                          const char *path,
+                          struct h2_mplx *m)
 {
+    h2_to_h1 *to_h1;
     if (!method) {
-        ap_log_cerror(APLOG_MARK, APLOG_ERR, 0, h2_mplx_get_conn(m),
+        ap_log_cerror(APLOG_MARK, APLOG_ERR, 0, m->c,
+                      APLOGNO(02943) 
                       "h2_to_h1: header start but :method missing");
         return NULL;
     }
     if (!path) {
-        ap_log_cerror(APLOG_MARK, APLOG_ERR, 0, h2_mplx_get_conn(m),
+        ap_log_cerror(APLOG_MARK, APLOG_ERR, 0, m->c,
+                      APLOGNO(02944) 
                       "h2_to_h1: header start but :path missing");
         return NULL;
     }
     
-    h2_to_h1 *to_h1 = apr_pcalloc(pool, sizeof(h2_to_h1));
+    to_h1 = apr_pcalloc(pool, sizeof(h2_to_h1));
     if (to_h1) {
         to_h1->stream_id = stream_id;
         to_h1->pool = pool;
         to_h1->method = method;
-        to_h1->path = path;
+        to_h1->scheme = scheme;
         to_h1->authority = authority;
+        to_h1->path = path;
         to_h1->m = m;
         to_h1->headers = apr_table_make(to_h1->pool, 10);
         to_h1->bb = apr_brigade_create(pool, bucket_alloc);
@@ -72,11 +79,12 @@ apr_status_t h2_to_h1_add_header(h2_to_h1 *to_h1,
                                  const char *name, size_t nlen,
                                  const char *value, size_t vlen)
 {
+    char *hname, *hvalue;
     if (H2_HD_MATCH_LIT("transfer-encoding", name, nlen)) {
         if (!apr_strnatcasecmp("chunked", value)) {
             /* This should never arrive here in a HTTP/2 request */
-            ap_log_cerror(APLOG_MARK, APLOG_ERR, APR_BADARG, 
-                          h2_mplx_get_conn(to_h1->m),
+            ap_log_cerror(APLOG_MARK, APLOG_ERR, APR_BADARG, to_h1->m->c,
+                          APLOGNO(02945) 
                           "h2_to_h1: 'transfer-encoding: chunked' received");
             return APR_BADARG;
         }
@@ -85,8 +93,8 @@ apr_status_t h2_to_h1_add_header(h2_to_h1 *to_h1,
         char *end;
         to_h1->content_len = apr_strtoi64(value, &end, 10);
         if (value == end) {
-            ap_log_cerror(APLOG_MARK, APLOG_WARNING, APR_EINVAL, 
-                          h2_mplx_get_conn(to_h1->m),
+            ap_log_cerror(APLOG_MARK, APLOG_WARNING, APR_EINVAL, to_h1->m->c,
+                          APLOGNO(02959) 
                           "h2_request(%d): content-length value not parsed: %s",
                           to_h1->stream_id, value);
             return APR_EINVAL;
@@ -106,17 +114,19 @@ apr_status_t h2_to_h1_add_header(h2_to_h1 *to_h1,
              || H2_HD_MATCH_LIT("proxy-connection", name, nlen)
              || H2_HD_MATCH_LIT("keep-alive", name, nlen)
              || H2_HD_MATCH_LIT("http2-settings", name, nlen)) {
-        // ignore these.
+        /* ignore these. */
         return APR_SUCCESS;
     }
     else if (H2_HD_MATCH_LIT("cookie", name, nlen)) {
         const char *existing = apr_table_get(to_h1->headers, "cookie");
         if (existing) {
+            char *nval;
+            
             /* Cookie headers come separately in HTTP/2, but need
              * to be merged by "; " (instead of default ", ")
              */
-            char *hvalue = apr_pstrndup(to_h1->pool, value, vlen);
-            char *nval = apr_psprintf(to_h1->pool, "%s; %s", existing, hvalue);
+            hvalue = apr_pstrndup(to_h1->pool, value, vlen);
+            nval = apr_psprintf(to_h1->pool, "%s; %s", existing, hvalue);
             apr_table_setn(to_h1->headers, "Cookie", nval);
             return APR_SUCCESS;
         }
@@ -125,8 +135,8 @@ apr_status_t h2_to_h1_add_header(h2_to_h1 *to_h1,
         to_h1->seen_host = 1;
     }
     
-    char *hname = apr_pstrndup(to_h1->pool, name, nlen);
-    char *hvalue = apr_pstrndup(to_h1->pool, value, vlen);
+    hname = apr_pstrndup(to_h1->pool, name, nlen);
+    hvalue = apr_pstrndup(to_h1->pool, value, vlen);
     h2_util_camel_case_header(hname, nlen);
     apr_table_mergen(to_h1->headers, hname, hvalue);
     
@@ -148,10 +158,9 @@ apr_status_t h2_to_h1_add_headers(h2_to_h1 *to_h1, apr_table_t *headers)
 
 apr_status_t h2_to_h1_end_headers(h2_to_h1 *to_h1, h2_task *task, int eos)
 {
-    conn_rec *c = h2_mplx_get_conn(to_h1->m);
-    ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, c,
+    ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, to_h1->m->c,
                   "h2_to_h1(%ld-%d): end headers", 
-                  h2_mplx_get_id(to_h1->m), to_h1->stream_id);
+                  to_h1->m->id, to_h1->stream_id);
     
     if (to_h1->eoh) {
         return APR_EINVAL;
@@ -180,16 +189,20 @@ apr_status_t h2_to_h1_end_headers(h2_to_h1 *to_h1, h2_task *task, int eos)
         apr_table_mergen(to_h1->headers, "Transfer-Encoding", "chunked");
     }
     
-    h2_task_set_request(task, to_h1->method, to_h1->path, 
-                        to_h1->authority, to_h1->headers, eos);
+    h2_task_set_request(task, to_h1->method, 
+                        to_h1->scheme, 
+                        to_h1->authority, 
+                        to_h1->path, 
+                        to_h1->headers, eos);
     to_h1->eoh = 1;
     
     if (eos) {
         apr_status_t status = h2_to_h1_close(to_h1);
         if (status != APR_SUCCESS) {
-            ap_log_cerror(APLOG_MARK, APLOG_WARNING, status, c,
+            ap_log_cerror(APLOG_MARK, APLOG_WARNING, status, to_h1->m->c,
+                          APLOGNO(02960) 
                           "h2_to_h1(%ld-%d): end headers, eos=%d", 
-                          h2_mplx_get_id(to_h1->m), to_h1->stream_id, eos);
+                          to_h1->m->id, to_h1->stream_id, eos);
         }
         return status;
     }
@@ -206,7 +219,6 @@ static apr_status_t h2_to_h1_add_data_raw(h2_to_h1 *to_h1,
                                           const char *data, size_t len)
 {
     apr_status_t status = APR_SUCCESS;
-    h2_mplx_get_conn(to_h1->m);
 
     if (to_h1->eos || !to_h1->eoh) {
         return APR_EINVAL;
@@ -223,16 +235,16 @@ static apr_status_t h2_to_h1_add_data_raw(h2_to_h1 *to_h1,
 apr_status_t h2_to_h1_add_data(h2_to_h1 *to_h1,
                                const char *data, size_t len)
 {
-    ap_log_cerror(APLOG_MARK, APLOG_TRACE2, 0, h2_mplx_get_conn(to_h1->m),
+    ap_log_cerror(APLOG_MARK, APLOG_TRACE2, 0, to_h1->m->c,
                   "h2_to_h1(%ld-%d): add %ld data bytes", 
-                  h2_mplx_get_id(to_h1->m), to_h1->stream_id, (long)len);
+                  to_h1->m->id, to_h1->stream_id, (long)len);
     
     if (to_h1->chunked) {
         /* if input may have a body and we have not seen any
          * content-length header, we need to chunk the input data.
          */
         apr_status_t status = apr_brigade_printf(to_h1->bb, NULL, NULL,
-                                                 "%lx\r\n", len);
+                                                 "%lx\r\n", (unsigned long)len);
         if (status == APR_SUCCESS) {
             status = h2_to_h1_add_data_raw(to_h1, data, len);
             if (status == APR_SUCCESS) {
@@ -244,13 +256,12 @@ apr_status_t h2_to_h1_add_data(h2_to_h1 *to_h1,
     else {
         to_h1->remain_len -= len;
         if (to_h1->remain_len < 0) {
-            ap_log_cerror(APLOG_MARK, APLOG_WARNING, 0, 
-                          h2_mplx_get_conn(to_h1->m),
+            ap_log_cerror(APLOG_MARK, APLOG_WARNING, 0, to_h1->m->c,
+                          APLOGNO(02961) 
                           "h2_to_h1(%ld-%d): got %ld more content bytes than announced "
                           "in content-length header: %ld", 
-                          h2_mplx_get_id(to_h1->m),
-                          to_h1->stream_id, (long)to_h1->content_len,
-                          -(long)to_h1->remain_len);
+                          to_h1->m->id, to_h1->stream_id, 
+                          (long)to_h1->content_len, -(long)to_h1->remain_len);
         }
         return h2_to_h1_add_data_raw(to_h1, data, len);
     }
@@ -260,15 +271,14 @@ apr_status_t h2_to_h1_flush(h2_to_h1 *to_h1)
 {
     apr_status_t status = APR_SUCCESS;
     if (!APR_BRIGADE_EMPTY(to_h1->bb)) {
-        ap_log_cerror(APLOG_MARK, APLOG_TRACE2, 0, h2_mplx_get_conn(to_h1->m),
+        ap_log_cerror(APLOG_MARK, APLOG_TRACE2, 0, to_h1->m->c,
                       "h2_to_h1(%ld-%d): flush request bytes", 
-                      h2_mplx_get_id(to_h1->m), to_h1->stream_id);
+                      to_h1->m->id, to_h1->stream_id);
         
         status = h2_mplx_in_write(to_h1->m, to_h1->stream_id, to_h1->bb);
         if (status != APR_SUCCESS) {
-            ap_log_cerror(APLOG_MARK, APLOG_ERR, status,
-                          h2_mplx_get_conn(to_h1->m),
-                          "h2_request(%d): pushing request data",
+            ap_log_cerror(APLOG_MARK, APLOG_ERR, status, to_h1->m->c,
+                          APLOGNO(02946) "h2_request(%d): pushing request data",
                           to_h1->stream_id);
         }
     }
@@ -284,7 +294,7 @@ apr_status_t h2_to_h1_close(h2_to_h1 *to_h1)
         }
         to_h1->eos = 1;
         status = h2_to_h1_flush(to_h1);
-        ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, h2_mplx_get_conn(to_h1->m),
+        ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, to_h1->m->c,
                       "h2_to_h1(%d): close", to_h1->stream_id);
         
         status = h2_mplx_in_close(to_h1->m, to_h1->stream_id);

@@ -32,7 +32,7 @@ if [ -d "$SYSCONF/mods-available" ]; then
     echo "done."
     if [ -x "$A2ENMOD" ] && [ ! -d "$DESTDIR" ]; then
         echo -n "enabling mod_h2..."
-        "$A2ENMOD" mod_h2
+        "$A2ENMOD" h2
         echo "done."
     fi
 elif [ -d "$SYSCONF/../conf.d" ] && [ -d "$SYSCONF/../conf.modules.d" ]; then
@@ -50,10 +50,7 @@ else
   If you want to have the h2 module enabled in your apache installtion, you
   need to add
      LoadModule h2_module modules/mod_h2.so
-  somewhere in your config files and add a line like
-     H2Engine on
-  whereever you want the module to be active (general server of specific
-  virtual hosts).
+  somewhere in your config files.
 
 EOF
 fi
