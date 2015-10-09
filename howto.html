@@ -30,17 +30,29 @@
                         <li><a href="#conf1">SSL Parameter</a>
                     </ul>
                 </li>
-                <li><a href="#checking">Checking</a>
+                <li><a href="#http">http:// Connections (h2c)</a>
                     <ul>
-                        <li><a href="#nghttp">nghttp</a>
                         <li><a href="#curl">curl</a>
+                        <li><a href="#nghttp">nghttp</a>
+                        <li><a href="#h2c-restrictions">h2c Restrictions</a>
+                    </ul>
+                </li>
+                <li><a href="#https">https:// Connections (h2)</a>
+                    <ul>
+                        <li><a href="#curls">curl</a>
+                        <li><a href="#nghttps">nghttp</a>
+                        <li><a href="#firefox">Firefox</a>
+                        <li><a href="#chrome">Google Chrome</a>
+                        <li><a href="#ie">Internet Explorer</a>
+                        <li><a href="#safari">Safari</a>
+                        <li><a href="#h2-restrictions">h2 Restrictions</a>
                     </ul>
                 </li>
               </ul>
             </div>
             <header>
                 <h1>mod_h[ttp]2</h1>
-                <p>HTTP/2 module for <a href="https://httpd.apache.org/download.cgi">Apache httpd</a></p>
+                <p>HTTP/2 for <a href="https://httpd.apache.org/download.cgi">Apache httpd</a></p>
             </header>
             <section>
                 <h1>
@@ -165,22 +177,74 @@ Protocols h2c http/1.1</pre>
                     SSL Parameter
                 </h3>
                 <p>
-                
-                TBD.
+                HTTP/2 has some special requirements regarding TLS (SSL). See the chapter about 
+                <a href="#https">https:// connections</a> for more information.
                 </p>
 
 
-
-                
 
                 <h2>
-                    <a id="checking" class="anchor" href="#checking" aria-hidden="true"><span class="octicon octicon-link"></span></a>
-                    Checking
+                    <a id="http" class="anchor" href="#http" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    http:// Connections (h2c)
                 </h2>
                 <p>
-                    There are several way of checking that you get a HTTP/2 connection:
+                    Although no browser currently supports it, the HTTP/2 protocol also works for <code>http://</code> urls
+                    and <code>mod_h[ttp]2</code> supports this. The only thing you need to do in order to enable it is the Protocols
+                    configuration:
+                    <pre>
+# for a http server
+Protocols h2c http/1.1</pre>
+                    inside your <code>httpd.conf</code>. 
+                </p>
+                <p>
+                    There are several client (and client libraries) that support <code>h2c</code>. I'll dicusss some specifics below:
                 </p>
                 
+                <h4>
+                   <a id="curl" class="anchor" href="#curl" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    curl</h4>
+                <p>
+                Of course, <em>the</em> command line client for network resources, maintained by Daniel Stenberg. 
+                If you have curl on your system, there is an easy way to check its http/2 support:
+                <pre>
+sh> curl -V
+curl 7.43.0 (x86_64-apple-darwin15.0) libcurl/7.43.0 SecureTransport zlib/1.2.5
+Protocols: dict file ftp ftps gopher http https imap imaps ldap ldaps pop3 pop3s rtsp smb smbs smtp smtps telnet tftp 
+Features: AsynchDNS IPv6 Largefile GSS-API Kerberos SPNEGO NTLM NTLM_WB SSL libz UnixSockets 
+                </pre>
+                which is no good. There is no 'HTTP2' among the features. You'd want something like this:
+                <pre>
+sh> curl -V
+url 7.45.0 (x86_64-apple-darwin15.0.0) libcurl/7.45.0 OpenSSL/1.0.2d zlib/1.2.8 nghttp2/1.3.4
+Protocols: dict file ftp ftps gopher http https imap imaps ldap ldaps pop3 pop3s rtsp smb smbs smtp smtps telnet tftp 
+Features: IPv6 Largefile NTLM NTLM_WB SSL libz TLS-SRP HTTP2 UnixSockets</pre>
+                </p>
+                <p>
+                If you have a <code>curl</code> with the HTTP2 feature, you may check your server
+                with some simple commands:
+                <pre>
+sh> curl -v --http2 http://&lt;yourserver>/
+...
+> Connection: Upgrade, HTTP2-Settings
+> Upgrade: h2c
+> HTTP2-Settings: AAMAAABkAAQAAP__
+> 
+&lt; HTTP/1.1 101 Switching Protocols
+&lt; Upgrade: h2c
+&lt; Connection: Upgrade
+* Received 101
+* Using HTTP2, server supports multi-use
+* Connection state changed (HTTP/2 confirmed)
+...
+&lt;the resource></pre>
+                Congratulations, id you see the line with <code>...101 Switching...</code>, it's working! 
+                </p>
+                <p>
+                There are cases, where the upgrade to HTTP/2 will not happen. When your first request does have
+                content, for example you do a file upload, the Upgrade will not trigger. For a detailed explanation, see
+                the section <a href="#h2c-restrictions">h2c restrictions</a>.
+                </p>
+
                 <h4>
                    <a id="nghttp" class="anchor" href="#nghttp" aria-hidden="true"><span class="octicon octicon-link"></span></a>
                    nghttp</h4>
@@ -188,20 +252,168 @@ Protocols h2c http/1.1</pre>
                     <code>nghttp2</code> has its own client and servers that can be build with it. If you have the
                     client on your system, you can verify your installation by simply retrieving a resource:
                     <pre>
-> nghttp https://&lt;yourserver>/</pre>
-                    which will either show you the resource or print an error like this:
+sh> nghttp -uv http://&lt;yourserver>/
+[  0.001] Connected
+[  0.001] HTTP Upgrade request
+...
+Connection: Upgrade, HTTP2-Settings
+Upgrade: h2c
+HTTP2-Settings: AAMAAABkAAQAAP__
+...
+[  0.005] HTTP Upgrade response
+HTTP/1.1 101 Switching Protocols
+Upgrade: h2c
+Connection: Upgrade
+
+[  0.006] HTTP Upgrade success
+...</pre>
+                which is very similar to the Upgrade dance we see in the <code>curl</code> example above.
+                </p>
+                <p>
+                There is another way to use <code>h2c</code> hidden in the command line arguments: <code>-u</code>. This 
+                instructs <code>nghttp</code> to perform the HTTP/1 Upgrade dance. But what if we leave this out?
                     <pre>
+sh> nghttp -v http://&lt;yourserver>/
+[  0.002] Connected
+[  0.002] send SETTINGS frame <length=12, flags=0x00, stream_id=0>
+...
+[  0.002] send HEADERS frame <length=44, flags=0x25, stream_id=13>
+          ; END_STREAM | END_HEADERS | PRIORITY
+          (padlen=0, dep_stream_id=11, weight=16, exclusive=0)
+          ; Open new stream
+          :method: GET
+          :path: /
+          :scheme: http
+...</pre>
+                The connection immediately speaks HTTP/2! This is what the protocol calls the <code>direct</code> mode and it
+                works by some magic 24 bytes that the client sends to the server right away:
+                <pre>
+0x505249202a20485454502f322e300d0a0d0a534d0d0a0d0a
+or in ASCII: PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n</pre>
+                A <code>h2c</code> capable server sees this on a new connection and can immediately switch its
+                HTTP/2 processing on. A HTTP/1.1 server will see a funny request, answer it and close the connection.
+                </p>
+                <p>
+                Therefore <code>direct</code> mode is only good for clients if they can be resonably sure that the
+                server supports this. For example, because a previous Upgrade dance was successful.
+                </p>
+                <p>
+                The charme of <code>direct</code> is the zero overhead and that it works for all requests, even those
+                that carry a body (see <a href="#h2c-restrictions">h2c restrictions</a>). The <code>direct</code> mode
+                is enabled by default on any server that allows the <code>h2c</code> protocol. If you want to disable
+                it, add the configuration directive:<pre>
+H2Direct off</pre>
+                to your server.
+                </p>
+
+                <h4>
+                   <a id="h2c-restrictions" class="anchor" href="#h2c-restrictions" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                   h2c Restrictions</h4>
+                <p>
+                    There are some restrictions on the <code>h2c</code> implementation, you should be aware of:
+                </p>
+                <h5>Deny h2c on virtual host</h5>
+                <p>
+                You cannot deny <code>h2c direct</code> on specific virtual hosts. <code>direct</code> gets triggered at
+                connection setup when there is not request to be seen yet. Which makes it impossible to foresee
+                which virtual host Apache needs to look at.
+                </p>
+                <h5>Upgrade on request body</h5>
+                <p>
+                The <code>h2c</code> Upgrade dance will not work on requests that have a body. Those are PUT and POST
+                requests (form submits and uploads). If you write a client, you may precede those requests with a
+                simple GET or an OPTIONS * to trigger the upgrade.
+                </p>
+                <p>
+                The reason is quite technical in nature, but in case you want to know: during Upgrade, the connection
+                is in a half insane state. The request is coming in HTTP/1.1 format and the response is being 
+                written in HTTP/2 frames. If the request carries a body, the server needs to read the whole body
+                before it sends a response back. Because the response might need answers from the client for flow
+                control among other things. But if the HTTP/1.1 request is still being sent, the client is
+                unable to talk HTTP/2 yet.
+                </p>
+                <p>
+                In order to make behaviour predictable, several server implementors decided to not do an Upgrade
+                in the presence of any request bodies, even small ones.
+                </p>
+                
+
+                <h2>
+                    <a id="https" class="anchor" href="#https" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    https:// Connections (h2)
+                </h2>
+                <p>
+                    Once you get <code>mod_h[ttp]2</code> working for <code>h2c</code> connections, it's time to
+                    get the <code>h2</code> sibling going, as browsers only do it with <code>https:</code> nowadays.
+                </p>
+                <p>
+                    The HTTP/2 standard imposes some extra requirements on <code>https:</code> (TLS) connections. The ALPN
+                    extension has already been mentioned above. An additional requirement is that no cipher from a 
+                    specified <a href="https://httpwg.github.io/specs/rfc7540.html#BadCipherSuites">black list</a> may
+                    be used.
+                </p>
+                <p>
+                    While the current version of <code>mod_h[ttp]2</code> does not enforce these ciphers (but some day will),
+                    most clients will do so. If you point your browser at a <code>h2</code> server with inappropriate ciphers,
+                    you will get the obscure warning <code>INADEQUATE_SECURITY</code> and the browser will simply refuse to
+                    continue.
+                </p>
+                <p>
+                    An acceptable Apache SSL configuration regarding this is:
+                    <pre>
+SSLCipherSuite ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES256-GCM-SHA384:DHE-RSA-AES128-GCM-SHA256:DHE-DSS-AES128-GCM-SHA256:kEDH+AESGCM:ECDHE-RSA-AES128-SHA256:ECDHE-ECDSA-AES128-SHA256:ECDHE-RSA-AES128-SHA:ECDHE-ECDSA-AES128-SHA:ECDHE-RSA-AES256-SHA384:ECDHE-ECDSA-AES256-SHA384:ECDHE-RSA-AES256-SHA:ECDHE-ECDSA-AES256-SHA:DHE-RSA-AES128-SHA256:DHE-RSA-AES128-SHA:DHE-DSS-AES128-SHA256:DHE-RSA-AES256-SHA256:DHE-DSS-AES256-SHA:DHE-RSA-AES256-SHA:!aNULL:!eNULL:!EXPORT:!DES:!RC4:!3DES:!MD5:!PSK
+SSLProtocol All -SSLv2 -SSLv3
+...</pre>
+                (Yes, it's that long.)
+                </p>
+                <p>
+                    There are other SSL configuration parameters that <em>should</em> be tweaked, but do <em>not have to</em>: <code>SSLSessionCache, SSLUseStapling</code>, etc. but those are covered elsewhere. See the excellent <a href="http://chimera.labs.oreilly.com/books/1230000000545">High Performance Browser Networking</a> by Ilya Grigorik, for example.
+                </p>
+                
+                <h4>
+                   <a id="curls" class="anchor" href="#curls" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    curl</h4>
+                <p>
+                Time to fire up a shell and use <code>curl</code> again (see the <a href="#curl">h2c section about curl</a> for requirements). Using curl, you may check your server with some simple commands:
+                <pre>
+sh> curl -v --http2 https://&lt;yourserver>/
+...
+* ALPN, offering h2
+* ALPN, offering http/1.1
+...
+* ALPN, server accepted to use h2
+...
+&lt;the resource></pre>
+                Congratulations, it's working! If not, the reason might be:
+                <ul>
+                    <li>Your curl does not support HTTP/2, see <a href="#curl">this check.</a></li>
+                    <li>Your openssl is old and does not support ALPN.</li>
+                    <li>Your certificate could not be verified or your cipher configuration is not accepted. 
+                    Try adding the command line option <code>-k</code> to disable those checks in curl. If that
+                    works, review yor SSL configuration and certificate.</li>
+                </ul>
+                </p>
+
+
+                <h4>
+                   <a id="nghttps" class="anchor" href="#nghttps" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                   nghttp</h4>
+                <p>
+                    <code>nghttp</code> we discussed already for <code>h2c</code>. If you use
+                    it for a <code>https:</code> connection, you will either see the resource or an error like this:
+                    <pre>
+sh> nghttp https://&lt;yourserver>/
 [ERROR] HTTP/2 protocol was not selected. (nghttp2 expects h2)</pre>
                     There are two possiblities for this which you can check by adding <code>-v</code>. Either your get this:
                     <pre>
-> nghttp -v https://&lt;yourserver>/
+sh> nghttp -v https://&lt;yourserver>/
 [  0.034] Connected
 [ERROR] HTTP/2 protocol was not selected. (nghttp2 expects h2)</pre>
                     This means that the TLS library your server uses does not implement ALPN. Getting this installtion
                     correct is sometimes tricky. Use stackoverflow. 
                     </p><p>
                     Or you get this:<pre>
-> nghttp -v https://&lt;yourserver>/
+sh> nghttp -v https://&lt;yourserver>/
 [  0.034] Connected
 The negotiated protocol: http/1.1
 [ERROR] HTTP/2 protocol was not selected. (nghttp2 expects h2)</pre>
@@ -212,41 +424,111 @@ The negotiated protocol: http/1.1
 
 
                 <h4>
-                   <a id="curl" class="anchor" href="#curl" aria-hidden="true"><span class="octicon octicon-link"></span></a>
-                    curl</h4>
+                   <a id="firefox" class="anchor" href="#firefox" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                   Firefox</h4>
                 <p>
-                Of course, <em>the</em> command line client for network resources. If you have curl on your system, there is
-                an easy way to check its http/2 support:
-                <pre>
-> curl -V
-curl 7.43.0 (x86_64-apple-darwin15.0) libcurl/7.43.0 SecureTransport zlib/1.2.5
-Protocols: dict file ftp ftps gopher http https imap imaps ldap ldaps pop3 pop3s rtsp smb smbs smtp smtps telnet tftp 
-Features: AsynchDNS IPv6 Largefile GSS-API Kerberos SPNEGO NTLM NTLM_WB SSL libz UnixSockets 
-                </pre>
-                which is no good. There is no 'HTTP2' among the features. You'd want something like this:
-                <pre>
-> curl -V
-url 7.45.0 (x86_64-apple-darwin15.0.0) libcurl/7.45.0 OpenSSL/1.0.2d zlib/1.2.8 nghttp2/1.3.4
-Protocols: dict file ftp ftps gopher http https imap imaps ldap ldaps pop3 pop3s rtsp smb smbs smtp smtps telnet tftp 
-Features: IPv6 Largefile NTLM NTLM_WB SSL libz TLS-SRP HTTP2 UnixSockets</pre>
+                    In Firefox you need to open the Developer Tools and there the Network tab to check for HTTP/2 connections. When
+                    you have those open and reload your html page, you see something like the following:
+                    <img src="images/firefox-h2.png">
                 </p>
                 <p>
-                If you have a <code>curl</code> with the HTTP2 feature, you may check your server
-                with some simple commands:
-                <pre>
-> curl -kv --http2 https://&lt;yourserver>/
-...
-* ALPN, offering h2
-* ALPN, offering http/1.1
-...
-* ALPN, server accepted to use h2
-...
-&lt;the resource></pre>
-                Congratulations, it's working!
+                    Among the response headers, you see this strange <code>X-Firefox-Spdy</code> entry listing &quot;h2&quot;. That
+                    is the indication that HTTP/2 is used on this <code>https:</code> connection.
+                </p>
+
+                <h4>
+                   <a id="chrome" class="anchor" href="#chrome" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                   Google Chrome</h4>
+                <p>
+                    In Google Chrome, you will not see a HTTP/2 indicator in the developer tools. Instead, Chrome uses the 
+                    special location <code>chrome://net-internals/#http2</code> to give information.
+                </p>
+                <p>
+                    If you have opened a page on your server and look at that net-internals page, you will see something like this:
+                    <img src="images/chrome-h2.png">
+                    If your server is among the ones listed here, it is working. 
+                </p>
+
+                <h4>
+                   <a id="ie" class="anchor" href="#ie" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                   Internet Explorer</h4>
+                <p>
+                    HTTP/2 is supported in Internet Explorer 11 (Edge) which ships with Windows10. Here you can also see
+                    the protocol used in the Developer Tools in the Network tab:
+                    <img src="images/ie-h2.png">
                 </p>
                 
+                <h4>
+                   <a id="safari" class="anchor" href="#safari" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                   Safari</h4>
+                <p>
+                   In Apple's Safari, you open the Developer Tools and there the Network tab. Reload your server page and select the
+                   row in the Developer Tools that shows the load. If you enable the right side details view, look at the <code>Status</code>.
+                   It should show <code>HTTP/2.0 200</code> like here:
+                    <img src="images/safari-h2.png">
+                </p>
+                
+                
+                <h4>
+                   <a id="h2-restrictions" class="anchor" href="#h2-restrictions" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                   h2 Restrictions</h4>
+                <p>
+                    There are some restrictions on the <code>h2</code> implementation you should be aware of:
+                </p>
+                <h5>Connection Reuse</h5>
+                <p>
+                    The HTTP/2 protocol allows reuse of TLS connections under certain conditions: if you have a certiface
+                    with wildcards or several altSubject names, browsers will reuse any existing connection they might have.
+                    Example:
+                </p>
+                <p>
+                    You have a certificate for <code>a.example.org</code> that has as additional name <code>b.example.org</code>. You open in your browser the url <code>https://a.example.org/</code>, open another tab and load <code>https://b.example.org/</code>.
+                </p>
+                <p>
+                    Before opening a new connection, the browser sees that it still has the one to <code>a.example.org</code> open and that the certificate is also valid for <code>b.example.org</code>. So, it sends the request for second tab over the connection of the first one.
+                </p>
+                <p>
+                    This <em>connection reuse</em> is intentional and makes it easier for sites that have invested in <em>sharding</em>
+                    for efficiency in HTTP/1 to also benefit from HTTP/2 without much change.
+                </p>
+                <p>
+                    In Apache <code>mod_h[ttp]2</code> this is not fully implemented, yet. When <code>a.example.org</code> and 
+                    <code>b.example.org</code> are separate virtual hosts, Apache will not allow such connection reuse and
+                    inform the browser with status code <code>421 Misdirected Request</code> about it. The browser will understand
+                    that it has to open a new connection to <code>b.example.org</code>. All will work, however some efficiency gets lost.
+                </p>
+                <p>
+                    We expect to have the proper checks in place for the next release.
+                </p>
+                
+                <h5>Renegotiations</h5>
+                <p>
+                    Renegotiations on a <code>https:</code> connection means that certain TLS parameters are changed
+                    on the running connection. 
+                    In Apache httpd you can change TLS parameters in directory configurations. If a request arrives for
+                    a resource in a certain location, configured TLS parameter are compared to the current TLS
+                    parameters. If they differ, renegotiation is triggered.
+                </p>
+                <p>
+                    Most common use cases for this are cipher changes and client certificates. You can require
+                    clients to meet authentication only for special locations, or you might enable more secure, but
+                    CPU intensive ciphers for specific resources.
+                </p>
+                <p>
+                    Whatever your good use cases are, renegotiation are a <code>MUST NOT</code> in HTTP/2. With 100s
+                    of requests ongoing on the same connection, which renegotiation would otherwise occur when?
+                </p>
+                <p>
+                    The current <code>mod_h[ttp]2</code> does not protect you from such configuration. If you have a
+                    site which uses TLS renegotiation, <code>DO NOT</code> enable <code>h2</code> on it!
+                </p>
+                <p>
+                    Again, we will address that in future releases so that you can enable it safely.
+                </p>
+                
+                
                 <p></p>
-                <p>Münster, 08.10.2015,</p>
+                <p>Münster, 09.10.2015,</p>
                 
                 <p>Stefan Eissing, greenbytes GmbH</p>
 
