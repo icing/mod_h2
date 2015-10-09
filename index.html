@@ -3,7 +3,7 @@
     <head>
         <meta charset="utf-8">
             <meta http-equiv="X-UA-Compatible" content="chrome=1">
-                <title>mod_h2 by icing</title>
+                <title>mod_h[ttp]2 by icing</title>
                 
                 <link rel="stylesheet" href="stylesheets/styles.css">
                     <link rel="stylesheet" href="stylesheets/pygment_trac.css">
@@ -16,12 +16,11 @@
     <body>
         <div class="wrapper">
             <div class="backlogo">
-                <a href="https://github.com/icing/mod_h2/releases">Available Releases on GitHub</a>
+                <a href="https://github.com/icing/mod_h2/releases">Experimental Releases on GitHub</a><br/>
+                <a href="https://httpd.apache.org/download.cgi">Official Downloads at Apache</a>
             </div>
             <header>
-                <h1>mod_h2</h1>
-                <p>HTTP/2 module for Apache httpd</p>
-                
+                <h1>mod_h[ttp]2</h1>
                 <ul>
                     <li><a href="https://github.com/icing/mod_h2/zipball/master">Download <strong>ZIP File</strong></a></li>
                     <li><a href="https://github.com/icing/mod_h2/tarball/master">Download <strong>TAR Ball</strong></a></li>
@@ -30,220 +29,55 @@
             </header>
             <section>
                 <h1>
-                    <a id="mod_h2---a-http2-modules-for-apache-httpd" class="anchor" href="#mod_h2---a-http2-modules-for-apache-httpd" aria-hidden="true"><span class="octicon octicon-link"></span></a>http/2 module for apache httpd</h1>
+                    <a id="mod_h2---a-http2-modules-for-apache-httpd" class="anchor" href="#mod_h2---a-http2-modules-for-apache-httpd" aria-hidden="true"><span class="octicon octicon-link"></span></a>HTTP/2 in Apache httpd</h1>
                 
                 <p>Copyright (C) 2015 greenbytes GmbH</p>
                 
-                <p>Copying and distribution of this file, with or without modification,
-                are permitted in any medium without royalty provided the copyright
-                notice and this notice are preserved.  This file is offered as-is,
-                without warranty of any kind. See LICENSE for details.</p>
-                
-                <p>This repository contains a Apache httpd module implementing the HTTP2
-                protocol. It uses nghttp2 (<a href="https://nghttp2.org">https://nghttp2.org</a>) as base engine and connects
-                it with the Apache infrastructure.</p>
+                <p>This repository contains a copy of the Apache httpd module implementing the HTTP2
+                protocol. The official documentation is <a href="https://httpd.apache.org/docs/2.4/en/mod/mod_http2.html">found here</a>.
+                </p>
                 
                 <h2>
-                    <a id="status" class="anchor" href="#status" aria-hidden="true"><span class="octicon octicon-link"></span></a>Status</h2>
-                
-                <p>In development. Not hardened enough for a production environment most likely. 
-                Use at your own risk.
+                    <a id="status" class="anchor" href="#status" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    Status
+                </h2>
+                <p>
+                    <code>mod_h[ttp]2</code> is now released in Apache httpd 2.4.17 and its development will continue there. This 
+                    repository still exists because the module is very young and some people like to experiment. This has given useful
+                    feedback in the past and I hope to give those people easier access to alpha/beta version this way.
                 </p>
                 <p>
-                Related to performance and areas of improvement, I wrote <a href="performance.html">a small post</a> with some numbers and comparisons.
-                </p>
-                <p>
-                For people with knowledge about Apache httpd programming, there is a page about <a href="internals.html">internals</a>, talking about architecture, embedding into httpd, hacks and areas for improvement.
+                    However, all development really happens in the Apache project and if you have questions or bugs against 
+                    a released version, please use the appropriate Apache mailing lists and tools.
                 </p>
                 
-                <h2>
-                    <a id="features" class="anchor" href="#features" aria-hidden="true"><span class="octicon octicon-link"></span></a>Features</h2>
-                
-                <p>This module supports the "h2" (HTTP2 over TLS) and "h2c" (HTTP2 over plain
-                HTTP connections via Upgrade). You can enable it for the whole server or
-                for specific virtual hosts only. More on this below on "Configuration".</p>
-                
-                <h2>
-                    <a id="status" class="anchor" href="#platforms" aria-hidden="true"><span class="octicon octicon-link"></span></a>Tested Platforms</h2>
-                <p>
-                <ul>
-                    <li> OS: Ubuntu 14.04, OS X 10.10 </li>
-                    <li> Apache httpd 2.4.12 (patch needed)</li>
-                    <li> Openssl 1.0.1 + 1.0.2</li>
-                </ul>
-                If someone wants to test other platforms or contribute adapations in a
-                github pull request, she is more than welcome.
-                </p>
-                
-                <h2>
-                    <a id="configuration" class="anchor" href="#configuration" aria-hidden="true"><span class="octicon octicon-link"></span></a>Configuration</h2>
-                
-                <p>The test setup in sandbox/test/conf/* that gets installed in sandbox/install for the
-                local httpd build contains some simple examples of how this module can
-                be configured.</p>
-                
-                <p>There are several configuration commands available when mod_h2 is loaded,
-                such as:</p>
-                
-                <ul>
-                    <li><code>H2Engine (on/off)</code>, "on"    to enable HTTP/2 protocol handling</li>
-                    <li><code>H2MaxSessionStreams n      maximum number of open streams per session</li>
-                    <li><code>H2InitialWindowSize n      initial window size on client DATA</li>
-                    <li>H2MaxHeaderListSize n      maximum acceptable size of request headers</li>
-                    <li>H2MinWorkers n             minimum number of worker threads per child</li>
-                    <li>H2MaxWorkers n             maximum number of worker threads per child</li>
-                    <li>H2StreamMaxMemSize n       maximum number of bytes buffered in memory for a stream</li>
-                    - H2AltSvc name=host:port    Announce an "alternate service" to clients (see
-                    https://http2.github.io/http2-spec/alt-svc.html for details)
-                    Default: empty
-                    
-                    - H2AltSvcMaxAge n           number of seconds Alt-Svc information is valid
-                    Default: will not be sent, specificatin defaults to 24h
-
-                </ul>
-                
-                <h2>
-                    <a id="dependencies" class="anchor" href="#dependencies" aria-hidden="true"><span class="octicon octicon-link"></span></a>Dependencies</h2>
-                
-                <ol>
-                    <li>The module is written in plain C and links to libnghttp2 and the
-                        apache runtime.</li>
-                    <li>For "h2" support - the part of HTTP2 that uses TLS - a patched mod_ssl
-                        needs to be present in the server. The patch is available in httpd/patches
-                        and automatically applied in sandbox mode.</li>
-                    <li>For ALPN/NPN protocol negotiation (the basic TLS HELLO part) to work,
-                        at least OpenSSL 1.0.1 is needed (OpenSSL 1.0.2 perferred).</li>
-                    <li>mod_h2 currently only supports the mpm_worker module.</li>
-                </ol>
-                
-                <h2>
-                    <a id="installation" class="anchor" href="#installation" aria-hidden="true"><span class="octicon octicon-link"></span></a>Installation</h2>
-                
-                <p>mod_h2 is using autoconf/automake for configurtion and build handling. If you
-                have a git checkout, refer to 'Build from git' below. If you have a release
-                extracted, you need to:
-                <pre><code>
-&gt; cd mod_h2-x.x.x
-&gt; ./configure
-&gt; make
-                </code></pre>
-                </p>
-                <p>For general handling of 'configure', see INSTALL. For mod_h2 specifically,
-                there are two arguments to know:
-                --enable-sandbox     build a complete sandbox installation with own httpd,
-                own libnghttp2
-                --with-apxs=
-                for a non-sandboxed installation where the apxs
-                (from the apache development environment) is in an
-                unusual location.</p>
-                
-                <p>If you run 'configure' without arguments, it assumes a non-sandbox'ed built
-                where apxs and libnghttp2 are properly installed.</p>
-                
-                <p>Sandbox Installation:</p>
-                
-                <p>The sandbox installation puts everything in ./sandbox/install: httpd, nghttp2, curl
-                and other fine things. For testing the module, or just trying it out, this
-                has the following advantages:
-                - conflicts with "wrong" versions already installed on your system are avoided
-                - you can do the installation and test without root privileges
-                - certain patches can be applied that are necessary for all features to work, see "Dependencies"."</p>
-                
-                <h2>
-                    <a id="build-from-git" class="anchor" href="#build-from-git" aria-hidden="true"><span class="octicon octicon-link"></span></a>Build from git</h2>
-                
-                <p>Building from git is easy, but please be sure that at least autoconf 2.68 is
-                used::</p>
-                
-                <pre><code>
-&gt; autoreconf -i
-&gt; automake
-&gt; autoconf
-&gt; ./configure
-&gt; make
-                </code></pre>
-                
-                <h2>
-                    <a id="supported-platforms" class="anchor" href="#supported-platforms" aria-hidden="true"><span class="octicon octicon-link"></span></a>Supported Platforms</h2>
-                
-                <p>mod_h2 has been developed under Ubuntu 14.04 LTS and OS X 10.10. The module
-                itself depends only on an installed APXS (the Apache runtime platform) and
-                libnghttp2. As long as both are present, the module itself should build
-                just fine.</p>
-                
-                <p>Ubuntu :Install the prerequisite software. On a 14.04 LTS server, that should be:</p>
-                
-                <blockquote>
-                    <p>sudo apt-get install git gcc g++ libpcre3-dev libcunit1-dev libev-dev libjansson-dev libjemalloc-dev cython make binutils autoconf automake autotools-dev libtool pkg-config zlib1g-dev libssl-dev libxml2-dev libevent-dev python3.4-dev libevent-openssl-2.0-5</p>
-                </blockquote>
-                
-                <p>OS X: on OS X 10.10, building the project requires a homebrew installation and the following packages installed via brew:</p>
-                
-                <ul>
-                    <li><p>pkg-config</p></li>
-                    <li><p>for httpd the Makefile will download and install:</p></li>
-                    <li>pcre</li>
-                    <li>apr + apr-util</li>
-                    <li><p>openssl
-                        exact versions and download urls in httpd/Makefile</p></li>
-                    <li><p>for nghttp2 the Makefile will download and install:</p></li>
-                    <li>zlib</li>
-                    <li>libev
-                        exact versions and download urls in httpd/Makefile</li>
-                </ul>
-                
-                <h2>
-                    <a id="architecture-limits-details" class="anchor" href="#architecture-limits-details" aria-hidden="true"><span class="octicon octicon-link"></span></a>Architecture, Limits, Details</h2>
-                
-                <p>See DISCUSS.</p>
-                
-                <h2>
-                    <a id="todo" class="anchor" href="#sandbox" aria-hidden="true"><span class="octicon octicon-link"></span></a>Sandbox Testing</h2>
-                <p>
-                The sandbox build contains some test cases. In order to run those, you
-                need to:
-                <pre><code>
-&gt; make
-&gt; make install
-&gt; make test
-                </code></pre>
-                The sandbox creates its own httpd and nghttp2 installation in gen/install
-                and configures httpd to run on ports 12345+12346 (TLS). It also generates
-                a self-signed certificate for the server under the name test.example.org.
-                You should make an entry in /etc/hosts like
-                <pre><code>
-127.0.0.1       test.example.org        test
-                </code></pre>
-                for tests to work properly.
-                </p><p>                
-                Another issue is testing with browsers like Chrome or Firefox. If you point
-                them at test.example.org, the will complain about the self-signed certificate,
-                offer you to connect anyway and, if you choose that, refuse to work. I think
-                they have a much stricter cert checking for HTTP/2 and the UI needs an update
-                here.
-                </p><p>
-                I myself configure an additional site into the sandbox server with a real
-                certificate and test browsers successfully there. But I cannot share this
-                certificate with the world. If there is a better way to test browser interop,
-                I am happy to be given pointers.
-                </p>
 
                 <h2>
                     <a id="todo" class="anchor" href="#todo" aria-hidden="true"><span class="octicon octicon-link"></span></a>TODO</h2>
-                
-                <ul>
-                    <li>Thanks to the excellent nghttp2, the module currently supports stream priority
-                    handling, but nghttp2 offers at the moment (v0.7.9) no way to use the prio
-                    information for request scheduling.</li>
-                    <li>Proper documentation needs to be added</li>
-                    <li>mpm_event: supported by a hack atm. Needs an official patch with an Optional
-                    function</li>
-                    <li>http trailers are not implemented</li>
-                </ul>
+                <p>
+                    See the issue tracker on this project, especially the entries marked as <code>feature</code>.
+                </p>
+
+                <h2>
+                    <a id="docs" class="anchor" href="#docs" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    Documentation
+                </h2>
+                <p>
+                    There are several places with documentation and articles about <code>mod_h[ttp]2</code>:
+                    <ul>
+                        <li><a href="https://httpd.apache.org/docs/2.4/en/mod/mod_http2.html">Official Documentation at Apache</a></li>
+                        <li><a href="howto.html">How to h2 in Apache</a></li>
+                        <li><a href="https://greenbytes.de/pres/httpd-h2/#/">My Presentation at ApacheCon, Budapest 2015</a></li>
+                        <li><a href="performance.html">Some (older) blurps on Performance</a></li>
+                    </ul>
+                </p>
+
+
                 
                 <h2>
-                    <a id="licensing" class="anchor" href="#licensing" aria-hidden="true"><span class="octicon octicon-link"></span></a>Licensing</h2>
-                
+                    <a id="licensing" class="anchor" href="#licensing" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    Licensing
+                </h2>
                 <p>Please see the file called LICENSE.</p>
                 
                 <h2>
@@ -254,9 +88,14 @@
                 SPDY protocol. And without Tatsuhiro Tsujikawa excellent nghttp2 work, this
                 would not have been possible.</p>
                 
-                <p>Münster, 02.04.2015,</p>
-                
+                <p>Münster, 09.10.2015,</p>
                 <p>Stefan Eissing, greenbytes GmbH</p>
+                
+                <p>Copying and distribution of this file, with or without modification,
+                are permitted in any medium without royalty provided the copyright
+                notice and this notice are preserved.  This file is offered as-is,
+                without warranty of any kind. See LICENSE for details.</p>
+                
             </section>
             <footer>
                 <p>This project is maintained by <a href="https://github.com/icing">icing</a></p>
