@@ -34,7 +34,6 @@
                     <ul>
                         <li><a href="#curl">curl</a>
                         <li><a href="#nghttp">nghttp</a>
-                        <li><a href="#h2c-restrictions">h2c Restrictions</a>
                     </ul>
                 </li>
                 <li><a href="#https">https:// Connections (h2)</a>
@@ -45,6 +44,11 @@
                         <li><a href="#chrome">Google Chrome</a>
                         <li><a href="#ie">Internet Explorer</a>
                         <li><a href="#safari">Safari</a>
+                    </ul>
+                </li>
+                <li><a href="#restrictions">Restrictions</a>
+                    <ul>
+                        <li><a href="#h2c-restrictions">h2c Restrictions</a>
                         <li><a href="#h2-restrictions">h2 Restrictions</a>
                     </ul>
                 </li>
@@ -306,36 +310,6 @@ H2Direct off</pre>
                 to your server.
                 </p>
 
-                <h4>
-                   <a id="h2c-restrictions" class="anchor" href="#h2c-restrictions" aria-hidden="true"><span class="octicon octicon-link"></span></a>
-                   h2c Restrictions</h4>
-                <p>
-                    There are some restrictions on the <code>h2c</code> implementation, you should be aware of:
-                </p>
-                <h5>Deny h2c on virtual host</h5>
-                <p>
-                You cannot deny <code>h2c direct</code> on specific virtual hosts. <code>direct</code> gets triggered at
-                connection setup when there is not request to be seen yet. Which makes it impossible to foresee
-                which virtual host Apache needs to look at.
-                </p>
-                <h5>Upgrade on request body</h5>
-                <p>
-                The <code>h2c</code> Upgrade dance will not work on requests that have a body. Those are PUT and POST
-                requests (form submits and uploads). If you write a client, you may precede those requests with a
-                simple GET or an OPTIONS * to trigger the upgrade.
-                </p>
-                <p>
-                The reason is quite technical in nature, but in case you want to know: during Upgrade, the connection
-                is in a half insane state. The request is coming in HTTP/1.1 format and the response is being 
-                written in HTTP/2 frames. If the request carries a body, the server needs to read the whole body
-                before it sends a response back. Because the response might need answers from the client for flow
-                control among other things. But if the HTTP/1.1 request is still being sent, the client is
-                unable to talk HTTP/2 yet.
-                </p>
-                <p>
-                In order to make behaviour predictable, several server implementors decided to not do an Upgrade
-                in the presence of any request bodies, even small ones.
-                </p>
                 
 
                 <h2>
@@ -469,6 +443,78 @@ The negotiated protocol: http/1.1
                 </p>
                 
                 
+                <h5>Renegotiations</h5>
+                <p>
+                    Renegotiations on a <code>https:</code> connection means that certain TLS parameters are changed
+                    on the running connection. 
+                    In Apache httpd you can change TLS parameters in directory configurations. If a request arrives for
+                    a resource in a certain location, configured TLS parameter are compared to the current TLS
+                    parameters. If they differ, renegotiation is triggered.
+                </p>
+                <p>
+                    Most common use cases for this are cipher changes and client certificates. You can require
+                    clients to meet authentication only for special locations, or you might enable more secure, but
+                    CPU intensive ciphers for specific resources.
+                </p>
+                <p>
+                    Whatever your good use cases are, renegotiation are a <code>MUST NOT</code> in HTTP/2. With 100s
+                    of requests ongoing on the same connection, which renegotiation would otherwise occur when?
+                </p>
+                <p>
+                    The current <code>mod_h[ttp]2</code> does not protect you from such configuration. If you have a
+                    site which uses TLS renegotiation, <code>DO NOT</code> enable <code>h2</code> on it!
+                </p>
+                <p>
+                    Again, we will address that in future releases so that you can enable it safely.
+                </p>
+                
+
+                <h2>
+                   <a id="restrictions" class="anchor" href="#restrictions" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                   Restrictions</h2>
+                   
+                <h5>Non-HTTP Protocols</h5>
+                <p>
+                    Modules implementing protocols other than HTTP may be incompatible with <code>mod_http2</code>. This will
+                    most certainly be the case when this other protocol requires the server to send data first.
+                </p>
+                <p>
+                    <code>NNTP</code> is one example of such a protocol. If you have a <code>mod_nntp_like_ssl</code>
+                    configured in your server, do not even <b>load</b> <code>mod_http2</code>. Wait for the next 
+                    release.
+                </p>
+                
+                <h4>
+                   <a id="h2c-restrictions" class="anchor" href="#h2c-restrictions" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                   h2c Restrictions</h4>
+                <p>
+                    There are some restrictions on the <code>h2c</code> implementation, you should be aware of:
+                </p>
+                <h5>Deny h2c on virtual host</h5>
+                <p>
+                You cannot deny <code>h2c direct</code> on specific virtual hosts. <code>direct</code> gets triggered at
+                connection setup when there is not request to be seen yet. Which makes it impossible to foresee
+                which virtual host Apache needs to look at.
+                </p>
+                <h5>Upgrade on request body</h5>
+                <p>
+                The <code>h2c</code> Upgrade dance will not work on requests that have a body. Those are PUT and POST
+                requests (form submits and uploads). If you write a client, you may precede those requests with a
+                simple GET or an OPTIONS * to trigger the upgrade.
+                </p>
+                <p>
+                The reason is quite technical in nature, but in case you want to know: during Upgrade, the connection
+                is in a half insane state. The request is coming in HTTP/1.1 format and the response is being 
+                written in HTTP/2 frames. If the request carries a body, the server needs to read the whole body
+                before it sends a response back. Because the response might need answers from the client for flow
+                control among other things. But if the HTTP/1.1 request is still being sent, the client is
+                unable to talk HTTP/2 yet.
+                </p>
+                <p>
+                In order to make behaviour predictable, several server implementors decided to not do an Upgrade
+                in the presence of any request bodies, even small ones.
+                </p>
+
                 <h4>
                    <a id="h2-restrictions" class="anchor" href="#h2-restrictions" aria-hidden="true"><span class="octicon octicon-link"></span></a>
                    h2 Restrictions</h4>
@@ -501,34 +547,10 @@ The negotiated protocol: http/1.1
                     We expect to have the proper checks in place for the next release.
                 </p>
                 
-                <h5>Renegotiations</h5>
-                <p>
-                    Renegotiations on a <code>https:</code> connection means that certain TLS parameters are changed
-                    on the running connection. 
-                    In Apache httpd you can change TLS parameters in directory configurations. If a request arrives for
-                    a resource in a certain location, configured TLS parameter are compared to the current TLS
-                    parameters. If they differ, renegotiation is triggered.
-                </p>
-                <p>
-                    Most common use cases for this are cipher changes and client certificates. You can require
-                    clients to meet authentication only for special locations, or you might enable more secure, but
-                    CPU intensive ciphers for specific resources.
-                </p>
-                <p>
-                    Whatever your good use cases are, renegotiation are a <code>MUST NOT</code> in HTTP/2. With 100s
-                    of requests ongoing on the same connection, which renegotiation would otherwise occur when?
-                </p>
-                <p>
-                    The current <code>mod_h[ttp]2</code> does not protect you from such configuration. If you have a
-                    site which uses TLS renegotiation, <code>DO NOT</code> enable <code>h2</code> on it!
-                </p>
-                <p>
-                    Again, we will address that in future releases so that you can enable it safely.
-                </p>
-                
-                
+
+
                 <p></p>
-                <p>Münster, 09.10.2015,</p>
+                <p>Münster, 12.10.2015,</p>
                 
                 <p>Stefan Eissing, greenbytes GmbH</p>
 
