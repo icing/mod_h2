@@ -303,11 +303,17 @@ or in ASCII: PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n</pre>
                 </p>
                 <p>
                 The charme of <code>direct</code> is the zero overhead and that it works for all requests, even those
-                that carry a body (see <a href="#h2c-restrictions">h2c restrictions</a>). The <code>direct</code> mode
+                that carry a body (see <a href="#h2c-restrictions">h2c restrictions</a>). <strike>The <code>direct</code> mode
                 is enabled by default on any server that allows the <code>h2c</code> protocol. If you want to disable
                 it, add the configuration directive:<pre>
 H2Direct off</pre>
-                to your server.
+                to your server.</strike>
+                </p>
+                <p>
+                For the 2.4.17 release, <code>H2Direct</code> is enabled by default on cleartext connection. However
+                there are some modules with whom this is incompatible with. Therefore, in the next release, the default
+                will change to <code>off</code> and if you want your server to support it, you need to set it to <pre>
+H2Direct on</pre>
                 </p>
 
                 
@@ -401,7 +407,11 @@ The negotiated protocol: http/1.1
                    <a id="firefox" class="anchor" href="#firefox" aria-hidden="true"><span class="octicon octicon-link"></span></a>
                    Firefox</h4>
                 <p>
-                    In Firefox you need to open the Developer Tools and there the Network tab to check for HTTP/2 connections. When
+                <em>Update:</em> Steffen Land from <a href="https://www.apachelounge.com">Apache Lounge</a> pointed me to the <a href="https://addons.mozilla.org/en-US/firefox/addon/spdy-indicator/">HTTP/2 indicator Add-on for Firefox</a>. Nice if 
+                you want to see in how many places you already talk <code>h2</code> (Hint: Apache Lounge talks h2 for some time now...).
+                </p>
+                <p>
+                    In Firefox you can to open the Developer Tools and there the Network tab to check for HTTP/2 connections. When
                     you have those open and reload your html page, you see something like the following:
                     <img src="images/firefox-h2.png">
                 </p>
