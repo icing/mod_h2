@@ -524,6 +524,12 @@ The negotiated protocol: http/1.1
                 In order to make behaviour predictable, several server implementors decided to not do an Upgrade
                 in the presence of any request bodies, even small ones.
                 </p>
+                <h5>Upgrade on 302s</h5>
+                <p>
+                The <code>h2c</code> Upgrade dance also does currently not work when there is a general redirect
+                in place. Seems that rewrite happens before the <code>mod_http2</code> has a chance to act. Certainly not
+                a deal breaker, but might be confusing when you test a site that has it.
+                </p>
 
                 <h4>
                    <a id="h2-restrictions" class="anchor" href="#h2-restrictions" aria-hidden="true"><span class="octicon octicon-link"></span></a>
