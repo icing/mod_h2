@@ -9,15 +9,22 @@ notice and this notice are preserved.  This file is offered as-is,
 without warranty of any kind. See LICENSE for details.
 
 
-This repository contains the `mod_h2` for Apache httpd. It enables the HTTP2
+This repository contains the `mod_h[ttp]2` for Apache httpd. It enables the HTTP2
 protocol inside the server, using nghttp2 (https://nghttp2.org) as base engine.
 
 ##Status
-**EARLY EXPERIENCE VERSION**: `mod_h2` has been donated into the Apache `httpd` project and has become part of that product. This repository is merely a copy of the module itself, plus some gift wrappings to make life easy for people who want to test drive it.
+**Released in Apache httpd 2.4.17**: You find the packages [on the Apache download page](https://httpd.apache.org/download.cgi).
 
-**WHY?** The module can already be downloaded and built as part of the Apache  from [httpd trunk (2.5-DEV)](http://httpd.apache.org/docs/trunk/). So why duplicate it here? The module will become part of the **2.4.x** branch, hopefully very soon, and needs testing on that branch. This configuration is not readily available somewhere else.
+All future development will happen in the Apache repository. I may offer some alpha versions here between releases. 
 
-**EARLIER VERSIONS**: if you have an earlier version of `mod_h2` installed, please see the chapter [Migration](#Migration) for what you need to do.
+##Packages
+If you want it on your system, there are people who have built packages. For example:
+
+* **Ubuntu**: [ppa by ondrej](https://launchpad.net/~ondrej/+archive/ubuntu/apache2) which I have tested on a 14.04. Not sure what Ubuntu 15.10 all inclues, but at least OpenSSL 1.0.2 is in there.
+* **FreeBSD**: [Sp1l](https://github.com/Sp1l) has been working on mod_http2 ports for some time. Not sure what he recommends.
+* **Fedora**: [Rawhide has packages](http://rpmfind.net/linux/rpm2html/search.php?query=httpd)
+
+Tell me about other options, so I can list them here!
 
 ##Features
 This module supports the protocols "h2" (HTTP2 over TLS) and "h2c" (HTTP2 over plain HTTP connections via Upgrade). You can enable it for the whole server or
