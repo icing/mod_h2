@@ -112,9 +112,11 @@ td.num {
 /*----------------------------------------------------------------------------*/
 /* horizontal stack of bars */
 .barstack {
+    margin: 0 0 1.5em 0;
     padding: 1.5em .2em 1em .2em;
     position: relative;
     background-color: #b0b0b0;
+    border: 1px solid #a0a0a0;
 }
 
 .barstack > .title {
