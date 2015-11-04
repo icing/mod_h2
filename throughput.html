@@ -1,0 +1,213 @@
+<!doctype html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="chrome=1">
+        <title>h2/h2c</title>
+                
+        <link rel="stylesheet" href="stylesheets/styles.css">
+        <link rel="stylesheet" href="stylesheets/pygment_trac.css">
+        <link rel="stylesheet" href="stylesheets/mod_h2.css">
+        <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+        <!--[if lt IE 9]>
+        <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+        <![endif]-->
+    </head>
+    <body>
+        <div class="wrapper">
+            <div class="backlogo" style="background-image: none; padding-top: 0; top: 10em;">
+            </div>
+            <header>
+                <h1>mod_h[ttp]2</h1>
+                <p>HTTP/2 for <a href="https://httpd.apache.org/download.cgi">Apache httpd</a></p>
+            </header>
+            <section>
+                <h1>
+                    <a id="mod_h2-howto" class="anchor" href="#top" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    h2/h2c throughput in apache
+                </h1>
+                
+                <p>Copyright (C) 2015 greenbytes GmbH</p>
+                <p>
+                    Support for HTTP/2 has been released in Apache httpd 2.4.17 in the experimental <code>mod_http2</code> module.
+                    See my <a href="howto.html">how to</a> for instructions. 
+                </p>
+                <p>
+                    Today I want to shine some light on one topic that we are going to improve in the upcoming releases
+                    of httpd, and that is: throughput.
+                    I did improvements of the mod_http2 streaming of static files that can be seen below. With a little
+                    bit of luck, we can get those into the next Apache release.
+                </p>
+                
+                <h2>
+                    <a id="source" class="anchor" href="#source" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    Local Perform
+                </h2>
+                <p>
+                    There are two interesting scenarios for throughput testing: cleartext and encrypted, or http: and https:. The latter
+                    one because browsers only talk HTTP/2 for https: urls. The cleartext one because Apache httpd is also used behind
+                    load balancers and dedicated TLS hardware, and in those cases talking HTTP/2 over unencrypted (data center) 
+                    connections is very interesting.
+                </p>
+                
+                <h3>
+                    <a id="source" class="anchor" href="#source" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    encrypted
+                </h3>
+                <p>
+                    The https tests show that ApacheBench is not well suited for TLS performance tests. Luckily, h2load can
+                    be told to use HTTP/1.1 as well.
+                    <div class="barstack">
+                        <div class="title">https: throughput</div>
+                        <div class="bars">
+                            <div class="bar h1" value="811" style="width: 41%;"><div class="title">trunk, HTTP/1.1, ab, 800 MB/s</div></div>
+                            <div class="bar h1" value="1900" style="width: 95%;"><div class="title">trunk, HTTP/1.1, h2load, 1900 MB/s</div></div>
+                            <div class="bar h2" value="1250" style="width: 63%;"><div class="title">2.4.17, HTTP/2, h2load, 1250 MB/s</div></div>
+                            <div class="bar h2" value="1900" style="width: 95%;"><div class="title">trunk, HTTP/2, h2load, 1900 MB/s</div></div>
+                        </div>
+                    </div>
+                    While HTTP/2 only gives 66% of the HTTP/1.1 throughput in 2.4.17 (in this test scenario!), <code>trunk</code>
+                    eliminates that difference. Apache can now serve static files via https: with the same performance
+                    via both HTTP versions.
+                </p>
+
+                <h3>
+                    <a id="source" class="anchor" href="#source" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    cleartext
+                </h3>
+                <p>
+                    The cleartext (<code>h2c</code>) mode of <code>mod_h[ttp]2</code> did not get the love it deserves until
+                    now. Write strategies, necessary for TLS, were also used in the cleartext case - with suboptimal results:
+                    <div class="barstack">
+                        <div class="title">http: throughput</div>
+                        <div class="bars">
+                            <div class="bar h1" value="3851" style="width: 77%;"><div class="title">trunk, HTTP/1.1, ab, 3800 MB/s</div></div>
+                            <div class="bar h1" value="5000" style="width: 100%;"><div class="title">trunk, HTTP/1.1, wrk, 5000 MB/s</div></div>
+                            <div class="bar h2" value="1730" style="width: 35%;"><div class="title">2.4.17, HTTP/2, h2load, 1700 MB/s</div></div>
+                            <div class="bar h2" value="4750" style="width: 95%;"><div class="title">trunk, HTTP/2, h2load, 4700 MB/s</div></div>
+                        </div>
+                    </div>
+                    Since I could not persuade <code>h2load</code> to talk HTTP/1.1 on cleartext and ApacheBench seems to show
+                    its age a bit, I also used <a href="https://github.com/wg/wrk">wrk</a> for this test.
+                </p>
+                <p>
+                    The <code>trunk</code> HTTP/2 implementation is now almost as fast as HTTP/1.1 on unencrypted connections. 
+                    And compared to 2.4.17, it is now 2.75 times as fast! Sweet!
+                </p>
+
+                <h3>
+                    <a id="source" class="anchor" href="#source" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    setup and tests
+                </h3>
+                <p>
+                    I used the following setup:
+                    <ul>
+                        <li>my trust mid 2012 MacBook Pro, 2.6 Ghz i7</li>
+                        <li>Parallels 11, hosting an Ubuntu 14.04.1 image, x86_64</li>
+                        <li>Image with 8 cores, 2 GB RAM</li>
+                        <li><code>test.example.org</code> at <code>127.0.0.1</code></li>
+                    </ul>
+                    For HTTP/1.1 I used ApacheBench 2.3 and wrk in cleartext and h2load for https.For HTTP/2 h2load 1.4.0, provided the numbers. The exact commands were:
+                    <pre>
+ab -c8 -n 1000 -k http://test.example.org:12345/005.txt
+wrk -t8 -c8 -d30s http://test.example.org:12345/005.txt
+h2load -c 8 -t 8 -m 1 -n 1000 --npn-list=http/1.1 https://test2.example.org:12346/005.txt
+h2load -c 8 -t 8 -m 1 -n 1000 https://test.example.org:12346/005.txt</pre>
+                    with 005.txt being a 10 MB text file. Notice that h2load is doing only 1 stream/connection at a time.
+                </p>
+                
+                <h3>
+                    <a id="source" class="anchor" href="#source" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    what changed?
+                </h3>
+                <p>
+                    The short answer: buffer copies have been eliminated (mostly).
+                </p>
+                <p>
+                    HTTP/1.1 servers, when sending a document file, open the file and bring the handle to the part of
+                    the server that directly writes the connection. That code then uses 
+                    <a href="http://man7.org/linux/man-pages/man2/sendfile.2.html"><code>sendfile()</code></a> to let the
+                    operating system transfer the file data to the connection in the  most efficient way possible. 
+                </p>
+                <p>
+                    And this is what <code>mod_h[ttp]2</code> now has learned as well. Performance numbers have almost
+                    reached the HTTP/1.1 case, where they will most likely stay. HTTP/1.1 has a single request per
+                    connection, so <code>sendfile()</code> can be called once for the complete file. HTTP/2 sends data
+                    in <em>frames</em> which consist of some 9-10 bytes of header data, followed by a file data chunk and
+                    0-255 padding bytes. The file chunk has a maximum of 16 KB right now.
+                </p>
+                <p>
+                    This interleaving of data makes transfer of files less efficient than the HTTP/1.1 case. But only
+                    a little bit less efficient. (I did not experiment with larger frame sizes, as that defeats the 
+                    purpose of a HTTP/2 shared connection.)
+                </p>
+
+                <h3>
+                    <a id="source" class="anchor" href="#source" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    will https become faster? 
+                </h3>
+                <p>
+                    It could - but it very much depends on the scenario you use it in. And what you overall goals are.
+                </p>
+                <p>
+                    The tricky thing about TLS is that it writes the connection data in 0-16 KB chunks. Each chunk has a certain
+                    overhead, so you'd might think that only writing 16 KB is best. Not always so.
+                </p>
+                <p>
+                    The receiver of TLS data needs to have the complete chunk in order to decrypt it. Having on 99% of
+                    such a chunk is useless! So, when a browser gets the first kilobyte, it can do nothing with it. Same
+                    for the next kilobytes, until the chunk is complete. Browser page load times will grow.
+                </p>
+                <p>
+                    For better page load times, a server needs to write small chunks in the beginning, ideally to
+                    have it all in one TCP/IP packet and that packet to fit into a single MTU chunk. Then a browser will
+                    be able to decrypt all packets it receives immediately, detect new resources to load and send off
+                    the requests for those.
+                </p>
+                <p>
+                    But the raw transfer performance will suffer. Faster pages by slower transfers! How much will it suffer?
+                    The implementation in <code>trunk</code> uses such a "slow start" on TLS by default and if you run the
+                    tests against a site which always tries to write 16 KB, you get: 
+                    <div class="barstack">
+                        <div class="title">TLS, slow start vs. max writes</div>
+                        <div class="bars">
+                            <div class="bar h2" value="1640" style="width: 82%;"><div class="title">slow start, 1640 MB/s</div></div>
+                            <div class="bar h2" value="1900" style="width: 95%;"><div class="title">max write, 1900 MB/s</div></div>
+                        </div>
+                    </div>
+                    Which configuration makes most sense to you depends on your use case. If your Apache instance serves
+                    browsers directly, the slow start will most likely give you best results. If your server talks to other
+                    (front-end) servers in a data center, max writes will give best results.
+                </p>
+
+                <h3>
+                    <a id="source" class="anchor" href="#source" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    sources
+                </h3>
+                <p>
+                    You can get the Apache release from <a href="https://httpd.apache.org/download.cgi">here</a>. HTTP/2 support 
+                    is included in Apache 2.4.17 and upwards. I will not repeat instructions on how to build the server in general.
+                    There is excellent material available in several places, for example <a href="https://httpd.apache.org/docs/2.4/install.html">here</a>.
+                </p>
+
+                <p></p>
+                <p>Münster, 03.11.2015,</p>
+                
+                <p>Stefan Eissing, greenbytes GmbH</p>
+
+                <p>Copying and distribution of this file, with or without modification,
+                are permitted in any medium without royalty provided the copyright
+                notice and this notice are preserved.  This file is offered as-is,
+                without warranty of any kind. See LICENSE for details.
+                </p>
+                
+            </section>
+            <footer>
+                <p>This project is maintained by <a href="https://github.com/icing">icing</a></p>
+                <p><small>Hosted on GitHub Pages &mdash; Theme by <a href="https://github.com/orderedlist">orderedlist</a></small></p>
+            </footer>
+        </div>
+        <script src="javascripts/scale.fix.js"></script>
+        
+    </body>
+</html>

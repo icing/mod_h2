@@ -108,3 +108,33 @@ td.num {
     width: 120%;
     height: 600px;
 }
+
+/*----------------------------------------------------------------------------*/
+/* horizontal stack of bars */
+.barstack {
+    padding: 1.5em .2em 1em .2em;
+    position: relative;
+    background-color: #b0b0b0;
+}
+
+.barstack > .title {
+    top: -.5em;
+    left: 2em;
+    color: #222;
+    position: relative;
+}
+.barstack .bar {
+    margin: .2em 0;
+    padding: .1em;
+    overflow: visible;
+    border: 1px solid #444;
+    white-space: nowrap;
+}
+.barstack .bar.h1 {
+    color: #e0e0e0;
+    background-color: #222;
+}
+.barstack .bar.h2 {
+    color: gold;
+    background-color: #bd8047;
+}
