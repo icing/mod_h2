@@ -82,13 +82,11 @@
                         <div class="title">http: throughput</div>
                         <div class="bars">
                             <div class="bar h1" value="3851" style="width: 77%;"><div class="title">trunk, HTTP/1.1, ab, 3800 MB/s</div></div>
-                            <div class="bar h1" value="5000" style="width: 100%;"><div class="title">trunk, HTTP/1.1, wrk, 5000 MB/s</div></div>
+                            <div class="bar h1" value="4900" style="width: 98%;"><div class="title">trunk, HTTP/1.1, h2load, 4900 MB/s</div></div>
                             <div class="bar h2" value="1730" style="width: 35%;"><div class="title">2.4.17, HTTP/2, h2load, 1700 MB/s</div></div>
                             <div class="bar h2" value="4750" style="width: 95%;"><div class="title">trunk, HTTP/2, h2load, 4700 MB/s</div></div>
                         </div>
                     </div>
-                    Since I could not persuade <code>h2load</code> to talk HTTP/1.1 on cleartext and ApacheBench seems to show
-                    its age a bit, I also used <a href="https://github.com/wg/wrk">wrk</a> for this test.
                 </p>
                 <p>
                     The <code>trunk</code> HTTP/2 implementation is now almost as fast as HTTP/1.1 on unencrypted connections. 
@@ -107,10 +105,10 @@
                         <li>Image with 8 cores, 2 GB RAM</li>
                         <li><code>test.example.org</code> at <code>127.0.0.1</code></li>
                     </ul>
-                    For HTTP/1.1 I used ApacheBench 2.3 and wrk in cleartext and h2load for https.For HTTP/2 h2load 1.4.0, provided the numbers. The exact commands were:
+                    For HTTP/1.1 I used ApacheBench 2.3 and h2load. For HTTP/2 h2load 1.4.0, provided the numbers. The exact commands were:
                     <pre>
 ab -c8 -n 1000 -k http://test.example.org:12345/005.txt
-wrk -t8 -c8 -d30s http://test.example.org:12345/005.txt
+h2load -c 8 -t 8 -m m -n 1000 -p http/1.1 http://test.example.org:12345/005.txt
 h2load -c 8 -t 8 -m 1 -n 1000 --npn-list=http/1.1 https://test2.example.org:12346/005.txt
 h2load -c 8 -t 8 -m 1 -n 1000 https://test.example.org:12346/005.txt</pre>
                     with 005.txt being a 10 MB text file. Notice that h2load is doing only 1 stream/connection at a time.
@@ -190,7 +188,16 @@ h2load -c 8 -t 8 -m 1 -n 1000 https://test.example.org:12346/005.txt</pre>
                     There is excellent material available in several places, for example <a href="https://httpd.apache.org/docs/2.4/install.html">here</a>.
                 </p>
 
-                <p></p>
+                <h3>
+                    <a id="source" class="anchor" href="#source" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    Update, Nov 4th 2015
+                </h3>
+                <p>
+                    Lucas Pardue (@SimmerVigor) gave me the hint that <code>h2load</code> works well with http/1.1 cleartext when
+                    giving the <code>-p http/1.1</code> option. Thanks!
+                </p>
+                <p>
+                </p>
                 <p>Münster, 03.11.2015,</p>
                 
                 <p>Stefan Eissing, greenbytes GmbH</p>
