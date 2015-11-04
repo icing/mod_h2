@@ -3,7 +3,7 @@
     <head>
         <meta charset="utf-8">
         <meta http-equiv="X-UA-Compatible" content="chrome=1">
-        <title>h2/h2c</title>
+        <title>h2/h2c throughput in apache</title>
                 
         <link rel="stylesheet" href="stylesheets/styles.css">
         <link rel="stylesheet" href="stylesheets/pygment_trac.css">
@@ -29,13 +29,13 @@
                 
                 <p>Copyright (C) 2015 greenbytes GmbH</p>
                 <p>
-                    Support for HTTP/2 has been released in Apache httpd 2.4.17 in the experimental <code>mod_http2</code> module.
+                    Support for HTTP/2 has been released in Apache httpd 2.4.17 in the experimental <code>mod_h[ttp]2</code> module.
                     See my <a href="howto.html">how to</a> for instructions. 
                 </p>
                 <p>
                     Today I want to shine some light on one topic that we are going to improve in the upcoming releases
                     of httpd, and that is: throughput.
-                    I did improvements of the mod_http2 streaming of static files that can be seen below. With a little
+                    I did improvements of the mod_h[ttp]2 streaming of static files that can be seen below. With a little
                     bit of luck, we can get those into the next Apache release.
                 </p>
                 
