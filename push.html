@@ -1,0 +1,273 @@
+<!doctype html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="chrome=1">
+        <title>HTTP/2 gets a PUSH (in 2.4.18)</title>
+                
+        <link rel="stylesheet" href="stylesheets/styles.css">
+        <link rel="stylesheet" href="stylesheets/pygment_trac.css">
+        <link rel="stylesheet" href="stylesheets/mod_h2.css">
+        <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+        <!--[if lt IE 9]>
+        <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+        <![endif]-->
+    </head>
+    <body>
+        <div class="wrapper">
+            <div class="backlogo" style="background-image: none; padding-top: 0; top: 10em;">
+            </div>
+            <header>
+                <h1>mod_h[ttp]2</h1>
+                <p>HTTP/2 for <a href="https://httpd.apache.org/download.cgi">Apache httpd</a></p>
+            </header>
+            <section>
+                <h1>
+                    <a class="anchor" href="#top" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    HTTP/2 gets a PUSH (in 2.4.18)
+                </h1>
+                
+                <p>Copyright (C) 2015 greenbytes GmbH</p>
+                <p>
+                    There are several new things coming for HTTP/2 in the upcoming release 2.4.18 of Apache httpd. And 
+                    one of them is PUSH. This post talks about the implementation of this protocol feature and all
+                    the other things that will be included.
+                </p>
+                
+                <h2>
+                    <a id="push" class="anchor" href="#push" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    Server Push
+                </h2>
+                <p>
+                    HTTP/2 Server Push means that a server can send responses to a client which it never asked for. Such
+                    pushes need to be tied to a request that originated from the client. That has the advantage that the 
+                    client has <em>context</em> to process these responses. Imagine a browser opening two tabs, requesting
+                    two pages. Tying pushes to requests makes it clear to the browser which push belongs to which. So, if
+                    the user closes one tab, the browser knows which responses to cancel.
+                </p>
+                <p>
+                    As a rule of thumb, the page load time is affected by the RTT, the round trip time, between your server
+                    and a client. If a client needs to send a request for a resource, that sending will take RTT/2 time to
+                    travel to the server. And the response needs RTT/2 to travel back to the client. So, when a server
+                    pushes responses to the client, it saves half the RTT for that resource.
+                </p>
+                <p>
+                    Will that save RTT/2 in page load time? That depends. There are several resources in a web pages, where
+                    saving this time will not affect page load time, as a lot of other stuff is happening and this particular
+                    resource is not blocking anything else. In such a case, it is better to omit the push. Not the least 
+                    because the client may already have it in its local cache from a previous visit!
+                </p>
+                <p>
+                    So, you need to select the candidates for pushes carefully. But for motivation, there are page scenarios
+                    where push saving can really add up. That happens when vital resources are daisy chained, when the 
+                    browser needs to see the content of resource A to find out that it needs to load B and then it finds
+                    out it needs to load C, etc. Pushing A+B+C at the same time can then save 1.5 times the RTT.
+                </p>
+
+                <h3>
+                    <a id="h2push" class="anchor" href="#h2push" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    H2Push
+                </h3>
+                <p>
+                    The new directive <pre>
+H2Push on|off</pre> let's you control where server pushes are enabled. You
+                    can use it in server or vhost configurations. It is on by default. And it of course only works for
+                    clients that allow it. Which, fortunately, is Chrome, Firefox and others do. However Safari 9 does not.
+                </p>
+                <p>
+                    How does it work? The implementation of HTTP/2, mod_h[ttp]2, looks at the headers of responses for ones
+                    which are named <code>Link</code> with the <code>rel</code> parameter value <code>preload</code>. An
+                    example of such headers would be:
+                    <pre>
+Link: &lt;/css/my.css&gt;;rel=preload
+Link: &lt;/js/jquery.js&gt;;rel=preload</pre> and those will result in these resources to be pushed. You can combine several
+                    links into a single header, such as <pre>
+Link: &lt;/css/my.css&gt;;rel=preload, &lt;/js/jquery.js&gt;;rel=preload</pre>
+                </p>
+                <p>
+                    Where do these headers come from? Either your cgi/php/whatever application sets them or you can use
+                    <code>mod_header</code> to define those for certain locations. An example would be:<pre>
+&lt;Location /index.html&gt;
+    Header add Link "&lt;/css/my.css&gt;;rel=preload"
+    Header add Link "&lt;/js/jquery.js&gt;;rel=preload"
+&lt;/Location&gt;</pre>
+                </p>
+
+                <h3>
+                    <a id="h2pushpriority" class="anchor" href="#h2pushpriority" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    H2PushPriority
+                </h3>
+                <p>
+                    Another new directive related to server pushes is <pre>
+H2PushPriority  mime-type  after|before|interleaved  weight</pre> which set the ordering and priority with which pushed
+                    responses are sent out.
+                </p>
+                <p>
+                    <em>You need a nghttp2 library version newer than 1.4.0 for this to have an effect!</em>
+                </p>
+                <p>
+                    Explaining HTTP/2 priorities is a topic of its own. Happily, other people have already talked
+                    about it. There is <a href="https://speakerdeck.com/summerwind/2-prioritization">Moto Ishizawa</a>s very nice explanation of HTTP/2 priorities, and there is <a href="https://nghttp2.org/blog/2015/11/11/stream-scheduling-utilizing-http2-priority/">Tatsuhiro Tsujikawa</a>'s
+                    explanation of his implementation in nghttp2.
+                </p>
+                <p>
+                    <code>tl;dr</code><br/>
+                    The higher the weight, the more gets send out the sooner. This happens either <code>after</code>
+                    the requested resource has been sent, or <code>before</code> or <code>interleaved</code> with it.
+                </p>
+                <p>
+                    The following is an example of how you can use the directive: <pre>
+H2PushPriority *                      after
+H2PushPriority text/css               before
+H2PushPriority image/jpeg             after        32
+H2PushPriority image/png              after        32
+H2PushPriority application/javascript interleaved</pre>
+                    There is a special rule for '*' which is a catchall that applies to all resources that
+                    do not find a specific rule. The order in which you use the directive is irrelevant.
+                    If you leave out the weight, defaults are chosen depending on the ordering you 
+                    specified. The default when no rules are specified is <code>after 16</code>.
+                </p>
+                <p>
+                    It will be interesting to hear from people how they use it for their sites and
+                    what they observed. A little more detail about the effects, defaults and consequences
+                    you can find at the mod_h[ttp]2 <a href="https://httpd.apache.org/docs/2.4/mod/mod_http2.html">documentation</a>
+                    once 2.4.18 is released.
+                </p>
+
+
+                <h2>
+                    <a id="tls" class="anchor" href="#tls" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    TLS, Multidomain Certificates, Client Certificates 
+                </h2>
+                <p>Several improvements habe been made in the area of TLS:</p>
+                
+                <h3>
+                    <a id="multicert" class="anchor" href="#multicert" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    Multidomain Certificates
+                </h3>
+                <p>
+                    A thing that had bitten several people in the 2.4.17 release was the lack of support for connection reuse. In HTTP/2,
+                    when you have the same certificate for <code>a.exmple.org</code> and <code>b.example.org</code>, browsers will reuse
+                    any open connection they have for requests to the 'other' domain. But Apache did not allow that, answering with
+                    a <code>421</code> response code defined in the HTTP/2 spec for such a case. Some browsers did not handle
+                    that very gracefully.
+                </p>
+                <p>
+                    In 2.4.18, any such connection reuse is allowed, as long as both domains have <em>exactly</em> the same SSL
+                    protocol settings.
+                </p>
+
+                <h3>
+                    <a id="renegotiation" class="anchor" href="#renegotiation" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    TLS Renegotiation
+                </h3>
+                <p>
+                    Another improvement done to the TLS handling in mod_h[ttp]2 is that requests which trigger client certificate
+                    authentication or any other renegotiation of TLS parameters, are aborted with the specific <code>HTTP1_1_REQUIRED</code>
+                    error code. This informs the browser that the request should be done using the HTTP/1.1 protocol.
+                </p>
+                <p>
+                    People in standardization are working on defining TLS client authentication for HTTP/2, but things
+                    are not done yet. So sites which need client certificate need this feature.
+                </p>
+                
+                <h3>
+                    <a id="moderntls" class="anchor" href="#moderntls" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    Modern TLS, Warmup and Cool-down
+                </h3>
+                <p>
+                    With the new directive <pre>
+ModernTLSOnly on|off</pre>
+                    you can control if mod_h[ttp]2 only accepts TLS connections which are secured as specified in RFC 7540 or
+                    should be totally relaxed about it and use HTTP/2 however you configured your SSL parameters. By default,
+                    the rigid checks are on and if your server expects to use HTTP/2 with common browsers, this is what you want.
+                </p>
+                <p>
+                    With the new directives <pre>
+H2TLSWarmUpSize     bytes
+H2TLSCoolDownSecs   secs</pre> you can fine tune how TLS record sizes should be chosen on a HTTP/2 connection. TLS record sizes
+                    can vary from 1 byte up to 16K, but there is always some overhead involved with each record. So, best
+                    throughput is achieved with 16K sizes. <em>Unless</em> you are on the real internet or even a cellular
+                    network and a packet might get lost and your TCP protocol is not yet certain what window size is best, etc.
+                </p>
+                <p>
+                    <a href="https://www.igvita.com">Ilya Grigorik</a> has written a whole book about such things and
+                    is full of good advice about web performance tuning. His recommendations for these parameters
+                    are 1MB of data for warmup (e.g. until 16K record sizes is preferred) and 1 second for cool-down,
+                    after which an idle connection is reset to the starting size of 1300 bytes records.
+                </p>
+                <p>
+                    If you use your Apache in more controlled environments, like your LAN, you can disable this
+                    tuning by setting both parameters to 0, making mod_h[ttp]2 use 16K record sizes whenever possible.
+                </p>
+
+                
+                <h2>
+                    <a id="throughput" class="anchor" href="#throughput" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    Throughput
+                </h2>
+                <p>
+                    I wrote something about the <a href="throughput.html">throughput improvements</a> a while ago and this code
+                    gets also shipped with 2.4.18. Enjoy!
+                </p>
+                <p>
+                    One thing I'd like to add to performance measurements: they vary with the <code>mpm</code> module you
+                    use and the OS you are on. From the three available <code>mpm</code>s <code>prefork</code> and <code>worker</code>
+                    show the best performance with mod_h[ttp]2, while <code>event</code> lags behind. The reason is that mod_h[ttp]2 does not play
+                    nice with <code>event</code> right now and needs some internal changes to make best use of it.
+                </p>
+                
+
+                <h2>
+                    <a id="trailers" class="anchor" href="#trailers" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    Trailers
+                </h2>
+                <p>
+                    As a last point, a somewhat, so far ivory towerish feature has been added and that is support
+                    for <code>trailers</code>. But what are trailers, you may ask?
+                </p>
+                <p>
+                    In HTTP, trailers are the same as headers, meta data about the resource, only send <em>after</em> the
+                    request/response body, not before like headers. It's like post scriptums added to a letter (if anyone
+                    still knows what that is).
+                </p>
+                <p>
+                    Trailers were introduced in HTTP/1.1 and, to stay backward compatible to HTTP/1.0, only worked when transfer
+                    encoding <code>chunked</code> was used. Which no one really wants to use only for that and so it
+                    was never used much and so implementations are limited.
+                </p>
+                <p>
+                    In HTTP/2 however, trailers work for <em>every</em> request and response. This is nice if you 
+                    want to implement a HTTP/1.1 to HTTP/2 gateway and, eventually, need to transfer trailers back
+                    and forth. Or if you use Apache as a HTTP/2 proxy to a HTTP/1.1 host.
+                </p>
+
+                <h2>
+                    <a id="availability" class="anchor" href="#availability" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    Availability
+                </h2>
+                <p>
+                    You can get Apache releases from <a href="https://httpd.apache.org/download.cgi">here</a>. Expect the 2.4.18 
+                    release to show up there sometime beginning of December.
+                </p>
+
+                <p>Münster, 26.11.2015,</p>
+                
+                <p>Stefan Eissing, greenbytes GmbH</p>
+
+                <p>Copying and distribution of this file, with or without modification,
+                are permitted in any medium without royalty provided the copyright
+                notice and this notice are preserved.  This file is offered as-is,
+                without warranty of any kind. See LICENSE for details.
+                </p>
+                
+            </section>
+            <footer>
+                <p>This project is maintained by <a href="https://github.com/icing">icing</a></p>
+                <p><small>Hosted on GitHub Pages &mdash; Theme by <a href="https://github.com/orderedlist">orderedlist</a></small></p>
+            </footer>
+        </div>
+        <script src="javascripts/scale.fix.js"></script>
+        
+    </body>
+</html>
