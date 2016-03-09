@@ -1,0 +1,146 @@
+<!doctype html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="chrome=1">
+        <title>HTTP/2 gets a PUSH (in 2.4.18)</title>
+                
+        <link rel="stylesheet" href="stylesheets/styles.css">
+        <link rel="stylesheet" href="stylesheets/pygment_trac.css">
+        <link rel="stylesheet" href="stylesheets/mod_h2.css">
+        <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+        <!--[if lt IE 9]>
+        <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+        <![endif]-->
+    </head>
+    <body>
+        <div class="wrapper">
+            <div class="backlogo" style="background-image: none; padding-top: 0; top: 10em;">
+            </div>
+            <header>
+                <h1>mod_h[ttp]2</h1>
+                <p>HTTP/2 for <a href="https://httpd.apache.org/download.cgi">Apache httpd</a></p>
+            </header>
+            <section>
+                <h1>
+                    <a class="anchor" href="#top" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    HTTP/2 will be nu, nu, nu, nu, nineteen!
+                </h1>
+                
+                <p>Copyright (C) 2016 greenbytes GmbH</p>
+                <p>
+                    While you read this, the beautiful people from Apache httpd dev team are busy putting together
+                    the next 2.4 realease which - knock on wood - will be 19! While chilling from the last several-day
+                    race condition hunt, I thought I'd give you a short overview what will come.
+                </p>
+                
+                <h2>
+                    <a id="stable" class="anchor" href="#stable" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    Stability
+                </h2>
+                <p>
+                    Since 2.4.18 there have been very important stability improvements done to
+                    the module. Many, many thanks to the people who helped out analyzing this, among them Frank Stolle, 
+                    Mark Nottingham and Bernard Spil. Thank them, buy them beer!
+                </p>
+                <p>
+                    The fixes in no particular order and without guarantuee of completeness:
+                    <ul>
+                        <li>A race condition lead to a deadlock during connection shutdown, blocking worker threads forever.</li>
+                        <li>A read after free as found when client did stream resets while processing was underway.</li>
+                        <li>The whole connection state handling has been rewritten and now timeouts and asynchronous MPMs
+                        like event work nicely with mod_http2.</li>
+                        <li>The module now follows the standard <code>Timeout</code> and <code>KeepAliveTimeout</code>
+                        directives.</li>
+                        <li>Clients will now always see a last <code>GOAWAY</code> frame when Apache closes a HTTP/2
+                        connection. Before, this was not true for keepalive connections and the next request for some
+                        client just failed.</li>
+                        <li>HTTP/2 connection can really be asynchronous and set aside, letting the event MPM shine.</li>
+                        <li>Blocking reads are now done in small timeout increments, so that your server restart commands 
+                        will be obeyed in timely manner.</li>
+                        <li>Bytes read and written for HTTP/2 requests can now be properly logged.</li>
+                        <li>DoS counter measures were added so that slow connections are not allowed to occupy all your workers.</li>
+                    </ul>
+                    Almost all of this has been released here in github in the meantime and was tested by several nice people
+                    out there, partially on production systems. Very nice.
+                </p>
+
+                <h2>
+                    <a id="push" class="anchor" href="#push" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    Push Additions
+                </h2>
+                <p>
+                    Server pushes now correctly forward the <code>Content-Encoding</code> header from a client, so that compression
+                    is available on pushed resources.
+                </p>
+                <p>
+                    Each connection has not a diary where pushes are recorded, so that the same resource is not PUSHed twice 
+                    on the same connection. This diary can be preset by a client using a <code>Cache-Digest</code> header. This 
+                    follows <a href="https://datatracker.ietf.org/doc/draft-kazuho-h2-cache-digest/">a proposal from Kazuho Oku</a>
+                    and is, so far, highly experimental. The spec will probably change quite a bit and browser implementers will
+                    have a word or two on this as well, but it's very interesting.
+                </p>
+                <p>
+                    There is also discussion on <code>Link</code> headers and if using <code>preload</code> for HTTP/2 PUSHes
+                    is a good idea or not. Following a proposal from Ilya Grigorik, mod_http2 now respects the <code>nopush</code>
+                    parameter on preload links. Guess what it does?
+                </p>
+
+                <h2>
+                    <a id="status" class="anchor" href="#status" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    Status Handling
+                </h2>
+                <p>
+                    The module now gives some information in the Apache scoreboard, also known as <code>server-status</code>. You
+                    will see the protocol chosen for each connection and, for HTTP/2 connection, you can see how many streams
+                    have been processed, are open, etc.
+                </p>
+                <p>
+                    Additionally, you can configure a <code>http2-status</code> page that shows more details on the <em>current</em>
+                    connection. You configure this as 
+                    <pre>
+    &lt;Location "/http2-status"&gt;
+        SetHandler http2-status
+    &lt;/Location&gt;</pre>
+                    If you have a connection open and request that resource, you get statistics about frames, bytes, resets,
+                    pushes, push diary, etc.
+                </p>
+                <p>
+                    Also, the environment variables <code>HTTP2<code> and <code>H2PUSH</code> have been added. The first is
+                    set to <code>on</code> for a HTTP/2 connection. The latter is <code>on</code> when pushing resources is
+                    supported on the connection.
+                </p>
+                
+                <h2>
+                    <a id="proxy" class="anchor" href="#proxy" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    mod_proxy_http2
+                </h2>
+                <p>
+                    And, last but not least, I have been working on a <code>mod_proxy_http2</code> that will bring HTTP/2
+                    goodies to backend connections. It is not clear if it will make it into the next 2.4 release, as it
+                    is very young. But so once was mod_http2...
+                </p>
+                <p>
+                    We'll see.
+                </p>
+
+                <p>Münster, 09.03.2015,</p>
+                
+                <p>Stefan Eissing, greenbytes GmbH</p>
+
+                <p>Copying and distribution of this file, with or without modification,
+                are permitted in any medium without royalty provided the copyright
+                notice and this notice are preserved.  This file is offered as-is,
+                without warranty of any kind. See LICENSE for details.
+                </p>
+                
+            </section>
+            <footer>
+                <p>This project is maintained by <a href="https://github.com/icing">icing</a></p>
+                <p><small>Hosted on GitHub Pages &mdash; Theme by <a href="https://github.com/orderedlist">orderedlist</a></small></p>
+            </footer>
+        </div>
+        <script src="javascripts/scale.fix.js"></script>
+        
+    </body>
+</html>
