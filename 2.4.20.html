@@ -1,0 +1,117 @@
+<!doctype html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="chrome=1">
+        <title>HTTP/2 in httpd 2.4.20</title>
+                
+        <link rel="stylesheet" href="stylesheets/styles.css">
+        <link rel="stylesheet" href="stylesheets/pygment_trac.css">
+        <link rel="stylesheet" href="stylesheets/mod_h2.css">
+        <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+        <!--[if lt IE 9]>
+        <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+        <![endif]-->
+    </head>
+    <body>
+        <div class="wrapper">
+            <div class="backlogo" style="background-image: none; padding-top: 0; top: 10em;">
+            </div>
+            <header>
+                <h1>mod_h[ttp]2</h1>
+                <p>HTTP/2 for <a href="https://httpd.apache.org/download.cgi">Apache httpd</a></p>
+            </header>
+            <section>
+                <h1>
+                    <a class="anchor" href="#top" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    HTTP/2 in httpd 2.4.20
+                </h1>
+                
+                <p>Copyright (C) 2016 greenbytes GmbH</p>
+                <p>
+                    Some days before Easter, I <a href="nineteen.html">reported on the new things in the
+                    upcoming 2.4.19 release of Apache httpd.</a> Well, I broke the Windows build in that
+                    release and it was scrapped. That is the Apache httpd release process: when you break
+                    it, you own both parts! 
+                </p>
+                <p>
+                    So, <a href="http://www.jimjag.com">Jim</a> who is the hero doing almost all release management decided to wait until
+                    after Easter to tag the next release candidate. Which is supposed to happen today!
+                    Hopefully, this time everything works and we can ship a 2.4.20 by the end of the week
+                    after the usual testing and voting.
+                </p>
+                <p>
+                    In the meantime, I have not been idle and sneaked in some fixes and a little new stuff
+                    that might interest you:
+                    <ol>
+                        <li>Data is passed more efficiently from the request processing down the main connection. <code>mod_http2</code>
+                        needs to know the frame size of DATA frames before it acutally sends it. Up until now, it first asked the lock
+                        protected code that is responsible for data shuffling back and forth how much is available. On transfer it entered
+                        the lock again to get the data. With 2.4.20, this is done in one go. Slight performance increase in certain situation.</li>
+                        <li><em>Slave</em> connections (think of them as kind of, pseudo, internal HTTP/1.1 connections) used to be
+                        setup and destroyed for each HTTP/2 request. Now, a set of them is kept for future reuse, saving some effort.</li>
+                        <li>A bug in 2.4.19 was fixed that prevented scoreboard (<code>server-status</code>) updates from happening.</li>
+                        <li>New logging niceties were added, see more below.</li>
+                    </ol>
+                </p>
+                
+                <h2>
+                    <a id="logging" class="anchor" href="#stable" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    Logging HTTP/2
+                </h2>
+                <p>
+                    I admit that logging has not been high on my priority list. Probably because I myself do not run
+                    statistics on the few servers that I maintain. But a lot of you do and rightly so! So without further
+                    ado, here is what possiblities you will have in 2.4.20:
+                    <ul>
+                        <li>First: the default log format has not been touched. Everything here will not magically
+                        confuse your statistics. If you want to make use of new things, you have to add them to a 
+                        custom log format.</li>
+                        <li>What <em>will</em> however automatically be visible is that the log format <code>%k</code>,
+                        will work also in HTTP/2 connections. For h1, it counts how many requests have already been
+                        processed on a connection. In h2, where requests run concurrently, it counts how many requests
+                        have already been started. And with <em>started</em> I do not mean <em>received</em>. Because
+                        received requests (or <em>streams</em> as h2 calls them) are queued. And when a h2 worker becomes
+                        available it selects the oldest one with the highest priority to work on.</li>
+                        <li>The environment variable <code>HTTP2</code>, value <code>on|off</code>, flags if
+                        HTTP/2 is used on a connection/for a request. You use it as <code>%{HTTP2}e</code> in your
+                        custom log formats.</li>
+                        <li>The env var <code>H2_PUSH</code> (also available as deprecated <code>H2PUSH</code>) is
+                        also a flag (<code>on|off</code>) which is <code>on</code> only when the PUSH feature of
+                        HTTP/2 is available (server and client enable it).</li>
+                        <li>Further, <code>H2_PUSHED</code> is either empty or has the value <code>PUSHED</code>
+                        for requests that have been pushed by the server.</li>
+                        <li><code>H2_PUSHED_ON</code> contains the stream identifier (a 32-bit int) of the request
+                        that <em>triggered</em> the push.</li>
+                        <li><code>H2_STREAM_ID</code> is the stream identifier of the request.</li>
+                        <li><code>H2_STREAM_TAG</code> is a process wide unique string for a HTTP/2 request, consisting
+                        of connection and stream identifier. This is also used when debug logging <code>mod_http2</code>.</li>
+                    </ul>
+                    And since these are all env variables in <code>httpd</code> you can make use of them in your CGI/PHP/Python
+                    or whatever web application.
+                </p>
+
+                <p>
+                    Hope you enjoy it.
+                </p>
+
+                <p>Münster, 04.04.2016,</p>
+                
+                <p>Stefan Eissing, greenbytes GmbH</p>
+
+                <p>Copying and distribution of this file, with or without modification,
+                are permitted in any medium without royalty provided the copyright
+                notice and this notice are preserved.  This file is offered as-is,
+                without warranty of any kind. See LICENSE for details.
+                </p>
+                
+            </section>
+            <footer>
+                <p>This project is maintained by <a href="https://github.com/icing">icing</a></p>
+                <p><small>Hosted on GitHub Pages &mdash; Theme by <a href="https://github.com/orderedlist">orderedlist</a></small></p>
+            </footer>
+        </div>
+        <script src="javascripts/scale.fix.js"></script>
+        
+    </body>
+</html>
