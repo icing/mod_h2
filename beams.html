@@ -1,0 +1,194 @@
+<!doctype html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="chrome=1">
+        <title>Bucket Beams</title>
+                
+        <link rel="stylesheet" href="stylesheets/styles.css">
+        <link rel="stylesheet" href="stylesheets/pygment_trac.css">
+        <link rel="stylesheet" href="stylesheets/mod_h2.css">
+        <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+        <!--[if lt IE 9]>
+        <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+        <![endif]-->
+    </head>
+    <body>
+        <div class="wrapper">
+            <div class="backlogo" style="background-image: none; padding-top: 0; top: 10em;">
+            </div>
+            <header>
+                <h1>mod_h[ttp]2</h1>
+                <p>HTTP/2 for <a href="https://httpd.apache.org/download.cgi">Apache httpd</a></p>
+            </header>
+            <section>
+                <h1>
+                    <a class="anchor" href="#top" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    Bucket Beams, Baby!
+                </h1>
+                
+                <p>Copyright (C) 2016 greenbytes GmbH</p>
+                <p>
+                    So, Apache 2.4.20 is out and I had a little time in between to work on the data transport inside
+                    <code>mod_http2</code>. The results are Bucket Beams! And they are awesome, if I may say so myself.
+                </p>
+                <p>
+                    (Sorry, this is a post about the very internals of Apache httpd and I can understand that it might
+                    not be of interest to a user of said server. If you are not into programming servers in C, you are
+                    excused. Do something else, smell the roses!)
+                </p>
+                
+                <h2>
+                    <a id="copycopy" class="anchor" href="#copycopy" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    Copy Copy the Problem
+                </h2>
+                <p>
+                    Apache has a very nice runtime, names APR, that provides good abstractions and utilities. One feature, very central
+                    to data transport in Apache, are the <code>apr_bucket</code>s and corresponding <code>apr_bucket_brigade</code>s.
+                </p>
+                <p>
+                    A bucket is just a chunk of data which one can, eventually, read. It can also be of 0 length and contain
+                    meta information like "flush everything before" or "the data stream ends here". Buckets can hold allocated
+                    data on the heap, from memory pools, static data, file handles and even sockets. They can split themselves
+                    when needed and also morph from one form to another. 
+                </p>
+                <p>
+                    For example: when you read a file bucket, it might happen
+                    that the bucket reads 8000 bytes from the file, splits itself into two (one 8000 bytes bucket and one for
+                    the rest) and then transforms itself (the first) into a heap bucket. The second one is a new file bucket
+                    with a different offset and length and when you read that, the same might happen again.
+                </p>
+                <p>
+                    And a row of buckets can be kept in a <code>apr_bucket_brigade</code>. Those can tell you the combined length 
+                    of all their buckets, you can write to them in various ways and they try to find effecient ways to
+                    manage the buckets or allocate new ones. Lifetimes are handled using APR memory pools, everything cleans
+                    up after itself, re-uses mempory in free lists etc. etc. Very nice.
+                </p>
+                <p>
+                    But.
+                </p>
+                <p>
+                    It does not work across threads. 
+                </p>
+                <p>
+                    I tried.
+                </p>
+                <p>
+                    There is really nothing wrong with buckets and brigades and their allocators. It is just that HTTP/1.1
+                    does not need to work across threads. Because a server can process a HTTP/1.1 connection using a single
+                    thread only. It might use a different thread in the end as the one it started with, but there is only ever
+                    one single thread using it at a time.
+                </p>
+                <p>
+                    But HTTP/2 processing, at least in mod_http2, needs at least two threads. And the response from the thread
+                    processing a request needs to be transported to the thread managing the connection. And "the response" often
+                    means a chain of buckets. Sometimes it's a small number, but it can be a lot. Which requires the connection
+                    thread to work on the first buckets as soon as they arrive from the request thread. While that one produces
+                    new buckets.
+                </p>
+                <p>
+                    So, a bucket can be handed over from one thread to another without problem. But when you read the data
+                    inside, it might allocate new memory or new buckets. Which invoke the memory pools and allocators it was
+                    created with...which are also being used by the other thread...which - segmentation fault.
+                </p>
+                <p>
+                    And even if you read the data before passing the bucket, discarding the bucket once it was sent will again
+                    invoke the allocator which will manage its free lists...which is also invoked from the other thread...
+                    which...boom.
+                </p>
+                <p>
+                    So, when passing a bucket acrosse threads, the receiving thread may neither <em>read nor discard</em> this
+                    bucket. Nor do anything else that changes it, like splitting.
+                </p>
+                <p>
+                    So, before version 1.5.0 mod_http2 was copying bucket data. Reading it in the sending thread and writing it into new buckets
+                    allocated by the receiving thread. It had some special handling for file buckets so that it did not
+                    need to read them when passing the data. But everything else involved copying.
+                </p>
+
+                <h2>
+                    <a id="solution" class="anchor" href="#solution" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    Beam Me Up
+                </h2>
+                <p>
+                    The idea for the bucket beams is inspired (or so I prefer to think) from the good, old transporter
+                    and star gate technology. It's a tested and proven method to keep things you beam across the galaxy
+                    in your local memory buffers and erase them only when the transport was successful. Numerous protagonists
+                    own their very screen life to this simple fact.
+                </p>
+                <p>
+                    For ease of explanation, think of bucket beams as having a 'red' sending side where the 'red' thread
+                    puts its 'red' buckets into the beam. And a 'green' receiving side where the 'green' thread gets
+                    'green' buckets out of the beam. The methods called by the red thread may operate on red buckets only
+                    and vice versa for the green thread.
+                </p>
+                <p>
+                    How to convert red buckets into green ones then? 
+                </p>
+                <p>
+                    When sending, so in a red call, red buckets are read. This gives a pointer to the data and the
+                    number of data bytes. This data will continue to exist as long as the red bucket is not changed
+                    or destroyed. The red bucket is then placed into a to-be-transferred list inside the beam. 
+                </p>
+                <p>
+                    When the green thread calls <code>receive()</code> the to-be-transferred list is inspected
+                    and a corresponding green bucket is created. There might be no corresponding green bucket
+                    available, for example unknown metadata buckets cannot be duplicated. The red bucket is
+                    then put into the <code>hold</code> bucket list. For red data buckets, a special <code>beam bucket</code>
+                    is created. This refers to the red's data buffer as determined during the sending as well as
+                    the red bucket itself. The beam bucket is handed over to the green receiving side.
+                </p>
+                <p>
+                    The green thread then works on the received buckets just as with any other, eventually reading 
+                    the data and sending it out on the connection after which the bucket gets destroyed.
+                </p>
+                <p>
+                    Destroying a beam bucket will notify the beam it came from: its red bucket is no
+                    longer needed. The beam bucket makes sure that, even though it might get itself split into
+                    a number of new buckets, it will only call in to the beam when the last one gets destroyed.
+                </p>
+                <p>
+                    The beam will then transfer the red bucket from the <code>hold</code> list to the <code>purge</code>
+                    list. Since the notify call comes from the green thread, it cannot destroy the red bucket
+                    immediately.
+                </p>
+                <p>
+                    And last, whenver the red thread calls in, the <code>purge</code> list is cleared.  
+                </p>
+                <p>
+                    This uses less memory than the copying done before. The memory in the <code>hold</code> was
+                    already allocated and is also needed as long as the former copy would have been there. So, only
+                    the data in the <code>purge</code> area occupies unwanted space. But that only as long as the red
+                    side does not call.
+                </p>
+                <p>
+                    That is basically the bucket beam implementation. There are more details of course on how
+                    life times of red and green pools need to be treated and how locking is done. How it
+                    allows to limit the amount of data buffered and can block using condition variables, etc.
+                    But if you want to know that kind of detail, it's probably best to dive right into the source.
+                </p>
+
+                <p>
+                    Enjoy Apache. And the sun outside.
+                </p>
+
+                <p>Münster, 19.04.2016,</p>
+                
+                <p>Stefan Eissing, greenbytes GmbH</p>
+
+                <p>Copying and distribution of this file, with or without modification,
+                are permitted in any medium without royalty provided the copyright
+                notice and this notice are preserved.  This file is offered as-is,
+                without warranty of any kind. See LICENSE for details.
+                </p>
+                
+            </section>
+            <footer>
+                <p>This project is maintained by <a href="https://github.com/icing">icing</a></p>
+                <p><small>Hosted on GitHub Pages &mdash; Theme by <a href="https://github.com/orderedlist">orderedlist</a></small></p>
+            </footer>
+        </div>
+        <script src="javascripts/scale.fix.js"></script>
+        
+    </body>
+</html>
