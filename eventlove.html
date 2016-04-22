@@ -1,0 +1,88 @@
+<!doctype html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="chrome=1">
+        <title>Event Love</title>
+                
+        <link rel="stylesheet" href="stylesheets/styles.css">
+        <link rel="stylesheet" href="stylesheets/pygment_trac.css">
+        <link rel="stylesheet" href="stylesheets/mod_h2.css">
+        <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+        <!--[if lt IE 9]>
+        <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+        <![endif]-->
+    </head>
+    <body>
+        <div class="wrapper">
+            <div class="backlogo" style="background-image: none; padding-top: 0; top: 10em;">
+            </div>
+            <header>
+                <h1>mod_h[ttp]2</h1>
+                <p>HTTP/2 for <a href="https://httpd.apache.org/download.cgi">Apache httpd</a></p>
+            </header>
+            <section>
+                <h1>
+                    <a class="anchor" href="#top" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    Event Love
+                </h1>
+                
+                <p>Copyright (C) 2016 greenbytes GmbH</p>
+                <p>
+                    It's often not worth it to dwell on the past. However sometimes you need
+                    to know where you have been in order to understand where you are. With the 
+                    introduction of the new <a href="beams.html">bucket beams</a> in <code>v1.5.0</code>
+                    I wanted to know exactly that.
+                </p>
+                <p>
+                    So, I build the last three Apache releases and ran two test suites 
+                    against them. And the result is what you see below int he picture. It shows
+                    how requests per second and megabytes per second have developed in 
+                    <code>mod_http2</code> (the 2.4.x is basically a 2.4.20 with mod_http2 1.5.0
+                    inside).
+                </p>
+                <p>
+                    <img src="images/eventlove.png">
+                </p>
+                <p>
+                    The first test loads all resources from the famous http/2 gopher tile page (so
+                    quite small resources) using 100 connections and allowing 100 concurrent
+                    streams. The second test suite loads a 10 MB file 1000 times over 8 connections
+                    allow 10 concurrent streams.
+                </p>
+                <p>
+                    And you see that performance with the <code>event mpm</code> module has
+                    gotten a lot of love in the last weeks! Which is good, since it very
+                    much deserves it!
+                </p>
+                <p>
+                    (The other thing to see is that performance has degraded somewhat from
+                    release to release for small requests. That is a side effect when you focus
+                    on stability and features that performance optimizations need to wait. Bah!) 
+                </p>
+                <p>
+                    There are some more things I want to fine tune, maybe squeeze out some
+                    more requests and megabytes. And if you want to help me test this, you
+                    are very welcome to try the github releases here.
+                </p>
+
+                <p>Münster, 22.04.2016,</p>
+                
+                <p>Stefan Eissing, greenbytes GmbH</p>
+
+                <p>Copying and distribution of this file, with or without modification,
+                are permitted in any medium without royalty provided the copyright
+                notice and this notice are preserved.  This file is offered as-is,
+                without warranty of any kind. See LICENSE for details.
+                </p>
+                
+            </section>
+            <footer>
+                <p>This project is maintained by <a href="https://github.com/icing">icing</a></p>
+                <p><small>Hosted on GitHub Pages &mdash; Theme by <a href="https://github.com/orderedlist">orderedlist</a></small></p>
+            </footer>
+        </div>
+        <script src="javascripts/scale.fix.js"></script>
+        
+    </body>
+</html>
