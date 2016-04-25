@@ -65,7 +65,15 @@ h2_ctx *h2_ctx_rget(const request_rec *r)
 
 const char *h2_ctx_protocol_get(const conn_rec *c)
 {
+<<<<<<< HEAD:mod_http2/h2_ctx.c
     h2_ctx *ctx = (h2_ctx*)ap_get_module_config(c->conn_config, &http2_module);
+=======
+    h2_ctx *ctx;
+    if (c->master) {
+        c = c->master;
+    }
+    ctx = (h2_ctx*)ap_get_module_config(c->conn_config, &http2_module);
+>>>>>>> master:mod_http2/h2_ctx.c
     return ctx? ctx->protocol : NULL;
 }
 
@@ -98,10 +106,29 @@ h2_ctx *h2_ctx_server_set(h2_ctx *ctx, server_rec *s)
 
 int h2_ctx_is_task(h2_ctx *ctx)
 {
+<<<<<<< HEAD:mod_http2/h2_ctx.c
     return ctx && !!ctx->task;
 }
 
 struct h2_task *h2_ctx_get_task(h2_ctx *ctx)
 {
     return ctx? ctx->task : NULL;
+=======
+    return ctx && ctx->task;
+}
+
+h2_task *h2_ctx_get_task(h2_ctx *ctx)
+{
+    return ctx? ctx->task : NULL;
+}
+
+h2_task *h2_ctx_cget_task(conn_rec *c)
+{
+    return h2_ctx_get_task(h2_ctx_get(c, 0));
+}
+
+h2_task *h2_ctx_rget_task(request_rec *r)
+{
+    return h2_ctx_get_task(h2_ctx_rget(r));
+>>>>>>> master:mod_http2/h2_ctx.c
 }

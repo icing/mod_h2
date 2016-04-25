@@ -13,23 +13,8 @@
  * limitations under the License.
  */
 
-#ifndef mod_http2_h2_bucket_eoc_h
-#define mod_http2_h2_bucket_eoc_h
+#ifndef __MOD_PROXY_HTTP2_H__
+#define __MOD_PROXY_HTTP2_H__
 
-struct h2_session;
 
-/** End Of HTTP/2 SESSION (H2EOC) bucket */
-extern const apr_bucket_type_t h2_bucket_type_eoc;
-
-<<<<<<< HEAD
-=======
-#define H2_BUCKET_IS_H2EOC(e)     (e->type == &h2_bucket_type_eoc)
->>>>>>> master
-
-apr_bucket * h2_bucket_eoc_make(apr_bucket *b, 
-                                struct h2_session *session);
-
-apr_bucket * h2_bucket_eoc_create(apr_bucket_alloc_t *list,
-                                  struct h2_session *session);
-
-#endif /* mod_http2_h2_bucket_eoc_h */
+#endif

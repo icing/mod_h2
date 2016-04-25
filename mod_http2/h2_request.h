@@ -16,6 +16,7 @@
 #ifndef __mod_h2__h2_request__
 #define __mod_h2__h2_request__
 
+<<<<<<< HEAD
 /* h2_request is the transformer of HTTP2 streams into HTTP/1.1 internal
  * format that will be fed to various httpd input filters to finally
  * become a request_rec to be handled by soemone.
@@ -57,6 +58,21 @@ h2_request *h2_request_createn(int id, apr_pool_t *pool,
                                apr_table_t *headers);
 
 void h2_request_destroy(h2_request *req);
+=======
+#include "h2.h"
+
+h2_request *h2_request_create(int id, apr_pool_t *pool, int serialize);
+
+h2_request *h2_request_createn(int id, apr_pool_t *pool,
+                               const char *method, const char *scheme,
+                               const char *authority, const char *path,
+                               apr_table_t *headers, int serialize);
+
+apr_status_t h2_request_make(h2_request *req, apr_pool_t *pool,
+                             const char *method, const char *scheme, 
+                             const char *authority, const char *path, 
+                             apr_table_t *headers);
+>>>>>>> master
 
 apr_status_t h2_request_rwrite(h2_request *req, request_rec *r);
 
@@ -68,9 +84,16 @@ apr_status_t h2_request_add_trailer(h2_request *req, apr_pool_t *pool,
                                     const char *name, size_t nlen,
                                     const char *value, size_t vlen);
 
+<<<<<<< HEAD
 apr_status_t h2_request_end_headers(h2_request *req, apr_pool_t *pool, int eos);
 
 void h2_request_copy(apr_pool_t *p, h2_request *dst, const h2_request *src);
+=======
+apr_status_t h2_request_end_headers(h2_request *req, apr_pool_t *pool, 
+                                    int eos, int push);
+
+h2_request *h2_request_clone(apr_pool_t *p, const h2_request *src);
+>>>>>>> master
 
 /**
  * Create a request_rec representing the h2_request to be

@@ -16,6 +16,11 @@
 #ifndef __mod_h2__h2_stream__
 #define __mod_h2__h2_stream__
 
+<<<<<<< HEAD
+=======
+#include "h2.h"
+
+>>>>>>> master
 /**
  * A HTTP/2 stream, e.g. a client request+response in HTTP/1.1 terms.
  * 
@@ -30,6 +35,7 @@
  */
 #include "h2_io.h"
 
+<<<<<<< HEAD
 typedef enum {
     H2_STREAM_ST_IDLE,
     H2_STREAM_ST_OPEN,
@@ -40,23 +46,34 @@ typedef enum {
     H2_STREAM_ST_CLOSED,
 } h2_stream_state_t;
 
+=======
+>>>>>>> master
 struct h2_mplx;
 struct h2_priority;
 struct h2_request;
 struct h2_response;
 struct h2_session;
+<<<<<<< HEAD
 struct h2_task;
+=======
+struct h2_sos;
+struct h2_bucket_beam;
+>>>>>>> master
 
 typedef struct h2_stream h2_stream;
 
 struct h2_stream {
     int id;                     /* http2 stream id */
+<<<<<<< HEAD
     int initiated_on;           /* http2 stream id this was initiated on or 0 */
+=======
+>>>>>>> master
     h2_stream_state_t state;    /* http/2 state of this stream */
     struct h2_session *session; /* the session this stream belongs to */
     
     apr_pool_t *pool;           /* the memory pool for this stream */
     struct h2_request *request; /* the request made in this stream */
+<<<<<<< HEAD
     struct h2_response *response; /* the response, once ready */
     
     int aborted;                /* was aborted */
@@ -69,6 +86,23 @@ struct h2_stream {
     apr_bucket_brigade *bbin;   /* input DATA */
     
     apr_bucket_brigade *bbout;  /* output DATA */
+=======
+    struct h2_bucket_beam *input;
+
+    struct h2_response *response;
+    struct h2_bucket_beam *output;
+    apr_bucket_brigade *buffer;
+    apr_bucket_brigade *tmp;
+
+    int rst_error;              /* stream error for RST_STREAM */
+    unsigned int aborted   : 1; /* was aborted */
+    unsigned int suspended : 1; /* DATA sending has been suspended */
+    unsigned int scheduled : 1; /* stream has been scheduled */
+    unsigned int submitted : 1; /* response HEADER has been sent */
+    
+    apr_off_t input_remaining;  /* remaining bytes on input as advertised via content-length */
+
+>>>>>>> master
     apr_off_t data_frames_sent; /* # of DATA frames sent out for this stream */
 };
 
@@ -76,6 +110,7 @@ struct h2_stream {
 #define H2_STREAM_RST(s, def)    (s->rst_error? s->rst_error : (def))
 
 /**
+<<<<<<< HEAD
  * Create a stream in IDLE state.
  * @param id      the stream identifier
  * @param pool    the memory pool to use for this stream
@@ -100,6 +135,26 @@ h2_stream *h2_stream_open(int id, apr_pool_t *pool, struct h2_session *session);
  * @param stream the stream to destroy
  */
 apr_status_t h2_stream_destroy(h2_stream *stream);
+=======
+ * Create a stream in OPEN state.
+ * @param id      the stream identifier
+ * @param pool    the memory pool to use for this stream
+ * @param session the session this stream belongs to
+ * @return the newly opened stream
+ */
+h2_stream *h2_stream_open(int id, apr_pool_t *pool, struct h2_session *session,
+                          int initiated_on, const struct h2_request *req);
+
+/**
+ * Cleanup any resources still held by the stream, called by last bucket.
+ */
+void h2_stream_eos_destroy(h2_stream *stream);
+
+/**
+ * Destroy memory pool if still owned by the stream.
+ */
+void h2_stream_destroy(h2_stream *stream);
+>>>>>>> master
 
 /**
  * Removes stream from h2_session and destroys it.
@@ -126,6 +181,7 @@ apr_pool_t *h2_stream_detach_pool(h2_stream *stream);
  */
 apr_status_t h2_stream_set_request(h2_stream *stream, request_rec *r);
 
+<<<<<<< HEAD
 /**
  * Initialize stream->request with the given h2_request.
  * 
@@ -135,6 +191,8 @@ apr_status_t h2_stream_set_request(h2_stream *stream, request_rec *r);
 void h2_stream_set_h2_request(h2_stream *stream, int initiated_on,
                               const struct h2_request *req);
 
+=======
+>>>>>>> master
 /*
  * Add a HTTP/2 header (including pseudo headers) or trailer 
  * to the given stream, depending on stream state.
@@ -164,7 +222,11 @@ apr_status_t h2_stream_close_input(h2_stream *stream);
  * @param len the number of bytes to write
  */
 apr_status_t h2_stream_write_data(h2_stream *stream,
+<<<<<<< HEAD
                                   const char *data, size_t len);
+=======
+                                  const char *data, size_t len, int eos);
+>>>>>>> master
 
 /**
  * Reset the stream. Stream write/reads will return errors afterwards.
@@ -184,7 +246,11 @@ void h2_stream_rst(h2_stream *streamm, int error_code);
  * @param cmp    priority comparision
  * @param ctx    context for comparision
  */
+<<<<<<< HEAD
 apr_status_t h2_stream_schedule(h2_stream *stream, int eos,
+=======
+apr_status_t h2_stream_schedule(h2_stream *stream, int eos, int push_enabled,
+>>>>>>> master
                                 h2_stream_pri_cmp *cmp, void *ctx);
 
 /**
@@ -192,7 +258,13 @@ apr_status_t h2_stream_schedule(h2_stream *stream, int eos,
  * @param stream the stream to check on
  * @return != 0 iff stream has been scheduled
  */
+<<<<<<< HEAD
 int h2_stream_is_scheduled(h2_stream *stream);
+=======
+int h2_stream_is_scheduled(const h2_stream *stream);
+
+struct h2_response *h2_stream_get_response(h2_stream *stream);
+>>>>>>> master
 
 /**
  * Set the response for this stream. Invoked when all meta data for
@@ -205,7 +277,11 @@ int h2_stream_is_scheduled(h2_stream *stream);
  */
 apr_status_t h2_stream_set_response(h2_stream *stream, 
                                     struct h2_response *response,
+<<<<<<< HEAD
                                     apr_bucket_brigade *bb);
+=======
+                                    struct h2_bucket_beam *output);
+>>>>>>> master
 
 /**
  * Do a speculative read on the stream output to determine the 
@@ -220,8 +296,13 @@ apr_status_t h2_stream_set_response(h2_stream *stream,
  *         APR_EAGAIN if not data is available and end of stream has not been
  *         reached yet.
  */
+<<<<<<< HEAD
 apr_status_t h2_stream_prep_read(h2_stream *stream, 
                                  apr_off_t *plen, int *peos);
+=======
+apr_status_t h2_stream_out_prepare(h2_stream *stream, 
+                                   apr_off_t *plen, int *peos);
+>>>>>>> master
 
 /**
  * Read data from the stream output.
@@ -256,6 +337,19 @@ apr_status_t h2_stream_read_to(h2_stream *stream, apr_bucket_brigade *bb,
                                apr_off_t *plen, int *peos);
 
 /**
+<<<<<<< HEAD
+=======
+ * Get optional trailers for this stream, may be NULL. Meaningful
+ * results can only be expected when the end of the response body has
+ * been reached.
+ *
+ * @param stream to ask for trailers
+ * @return trailers for NULL
+ */
+apr_table_t *h2_stream_get_trailers(h2_stream *stream);
+
+/**
+>>>>>>> master
  * Set the suspended state of the stream.
  * @param stream the stream to change state on
  * @param suspended boolean value if stream is suspended
@@ -267,21 +361,33 @@ void h2_stream_set_suspended(h2_stream *stream, int suspended);
  * @param stream the stream to check
  * @return != 0 iff stream is suspended.
  */
+<<<<<<< HEAD
 int h2_stream_is_suspended(h2_stream *stream);
+=======
+int h2_stream_is_suspended(const h2_stream *stream);
+>>>>>>> master
 
 /**
  * Check if the stream has open input.
  * @param stream the stream to check
  * @return != 0 iff stream has open input.
  */
+<<<<<<< HEAD
 int h2_stream_input_is_open(h2_stream *stream);
+=======
+int h2_stream_input_is_open(const h2_stream *stream);
+>>>>>>> master
 
 /**
  * Check if the stream has not submitted a response or RST yet.
  * @param stream the stream to check
  * @return != 0 iff stream has not submitted a response or RST.
  */
+<<<<<<< HEAD
 int h2_stream_needs_submit(h2_stream *stream);
+=======
+int h2_stream_needs_submit(const h2_stream *stream);
+>>>>>>> master
 
 /**
  * Submit any server push promises on this stream and schedule
@@ -292,6 +398,7 @@ int h2_stream_needs_submit(h2_stream *stream);
 apr_status_t h2_stream_submit_pushes(h2_stream *stream);
 
 /**
+<<<<<<< HEAD
  * Get optional trailers for this stream, may be NULL. Meaningful
  * results can only be expected when the end of the response body has
  * been reached.
@@ -302,6 +409,8 @@ apr_status_t h2_stream_submit_pushes(h2_stream *stream);
 apr_table_t *h2_stream_get_trailers(h2_stream *stream);
 
 /**
+=======
+>>>>>>> master
  * Get priority information set for this stream.
  */
 const struct h2_priority *h2_stream_get_priority(h2_stream *stream);

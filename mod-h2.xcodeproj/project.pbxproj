@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXFileReference section */
+<<<<<<< HEAD
 		B2059CD31C232B7000B291B1 /* h2_alt_svc.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = h2_alt_svc.c; sourceTree = "<group>"; };
 		B2059CD41C232B7000B291B1 /* h2_alt_svc.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = h2_alt_svc.h; sourceTree = "<group>"; };
 		B2059CD51C232B7000B291B1 /* h2_config.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = h2_config.c; sourceTree = "<group>"; };
@@ -70,9 +71,9 @@
 		B20946CA1B25D4430041992F /* test_alt_host.sh */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.script.sh; path = test_alt_host.sh; sourceTree = "<group>"; };
 		B20E441F1ACC07E8003D21AE /* test_curl_get.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = test_curl_get.sh; sourceTree = "<group>"; };
 		B20E44201ACC088E003D21AE /* test_curl_post.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = test_curl_post.sh; sourceTree = "<group>"; };
+=======
+>>>>>>> master
 		B22D25281AA89A0B0041D8E5 /* LICENSE */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = LICENSE; sourceTree = "<group>"; };
-		B249BBF41B999F6600434956 /* test2.example.org.conf */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = test2.example.org.conf; sourceTree = "<group>"; };
-		B249BBF51B99A01900434956 /* test_proto_order.sh */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.script.sh; path = test_proto_order.sh; sourceTree = "<group>"; };
 		B24C597F1B8C66930003DF74 /* ax_check_compile_flag.m4 */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = ax_check_compile_flag.m4; sourceTree = "<group>"; };
 		B24C59801B8C66930003DF74 /* h2.m4 */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = h2.m4; sourceTree = "<group>"; };
 		B24C59811B8C66930003DF74 /* libtool.m4 */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = libtool.m4; sourceTree = "<group>"; };
@@ -80,11 +81,74 @@
 		B24C59831B8C66930003DF74 /* ltsugar.m4 */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = ltsugar.m4; sourceTree = "<group>"; };
 		B24C59841B8C66930003DF74 /* ltversion.m4 */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = ltversion.m4; sourceTree = "<group>"; };
 		B24C59851B8C66930003DF74 /* lt~obsolete.m4 */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = "lt~obsolete.m4"; sourceTree = "<group>"; };
+<<<<<<< HEAD
 		B24CB1241AC96BFE0057413B /* test_curl_altsvc.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = test_curl_altsvc.sh; sourceTree = "<group>"; };
+=======
+		B25096C01CC4E66F002E8B04 /* h2_ngn_shed.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = h2_ngn_shed.c; sourceTree = "<group>"; };
+		B25096C11CC4E66F002E8B04 /* h2_ngn_shed.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = h2_ngn_shed.h; sourceTree = "<group>"; };
+		B25096C21CC4E66F002E8B04 /* h2.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = h2.h; sourceTree = "<group>"; };
+		B25096C41CC4F132002E8B04 /* h2_bucket_beam.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = h2_bucket_beam.c; sourceTree = "<group>"; };
+		B25096C51CC4F132002E8B04 /* h2_bucket_beam.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = h2_bucket_beam.h; sourceTree = "<group>"; };
+		B25096C61CC65E27002E8B04 /* h2_proxy_session.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = h2_proxy_session.c; sourceTree = "<group>"; };
+		B25096C71CC65E27002E8B04 /* h2_proxy_session.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = h2_proxy_session.h; sourceTree = "<group>"; };
+		B25096C81CC65E27002E8B04 /* mod_proxy_http2.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = mod_proxy_http2.c; sourceTree = "<group>"; };
+		B25096C91CC65E27002E8B04 /* mod_proxy_http2.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = mod_proxy_http2.h; sourceTree = "<group>"; };
+		B25574691BEB6EFC0058F97B /* config.h.in */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = config.h.in; sourceTree = "<group>"; };
+		B255746A1BEB6EFC0058F97B /* h2_alt_svc.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = h2_alt_svc.c; sourceTree = "<group>"; };
+		B255746B1BEB6EFC0058F97B /* h2_alt_svc.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = h2_alt_svc.h; sourceTree = "<group>"; };
+		B255746C1BEB6EFC0058F97B /* h2_bucket_eoc.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = h2_bucket_eoc.c; sourceTree = "<group>"; };
+		B255746D1BEB6EFC0058F97B /* h2_bucket_eoc.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = h2_bucket_eoc.h; sourceTree = "<group>"; };
+		B255746E1BEB6EFC0058F97B /* h2_bucket_eos.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = h2_bucket_eos.c; sourceTree = "<group>"; };
+		B255746F1BEB6EFC0058F97B /* h2_bucket_eos.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = h2_bucket_eos.h; sourceTree = "<group>"; };
+		B25574701BEB6EFC0058F97B /* h2_config.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = h2_config.c; sourceTree = "<group>"; };
+		B25574711BEB6EFC0058F97B /* h2_config.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = h2_config.h; sourceTree = "<group>"; };
+		B25574721BEB6EFC0058F97B /* h2_conn.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = h2_conn.c; sourceTree = "<group>"; };
+		B25574731BEB6EFC0058F97B /* h2_conn.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = h2_conn.h; sourceTree = "<group>"; };
+		B25574741BEB6EFC0058F97B /* h2_conn_io.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = h2_conn_io.c; sourceTree = "<group>"; };
+		B25574751BEB6EFC0058F97B /* h2_conn_io.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = h2_conn_io.h; sourceTree = "<group>"; };
+		B25574761BEB6EFC0058F97B /* h2_ctx.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = h2_ctx.c; sourceTree = "<group>"; };
+		B25574771BEB6EFC0058F97B /* h2_ctx.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = h2_ctx.h; sourceTree = "<group>"; };
+		B25574781BEB6EFC0058F97B /* h2_from_h1.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = h2_from_h1.c; sourceTree = "<group>"; };
+		B25574791BEB6EFC0058F97B /* h2_from_h1.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = h2_from_h1.h; sourceTree = "<group>"; };
+		B255747A1BEB6EFC0058F97B /* h2_h2.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = h2_h2.c; sourceTree = "<group>"; };
+		B255747B1BEB6EFC0058F97B /* h2_h2.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = h2_h2.h; sourceTree = "<group>"; };
+		B255747C1BEB6EFC0058F97B /* h2_io.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = h2_io.c; sourceTree = "<group>"; };
+		B255747D1BEB6EFC0058F97B /* h2_io.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = h2_io.h; sourceTree = "<group>"; };
+		B255747E1BEB6EFC0058F97B /* h2_io_set.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = h2_io_set.c; sourceTree = "<group>"; };
+		B255747F1BEB6EFC0058F97B /* h2_io_set.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = h2_io_set.h; sourceTree = "<group>"; };
+		B25574801BEB6EFC0058F97B /* h2_mplx.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = h2_mplx.c; sourceTree = "<group>"; };
+		B25574811BEB6EFC0058F97B /* h2_mplx.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = h2_mplx.h; sourceTree = "<group>"; };
+		B25574821BEB6EFC0058F97B /* h2_private.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = h2_private.h; sourceTree = "<group>"; };
+		B25574831BEB6EFC0058F97B /* h2_request.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = h2_request.c; sourceTree = "<group>"; };
+		B25574841BEB6EFC0058F97B /* h2_request.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = h2_request.h; sourceTree = "<group>"; };
+		B25574851BEB6EFC0058F97B /* h2_response.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = h2_response.c; sourceTree = "<group>"; };
+		B25574861BEB6EFC0058F97B /* h2_response.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = h2_response.h; sourceTree = "<group>"; };
+		B25574871BEB6EFC0058F97B /* h2_session.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = h2_session.c; sourceTree = "<group>"; };
+		B25574881BEB6EFC0058F97B /* h2_session.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = h2_session.h; sourceTree = "<group>"; };
+		B25574891BEB6EFC0058F97B /* h2_stream.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = h2_stream.c; sourceTree = "<group>"; };
+		B255748A1BEB6EFC0058F97B /* h2_stream.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = h2_stream.h; sourceTree = "<group>"; };
+		B255748B1BEB6EFC0058F97B /* h2_stream_set.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = h2_stream_set.c; sourceTree = "<group>"; };
+		B255748C1BEB6EFC0058F97B /* h2_stream_set.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = h2_stream_set.h; sourceTree = "<group>"; };
+		B255748D1BEB6EFC0058F97B /* h2_switch.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = h2_switch.c; sourceTree = "<group>"; };
+		B255748E1BEB6EFC0058F97B /* h2_switch.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = h2_switch.h; sourceTree = "<group>"; };
+		B255748F1BEB6EFC0058F97B /* h2_task.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = h2_task.c; sourceTree = "<group>"; };
+		B25574901BEB6EFC0058F97B /* h2_task.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = h2_task.h; sourceTree = "<group>"; };
+		B25574991BEB6EFC0058F97B /* h2_util.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = h2_util.c; sourceTree = "<group>"; };
+		B255749A1BEB6EFC0058F97B /* h2_util.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = h2_util.h; sourceTree = "<group>"; };
+		B255749C1BEB6EFC0058F97B /* h2_version.h.in */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = h2_version.h.in; sourceTree = "<group>"; };
+		B255749D1BEB6EFC0058F97B /* h2_worker.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = h2_worker.c; sourceTree = "<group>"; };
+		B255749E1BEB6EFC0058F97B /* h2_worker.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = h2_worker.h; sourceTree = "<group>"; };
+		B255749F1BEB6EFC0058F97B /* h2_workers.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = h2_workers.c; sourceTree = "<group>"; };
+		B25574A01BEB6EFC0058F97B /* h2_workers.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = h2_workers.h; sourceTree = "<group>"; };
+		B25574A21BEB6EFC0058F97B /* h2.m4 */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = h2.m4; sourceTree = "<group>"; };
+		B25574A41BEB6EFC0058F97B /* Makefile.am */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = Makefile.am; sourceTree = "<group>"; };
+		B25574A71BEB6EFC0058F97B /* mod_http2.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = mod_http2.c; sourceTree = "<group>"; };
+>>>>>>> master
 		B256C4BA1ADD5FF10042C760 /* README.md */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 		B27BBD2D1A6575C200C58A41 /* README */ = {isa = PBXFileReference; lastKnownFileType = text; path = README; sourceTree = "<group>"; };
 		B2A6EF2A1A9E3A93005DFC5B /* INSTALL */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = INSTALL; sourceTree = "<group>"; };
 		B2A6EF2C1A9F2452005DFC5B /* DISCUSS */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = DISCUSS; sourceTree = "<group>"; };
+<<<<<<< HEAD
 		B2B170B31B2EC73400EDC007 /* test.example.org.conf */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = test.example.org.conf; sourceTree = "<group>"; };
 		B2B170B41B2F02C100EDC007 /* testrun */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = testrun; sourceTree = "<group>"; };
 		B2B170B61B303B0C00EDC007 /* noh2.example.org.x509.input */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = noh2.example.org.x509.input; sourceTree = "<group>"; };
@@ -93,12 +157,21 @@
 		B2C63B101B3BF78C00127D1E /* mpm_worker.load */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = mpm_worker.load; sourceTree = "<group>"; };
 		B2C63B121B3BF7CC00127D1E /* mpm_event.load */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = mpm_event.load; sourceTree = "<group>"; };
 		B2C63B131B3BF7CC00127D1E /* mpm_prefork.load */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = mpm_prefork.load; sourceTree = "<group>"; };
+=======
+		B2AB9AB71C2ADBE100908DD6 /* h2_filter.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = h2_filter.c; sourceTree = "<group>"; };
+		B2AB9AB81C2ADBE100908DD6 /* h2_filter.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = h2_filter.h; sourceTree = "<group>"; };
+		B2AB9AB91C2ADBE100908DD6 /* h2_push.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = h2_push.c; sourceTree = "<group>"; };
+		B2AB9ABA1C2ADBE100908DD6 /* h2_push.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = h2_push.h; sourceTree = "<group>"; };
+		B2AB9ABB1C2ADBE100908DD6 /* h2_version.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = h2_version.h; sourceTree = "<group>"; };
+		B2AB9ABC1C2ADBE100908DD6 /* mod_http2.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = mod_http2.h; sourceTree = "<group>"; };
+>>>>>>> master
 		B2E5D7841AAEEF8C001FD280 /* configure.ac */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = configure.ac; sourceTree = "<group>"; xcLanguageSpecificationIdentifier = xcode.lang.sh; };
 		B2E5D7851AAF1D87001FD280 /* Makefile.am */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = Makefile.am; sourceTree = "<group>"; };
 		B2E5D7861AAF1F4D001FD280 /* AUTHORS */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = AUTHORS; sourceTree = "<group>"; };
 		B2E5D7871AAF1F4D001FD280 /* ChangeLog */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = ChangeLog; sourceTree = "<group>"; };
 		B2E5D7881AAF1F4D001FD280 /* COPYING */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = COPYING; sourceTree = "<group>"; };
 		B2E5D7891AAF1F4D001FD280 /* NEWS */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = NEWS; sourceTree = "<group>"; };
+<<<<<<< HEAD
 		B2E6DF771AC2E55800D557D8 /* Makefile.am */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = Makefile.am; sourceTree = "<group>"; };
 		B2E6DF781AC2E6A700D557D8 /* install-config.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "install-config.sh"; sourceTree = "<group>"; };
 		B2E6DF7B1AC2EF6E00D557D8 /* .gitignore */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = .gitignore; sourceTree = "<group>"; };
@@ -401,6 +474,11 @@
 			path = m4;
 			sourceTree = "<group>";
 		};
+=======
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+>>>>>>> master
 		B24C597E1B8C66930003DF74 /* m4 */ = {
 			isa = PBXGroup;
 			children = (
@@ -411,6 +489,86 @@
 				B24C59831B8C66930003DF74 /* ltsugar.m4 */,
 				B24C59841B8C66930003DF74 /* ltversion.m4 */,
 				B24C59851B8C66930003DF74 /* lt~obsolete.m4 */,
+			);
+			path = m4;
+			sourceTree = "<group>";
+		};
+		B255740A1BEB6EFC0058F97B /* mod_http2 */ = {
+			isa = PBXGroup;
+			children = (
+				B25574691BEB6EFC0058F97B /* config.h.in */,
+				B255746A1BEB6EFC0058F97B /* h2_alt_svc.c */,
+				B255746B1BEB6EFC0058F97B /* h2_alt_svc.h */,
+				B25096C41CC4F132002E8B04 /* h2_bucket_beam.c */,
+				B25096C51CC4F132002E8B04 /* h2_bucket_beam.h */,
+				B255746C1BEB6EFC0058F97B /* h2_bucket_eoc.c */,
+				B255746D1BEB6EFC0058F97B /* h2_bucket_eoc.h */,
+				B255746E1BEB6EFC0058F97B /* h2_bucket_eos.c */,
+				B255746F1BEB6EFC0058F97B /* h2_bucket_eos.h */,
+				B25574701BEB6EFC0058F97B /* h2_config.c */,
+				B25574711BEB6EFC0058F97B /* h2_config.h */,
+				B25574741BEB6EFC0058F97B /* h2_conn_io.c */,
+				B25574751BEB6EFC0058F97B /* h2_conn_io.h */,
+				B25574721BEB6EFC0058F97B /* h2_conn.c */,
+				B25574731BEB6EFC0058F97B /* h2_conn.h */,
+				B25574761BEB6EFC0058F97B /* h2_ctx.c */,
+				B25574771BEB6EFC0058F97B /* h2_ctx.h */,
+				B2AB9AB71C2ADBE100908DD6 /* h2_filter.c */,
+				B2AB9AB81C2ADBE100908DD6 /* h2_filter.h */,
+				B25574781BEB6EFC0058F97B /* h2_from_h1.c */,
+				B25574791BEB6EFC0058F97B /* h2_from_h1.h */,
+				B255747A1BEB6EFC0058F97B /* h2_h2.c */,
+				B255747B1BEB6EFC0058F97B /* h2_h2.h */,
+				B255747E1BEB6EFC0058F97B /* h2_io_set.c */,
+				B255747F1BEB6EFC0058F97B /* h2_io_set.h */,
+				B255747C1BEB6EFC0058F97B /* h2_io.c */,
+				B255747D1BEB6EFC0058F97B /* h2_io.h */,
+				B25574801BEB6EFC0058F97B /* h2_mplx.c */,
+				B25574811BEB6EFC0058F97B /* h2_mplx.h */,
+				B25096C01CC4E66F002E8B04 /* h2_ngn_shed.c */,
+				B25096C11CC4E66F002E8B04 /* h2_ngn_shed.h */,
+				B25574821BEB6EFC0058F97B /* h2_private.h */,
+				B25096C61CC65E27002E8B04 /* h2_proxy_session.c */,
+				B25096C71CC65E27002E8B04 /* h2_proxy_session.h */,
+				B2AB9AB91C2ADBE100908DD6 /* h2_push.c */,
+				B2AB9ABA1C2ADBE100908DD6 /* h2_push.h */,
+				B25574831BEB6EFC0058F97B /* h2_request.c */,
+				B25574841BEB6EFC0058F97B /* h2_request.h */,
+				B25574851BEB6EFC0058F97B /* h2_response.c */,
+				B25574861BEB6EFC0058F97B /* h2_response.h */,
+				B25574871BEB6EFC0058F97B /* h2_session.c */,
+				B25574881BEB6EFC0058F97B /* h2_session.h */,
+				B255748B1BEB6EFC0058F97B /* h2_stream_set.c */,
+				B255748C1BEB6EFC0058F97B /* h2_stream_set.h */,
+				B25574891BEB6EFC0058F97B /* h2_stream.c */,
+				B255748A1BEB6EFC0058F97B /* h2_stream.h */,
+				B255748D1BEB6EFC0058F97B /* h2_switch.c */,
+				B255748E1BEB6EFC0058F97B /* h2_switch.h */,
+				B255748F1BEB6EFC0058F97B /* h2_task.c */,
+				B25574901BEB6EFC0058F97B /* h2_task.h */,
+				B25574991BEB6EFC0058F97B /* h2_util.c */,
+				B255749A1BEB6EFC0058F97B /* h2_util.h */,
+				B2AB9ABB1C2ADBE100908DD6 /* h2_version.h */,
+				B255749C1BEB6EFC0058F97B /* h2_version.h.in */,
+				B255749D1BEB6EFC0058F97B /* h2_worker.c */,
+				B255749E1BEB6EFC0058F97B /* h2_worker.h */,
+				B255749F1BEB6EFC0058F97B /* h2_workers.c */,
+				B25574A01BEB6EFC0058F97B /* h2_workers.h */,
+				B25096C21CC4E66F002E8B04 /* h2.h */,
+				B25574A11BEB6EFC0058F97B /* m4 */,
+				B25574A41BEB6EFC0058F97B /* Makefile.am */,
+				B25574A71BEB6EFC0058F97B /* mod_http2.c */,
+				B2AB9ABC1C2ADBE100908DD6 /* mod_http2.h */,
+				B25096C81CC65E27002E8B04 /* mod_proxy_http2.c */,
+				B25096C91CC65E27002E8B04 /* mod_proxy_http2.h */,
+			);
+			path = mod_http2;
+			sourceTree = "<group>";
+		};
+		B25574A11BEB6EFC0058F97B /* m4 */ = {
+			isa = PBXGroup;
+			children = (
+				B25574A21BEB6EFC0058F97B /* h2.m4 */,
 			);
 			path = m4;
 			sourceTree = "<group>";
@@ -427,6 +585,7 @@
 				B22D25281AA89A0B0041D8E5 /* LICENSE */,
 				B24C597E1B8C66930003DF74 /* m4 */,
 				B2E5D7851AAF1D87001FD280 /* Makefile.am */,
+<<<<<<< HEAD
 				B2059CB41C232B7000B291B1 /* mod_http2 */,
 				B2E5D7891AAF1F4D001FD280 /* NEWS */,
 				B27BBD2D1A6575C200C58A41 /* README */,
@@ -607,237 +766,13 @@
 				B2E6FED41AC2EFA300D557D8 /* necho.py */,
 				B2E6FED51AC2EFA300D557D8 /* upload.py */,
 				B2E6FED61AC2EFA300D557D8 /* xxx-1.0.2a.tar.gz */,
+=======
+				B255740A1BEB6EFC0058F97B /* mod_http2 */,
+				B2E5D7891AAF1F4D001FD280 /* NEWS */,
+				B27BBD2D1A6575C200C58A41 /* README */,
+				B256C4BA1ADD5FF10042C760 /* README.md */,
+>>>>>>> master
 			);
-			path = test.example.org;
-			sourceTree = "<group>";
-		};
-		B2E6FE0B1AC2EFA200D557D8 /* 003 */ = {
-			isa = PBXGroup;
-			children = (
-				B2E6FE0C1AC2EFA200D557D8 /* 003_img.jpg */,
-			);
-			path = 003;
-			sourceTree = "<group>";
-		};
-		B2E6FE0E1AC2EFA200D557D8 /* 004 */ = {
-			isa = PBXGroup;
-			children = (
-				B2E6FE0F1AC2EFA200D557D8 /* gophertiles.jpg */,
-				B2E6FE101AC2EFA200D557D8 /* gophertiles_002.jpg */,
-				B2E6FE111AC2EFA200D557D8 /* gophertiles_003.jpg */,
-				B2E6FE121AC2EFA200D557D8 /* gophertiles_004.jpg */,
-				B2E6FE131AC2EFA200D557D8 /* gophertiles_005.jpg */,
-				B2E6FE141AC2EFA200D557D8 /* gophertiles_006.jpg */,
-				B2E6FE151AC2EFA200D557D8 /* gophertiles_007.jpg */,
-				B2E6FE161AC2EFA200D557D8 /* gophertiles_008.jpg */,
-				B2E6FE171AC2EFA200D557D8 /* gophertiles_009.jpg */,
-				B2E6FE181AC2EFA200D557D8 /* gophertiles_010.jpg */,
-				B2E6FE191AC2EFA200D557D8 /* gophertiles_011.jpg */,
-				B2E6FE1A1AC2EFA200D557D8 /* gophertiles_012.jpg */,
-				B2E6FE1B1AC2EFA200D557D8 /* gophertiles_013.jpg */,
-				B2E6FE1C1AC2EFA200D557D8 /* gophertiles_014.jpg */,
-				B2E6FE1D1AC2EFA200D557D8 /* gophertiles_015.jpg */,
-				B2E6FE1E1AC2EFA200D557D8 /* gophertiles_016.jpg */,
-				B2E6FE1F1AC2EFA200D557D8 /* gophertiles_017.jpg */,
-				B2E6FE201AC2EFA200D557D8 /* gophertiles_018.jpg */,
-				B2E6FE211AC2EFA200D557D8 /* gophertiles_019.jpg */,
-				B2E6FE221AC2EFA200D557D8 /* gophertiles_020.jpg */,
-				B2E6FE231AC2EFA200D557D8 /* gophertiles_021.jpg */,
-				B2E6FE241AC2EFA200D557D8 /* gophertiles_022.jpg */,
-				B2E6FE251AC2EFA200D557D8 /* gophertiles_023.jpg */,
-				B2E6FE261AC2EFA200D557D8 /* gophertiles_024.jpg */,
-				B2E6FE271AC2EFA200D557D8 /* gophertiles_025.jpg */,
-				B2E6FE281AC2EFA200D557D8 /* gophertiles_026.jpg */,
-				B2E6FE291AC2EFA200D557D8 /* gophertiles_027.jpg */,
-				B2E6FE2A1AC2EFA200D557D8 /* gophertiles_028.jpg */,
-				B2E6FE2B1AC2EFA200D557D8 /* gophertiles_029.jpg */,
-				B2E6FE2C1AC2EFA200D557D8 /* gophertiles_030.jpg */,
-				B2E6FE2D1AC2EFA200D557D8 /* gophertiles_031.jpg */,
-				B2E6FE2E1AC2EFA200D557D8 /* gophertiles_032.jpg */,
-				B2E6FE2F1AC2EFA200D557D8 /* gophertiles_033.jpg */,
-				B2E6FE301AC2EFA200D557D8 /* gophertiles_034.jpg */,
-				B2E6FE311AC2EFA200D557D8 /* gophertiles_035.jpg */,
-				B2E6FE321AC2EFA200D557D8 /* gophertiles_036.jpg */,
-				B2E6FE331AC2EFA200D557D8 /* gophertiles_037.jpg */,
-				B2E6FE341AC2EFA200D557D8 /* gophertiles_038.jpg */,
-				B2E6FE351AC2EFA200D557D8 /* gophertiles_039.jpg */,
-				B2E6FE361AC2EFA200D557D8 /* gophertiles_040.jpg */,
-				B2E6FE371AC2EFA200D557D8 /* gophertiles_041.jpg */,
-				B2E6FE381AC2EFA200D557D8 /* gophertiles_042.jpg */,
-				B2E6FE391AC2EFA200D557D8 /* gophertiles_043.jpg */,
-				B2E6FE3A1AC2EFA200D557D8 /* gophertiles_044.jpg */,
-				B2E6FE3B1AC2EFA200D557D8 /* gophertiles_045.jpg */,
-				B2E6FE3C1AC2EFA200D557D8 /* gophertiles_046.jpg */,
-				B2E6FE3D1AC2EFA200D557D8 /* gophertiles_047.jpg */,
-				B2E6FE3E1AC2EFA200D557D8 /* gophertiles_048.jpg */,
-				B2E6FE3F1AC2EFA200D557D8 /* gophertiles_049.jpg */,
-				B2E6FE401AC2EFA200D557D8 /* gophertiles_050.jpg */,
-				B2E6FE411AC2EFA200D557D8 /* gophertiles_051.jpg */,
-				B2E6FE421AC2EFA200D557D8 /* gophertiles_052.jpg */,
-				B2E6FE431AC2EFA200D557D8 /* gophertiles_053.jpg */,
-				B2E6FE441AC2EFA200D557D8 /* gophertiles_054.jpg */,
-				B2E6FE451AC2EFA200D557D8 /* gophertiles_055.jpg */,
-				B2E6FE461AC2EFA200D557D8 /* gophertiles_056.jpg */,
-				B2E6FE471AC2EFA200D557D8 /* gophertiles_057.jpg */,
-				B2E6FE481AC2EFA200D557D8 /* gophertiles_058.jpg */,
-				B2E6FE491AC2EFA200D557D8 /* gophertiles_059.jpg */,
-				B2E6FE4A1AC2EFA200D557D8 /* gophertiles_060.jpg */,
-				B2E6FE4B1AC2EFA200D557D8 /* gophertiles_061.jpg */,
-				B2E6FE4C1AC2EFA200D557D8 /* gophertiles_062.jpg */,
-				B2E6FE4D1AC2EFA200D557D8 /* gophertiles_063.jpg */,
-				B2E6FE4E1AC2EFA200D557D8 /* gophertiles_064.jpg */,
-				B2E6FE4F1AC2EFA200D557D8 /* gophertiles_065.jpg */,
-				B2E6FE501AC2EFA200D557D8 /* gophertiles_066.jpg */,
-				B2E6FE511AC2EFA200D557D8 /* gophertiles_067.jpg */,
-				B2E6FE521AC2EFA200D557D8 /* gophertiles_068.jpg */,
-				B2E6FE531AC2EFA200D557D8 /* gophertiles_069.jpg */,
-				B2E6FE541AC2EFA200D557D8 /* gophertiles_070.jpg */,
-				B2E6FE551AC2EFA200D557D8 /* gophertiles_071.jpg */,
-				B2E6FE561AC2EFA200D557D8 /* gophertiles_072.jpg */,
-				B2E6FE571AC2EFA200D557D8 /* gophertiles_073.jpg */,
-				B2E6FE581AC2EFA200D557D8 /* gophertiles_074.jpg */,
-				B2E6FE591AC2EFA200D557D8 /* gophertiles_075.jpg */,
-				B2E6FE5A1AC2EFA200D557D8 /* gophertiles_076.jpg */,
-				B2E6FE5B1AC2EFA200D557D8 /* gophertiles_077.jpg */,
-				B2E6FE5C1AC2EFA200D557D8 /* gophertiles_078.jpg */,
-				B2E6FE5D1AC2EFA200D557D8 /* gophertiles_079.jpg */,
-				B2E6FE5E1AC2EFA200D557D8 /* gophertiles_080.jpg */,
-				B2E6FE5F1AC2EFA200D557D8 /* gophertiles_081.jpg */,
-				B2E6FE601AC2EFA200D557D8 /* gophertiles_082.jpg */,
-				B2E6FE611AC2EFA200D557D8 /* gophertiles_083.jpg */,
-				B2E6FE621AC2EFA200D557D8 /* gophertiles_084.jpg */,
-				B2E6FE631AC2EFA200D557D8 /* gophertiles_085.jpg */,
-				B2E6FE641AC2EFA200D557D8 /* gophertiles_086.jpg */,
-				B2E6FE651AC2EFA200D557D8 /* gophertiles_087.jpg */,
-				B2E6FE661AC2EFA200D557D8 /* gophertiles_088.jpg */,
-				B2E6FE671AC2EFA200D557D8 /* gophertiles_089.jpg */,
-				B2E6FE681AC2EFA200D557D8 /* gophertiles_090.jpg */,
-				B2E6FE691AC2EFA200D557D8 /* gophertiles_091.jpg */,
-				B2E6FE6A1AC2EFA200D557D8 /* gophertiles_092.jpg */,
-				B2E6FE6B1AC2EFA200D557D8 /* gophertiles_093.jpg */,
-				B2E6FE6C1AC2EFA200D557D8 /* gophertiles_094.jpg */,
-				B2E6FE6D1AC2EFA200D557D8 /* gophertiles_095.jpg */,
-				B2E6FE6E1AC2EFA200D557D8 /* gophertiles_096.jpg */,
-				B2E6FE6F1AC2EFA200D557D8 /* gophertiles_097.jpg */,
-				B2E6FE701AC2EFA200D557D8 /* gophertiles_098.jpg */,
-				B2E6FE711AC2EFA200D557D8 /* gophertiles_099.jpg */,
-				B2E6FE721AC2EFA200D557D8 /* gophertiles_100.jpg */,
-				B2E6FE731AC2EFA200D557D8 /* gophertiles_101.jpg */,
-				B2E6FE741AC2EFA200D557D8 /* gophertiles_102.jpg */,
-				B2E6FE751AC2EFA200D557D8 /* gophertiles_103.jpg */,
-				B2E6FE761AC2EFA200D557D8 /* gophertiles_104.jpg */,
-				B2E6FE771AC2EFA200D557D8 /* gophertiles_105.jpg */,
-				B2E6FE781AC2EFA200D557D8 /* gophertiles_106.jpg */,
-				B2E6FE791AC2EFA200D557D8 /* gophertiles_107.jpg */,
-				B2E6FE7A1AC2EFA200D557D8 /* gophertiles_108.jpg */,
-				B2E6FE7B1AC2EFA200D557D8 /* gophertiles_109.jpg */,
-				B2E6FE7C1AC2EFA200D557D8 /* gophertiles_110.jpg */,
-				B2E6FE7D1AC2EFA200D557D8 /* gophertiles_111.jpg */,
-				B2E6FE7E1AC2EFA200D557D8 /* gophertiles_112.jpg */,
-				B2E6FE7F1AC2EFA200D557D8 /* gophertiles_113.jpg */,
-				B2E6FE801AC2EFA200D557D8 /* gophertiles_114.jpg */,
-				B2E6FE811AC2EFA200D557D8 /* gophertiles_115.jpg */,
-				B2E6FE821AC2EFA200D557D8 /* gophertiles_116.jpg */,
-				B2E6FE831AC2EFA200D557D8 /* gophertiles_117.jpg */,
-				B2E6FE841AC2EFA200D557D8 /* gophertiles_118.jpg */,
-				B2E6FE851AC2EFA200D557D8 /* gophertiles_119.jpg */,
-				B2E6FE861AC2EFA200D557D8 /* gophertiles_120.jpg */,
-				B2E6FE871AC2EFA200D557D8 /* gophertiles_121.jpg */,
-				B2E6FE881AC2EFA200D557D8 /* gophertiles_122.jpg */,
-				B2E6FE891AC2EFA200D557D8 /* gophertiles_123.jpg */,
-				B2E6FE8A1AC2EFA200D557D8 /* gophertiles_124.jpg */,
-				B2E6FE8B1AC2EFA200D557D8 /* gophertiles_125.jpg */,
-				B2E6FE8C1AC2EFA200D557D8 /* gophertiles_126.jpg */,
-				B2E6FE8D1AC2EFA200D557D8 /* gophertiles_127.jpg */,
-				B2E6FE8E1AC2EFA200D557D8 /* gophertiles_128.jpg */,
-				B2E6FE8F1AC2EFA200D557D8 /* gophertiles_129.jpg */,
-				B2E6FE901AC2EFA200D557D8 /* gophertiles_130.jpg */,
-				B2E6FE911AC2EFA200D557D8 /* gophertiles_131.jpg */,
-				B2E6FE921AC2EFA200D557D8 /* gophertiles_132.jpg */,
-				B2E6FE931AC2EFA200D557D8 /* gophertiles_133.jpg */,
-				B2E6FE941AC2EFA200D557D8 /* gophertiles_134.jpg */,
-				B2E6FE951AC2EFA200D557D8 /* gophertiles_135.jpg */,
-				B2E6FE961AC2EFA200D557D8 /* gophertiles_136.jpg */,
-				B2E6FE971AC2EFA200D557D8 /* gophertiles_137.jpg */,
-				B2E6FE981AC2EFA200D557D8 /* gophertiles_138.jpg */,
-				B2E6FE991AC2EFA200D557D8 /* gophertiles_139.jpg */,
-				B2E6FE9A1AC2EFA200D557D8 /* gophertiles_140.jpg */,
-				B2E6FE9B1AC2EFA200D557D8 /* gophertiles_141.jpg */,
-				B2E6FE9C1AC2EFA200D557D8 /* gophertiles_142.jpg */,
-				B2E6FE9D1AC2EFA200D557D8 /* gophertiles_143.jpg */,
-				B2E6FE9E1AC2EFA200D557D8 /* gophertiles_144.jpg */,
-				B2E6FE9F1AC2EFA200D557D8 /* gophertiles_145.jpg */,
-				B2E6FEA01AC2EFA200D557D8 /* gophertiles_146.jpg */,
-				B2E6FEA11AC2EFA200D557D8 /* gophertiles_147.jpg */,
-				B2E6FEA21AC2EFA200D557D8 /* gophertiles_148.jpg */,
-				B2E6FEA31AC2EFA200D557D8 /* gophertiles_149.jpg */,
-				B2E6FEA41AC2EFA200D557D8 /* gophertiles_150.jpg */,
-				B2E6FEA51AC2EFA200D557D8 /* gophertiles_151.jpg */,
-				B2E6FEA61AC2EFA200D557D8 /* gophertiles_152.jpg */,
-				B2E6FEA71AC2EFA200D557D8 /* gophertiles_153.jpg */,
-				B2E6FEA81AC2EFA200D557D8 /* gophertiles_154.jpg */,
-				B2E6FEA91AC2EFA200D557D8 /* gophertiles_155.jpg */,
-				B2E6FEAA1AC2EFA200D557D8 /* gophertiles_156.jpg */,
-				B2E6FEAB1AC2EFA200D557D8 /* gophertiles_157.jpg */,
-				B2E6FEAC1AC2EFA200D557D8 /* gophertiles_158.jpg */,
-				B2E6FEAD1AC2EFA200D557D8 /* gophertiles_159.jpg */,
-				B2E6FEAE1AC2EFA200D557D8 /* gophertiles_160.jpg */,
-				B2E6FEAF1AC2EFA200D557D8 /* gophertiles_161.jpg */,
-				B2E6FEB01AC2EFA200D557D8 /* gophertiles_162.jpg */,
-				B2E6FEB11AC2EFA200D557D8 /* gophertiles_163.jpg */,
-				B2E6FEB21AC2EFA200D557D8 /* gophertiles_164.jpg */,
-				B2E6FEB31AC2EFA200D557D8 /* gophertiles_165.jpg */,
-				B2E6FEB41AC2EFA200D557D8 /* gophertiles_166.jpg */,
-				B2E6FEB51AC2EFA300D557D8 /* gophertiles_167.jpg */,
-				B2E6FEB61AC2EFA300D557D8 /* gophertiles_168.jpg */,
-				B2E6FEB71AC2EFA300D557D8 /* gophertiles_169.jpg */,
-				B2E6FEB81AC2EFA300D557D8 /* gophertiles_170.jpg */,
-				B2E6FEB91AC2EFA300D557D8 /* gophertiles_171.jpg */,
-				B2E6FEBA1AC2EFA300D557D8 /* gophertiles_172.jpg */,
-				B2E6FEBB1AC2EFA300D557D8 /* gophertiles_173.jpg */,
-				B2E6FEBC1AC2EFA300D557D8 /* gophertiles_174.jpg */,
-				B2E6FEBD1AC2EFA300D557D8 /* gophertiles_175.jpg */,
-				B2E6FEBE1AC2EFA300D557D8 /* gophertiles_176.jpg */,
-				B2E6FEBF1AC2EFA300D557D8 /* gophertiles_177.jpg */,
-				B2E6FEC01AC2EFA300D557D8 /* gophertiles_178.jpg */,
-				B2E6FEC11AC2EFA300D557D8 /* gophertiles_179.jpg */,
-				B2E6FEC21AC2EFA300D557D8 /* gophertiles_180.jpg */,
-			);
-			path = 004;
-			sourceTree = "<group>";
-		};
-		B2E6FEC51AC2EFA300D557D8 /* 006 */ = {
-			isa = PBXGroup;
-			children = (
-				B2E6FEC61AC2EFA300D557D8 /* 006.css */,
-				B2E6FEC71AC2EFA300D557D8 /* 006.js */,
-			);
-			path = 006;
-			sourceTree = "<group>";
-		};
-		B2E6FEC91AC2EFA300D557D8 /* 007 */ = {
-			isa = PBXGroup;
-			children = (
-				B2E6FECA1AC2EFA300D557D8 /* 007.py */,
-			);
-			path = 007;
-			sourceTree = "<group>";
-		};
-		B2E6FED01AC2EFA300D557D8 /* files */ = {
-			isa = PBXGroup;
-			children = (
-				B2E6FED11AC2EFA300D557D8 /* empty.txt */,
-			);
-			path = files;
-			sourceTree = "<group>";
-		};
-		B2E708C71AE64AC00009EDAF /* bin */ = {
-			isa = PBXGroup;
-			children = (
-				B2E708C81AE64AC00009EDAF /* php-wrapper */,
-				B2B170B41B2F02C100EDC007 /* testrun */,
-			);
-			path = bin;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -863,7 +798,7 @@
 		B27BBD201A65757700C58A41 /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
-				LastUpgradeCheck = 0600;
+				LastUpgradeCheck = 0710;
 				TargetAttributes = {
 					B2546D8A1A7F76FA0033A875 = {
 						CreatedOnToolsVersion = 6.0;
@@ -973,7 +908,9 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BuildMake = "";
+				ENABLE_TESTABILITY = YES;
 				MACOSX_DEPLOYMENT_TARGET = 10.9;
+				ONLY_ACTIVE_ARCH = YES;
 			};
 			name = Debug;
 		};

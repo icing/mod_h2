@@ -16,13 +16,18 @@ SUBDIRS =
 
 ACLOCAL_AMFLAGS = -I m4
 
-lib_LTLIBRARIES    = mod_http2.la
+lib_LTLIBRARIES    = mod_http2.la \
+    mod_proxy_http2.la
 
 mod_http2_la_CPPFLAGS = -std=c99 -D_GNU_SOURCE -Werror
 mod_http2_la_LDFLAGS  = -module
 
+mod_proxy_http2_la_CPPFLAGS = -std=c99 -D_GNU_SOURCE -Werror
+mod_proxy_http2_la_LDFLAGS  = -module
+
 OBJECTS = \
     h2_alt_svc.c \
+    h2_bucket_beam.c \
     h2_bucket_eoc.c \
     h2_bucket_eos.c \
     h2_config.c \
@@ -35,6 +40,7 @@ OBJECTS = \
     h2_io.c \
     h2_io_set.c \
     h2_mplx.c \
+    h2_ngn_shed.c \
     h2_push.c \
     h2_request.c \
     h2_response.c \
@@ -43,16 +49,15 @@ OBJECTS = \
     h2_stream_set.c \
     h2_switch.c \
     h2_task.c \
-    h2_task_input.c \
-    h2_task_output.c \
-    h2_task_queue.c \
     h2_util.c \
     h2_worker.c \
     h2_workers.c \
     mod_http2.c
 
 HFILES = \
+    h2.h \
     h2_alt_svc.h \
+    h2_bucket_beam.h \
     h2_bucket_eoc.h \
     h2_bucket_eos.h \
     h2_config.h \
@@ -65,6 +70,8 @@ HFILES = \
     h2_io.h \
     h2_io_set.h \
     h2_mplx.h \
+    h2_ngn_shed.h \
+    h2_private.h \
     h2_push.h \
     h2_request.h \
     h2_response.h \
@@ -73,25 +80,38 @@ HFILES = \
     h2_stream_set.h \
     h2_switch.h \
     h2_task.h \
-    h2_task_input.h \
-    h2_task_output.h \
-    h2_task_queue.h \
     h2_util.h \
     h2_version.h \
     h2_worker.h \
     h2_workers.h \
-    mod_h2.h
+    mod_http2.h
 
+PROXY_HFILES = \
+    h2.h \
+    h2_proxy_session.h \
+    h2_request.h \
+    h2_util.h \
+    mod_proxy_http2.h
+
+PROXY_OBJECTS = \
+    h2_proxy_session.c \
+    h2_request.c \
+    h2_util.c \
+    mod_proxy_http2.c
 
 mod_http2_la_SOURCES = $(HFILES) $(OBJECTS)
 
-all: mod_http2.la
+mod_proxy_http2_la_SOURCES = $(PROXY_HFILES) $(PROXY_OBJECTS)
+
+all: mod_http2.la \
+    mod_proxy_http2.la
 
 install-libLTLIBRARIES:
 	@: # override
 
-install-exec-local: mod_http2.la
+install-exec-local: mod_http2.la mod_proxy_http2.la
 	$(MKDIR_P) $(DESTDIR)/@LIBEXEC_DIR@
 	$(APXS) -i -S LIBEXECDIR=$(DESTDIR)/@LIBEXEC_DIR@ -n h2 mod_http2.la
+	$(APXS) -i -S LIBEXECDIR=$(DESTDIR)/@LIBEXEC_DIR@ -n h2 mod_proxy_http2.la
 
 

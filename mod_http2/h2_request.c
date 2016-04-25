@@ -30,6 +30,7 @@
 #include <scoreboard.h>
 
 #include "h2_private.h"
+<<<<<<< HEAD
 #include "h2_config.h"
 #include "h2_mplx.h"
 #include "h2_request.h"
@@ -49,17 +50,38 @@ h2_request *h2_request_createn(int id, apr_pool_t *pool,
                                const char *method, const char *scheme,
                                const char *authority, const char *path,
                                apr_table_t *header)
+=======
+#include "h2_push.h"
+#include "h2_request.h"
+#include "h2_util.h"
+
+
+h2_request *h2_request_create(int id, apr_pool_t *pool, int serialize)
+{
+    return h2_request_createn(id, pool, NULL, NULL, NULL, NULL, NULL,
+                              serialize);
+}
+
+h2_request *h2_request_createn(int id, apr_pool_t *pool,
+                               const char *method, const char *scheme,
+                               const char *authority, const char *path,
+                               apr_table_t *header, int serialize)
+>>>>>>> master
 {
     h2_request *req = apr_pcalloc(pool, sizeof(h2_request));
     
     req->id             = id;
+<<<<<<< HEAD
     req->config         = config;
+=======
+>>>>>>> master
     req->method         = method;
     req->scheme         = scheme;
     req->authority      = authority;
     req->path           = path;
     req->headers        = header? header : apr_table_make(pool, 10);
     req->request_time   = apr_time_now();
+<<<<<<< HEAD
 
     return req;
 }
@@ -68,6 +90,13 @@ void h2_request_destroy(h2_request *req)
 {
 }
 
+=======
+    req->serialize      = serialize;
+    
+    return req;
+}
+
+>>>>>>> master
 static apr_status_t inspect_clen(h2_request *req, const char *s)
 {
     char *end;
@@ -138,6 +167,7 @@ static apr_status_t add_all_h1_header(h2_request *req, apr_pool_t *pool,
 }
 
 
+<<<<<<< HEAD
 apr_status_t h2_request_rwrite(h2_request *req, request_rec *r)
 {
     apr_status_t status;
@@ -170,6 +200,50 @@ apr_status_t h2_request_rwrite(h2_request *req, request_rec *r)
                   "h2_request(%d): rwrite %s host=%s://%s%s",
                   req->id, req->method, req->scheme, req->authority, req->path);
                   
+=======
+apr_status_t h2_request_make(h2_request *req, apr_pool_t *pool,
+                             const char *method, const char *scheme, 
+                             const char *authority, const char *path, 
+                             apr_table_t *headers)
+{
+    req->method    = method;
+    req->scheme    = scheme;
+    req->authority = authority;
+    req->path      = path;
+
+    AP_DEBUG_ASSERT(req->scheme);
+    AP_DEBUG_ASSERT(req->authority);
+    AP_DEBUG_ASSERT(req->path);
+    AP_DEBUG_ASSERT(req->method);
+
+    return add_all_h1_header(req, pool, headers);
+}
+
+apr_status_t h2_request_rwrite(h2_request *req, request_rec *r)
+{
+    apr_status_t status;
+    const char *scheme, *authority;
+    
+    scheme = (r->parsed_uri.scheme? r->parsed_uri.scheme
+              : ap_http_scheme(r));
+    authority = r->hostname;
+    if (!ap_strchr_c(authority, ':') && r->server && r->server->port) {
+        apr_port_t defport = apr_uri_port_of_scheme(scheme);
+        if (defport != r->server->port) {
+            /* port info missing and port is not default for scheme: append */
+            authority = apr_psprintf(r->pool, "%s:%d", authority,
+                                     (int)r->server->port);
+        }
+    }
+    
+    status = h2_request_make(req, r->pool,  r->method, scheme, authority,
+                             apr_uri_unparse(r->pool, &r->parsed_uri, 
+                                             APR_URI_UNP_OMITSITEPART),
+                             r->headers_in);
+    ap_log_rerror(APLOG_MARK, APLOG_DEBUG, status, r, APLOGNO(03058)
+                  "h2_request(%d): rwrite %s host=%s://%s%s",
+                  req->id, req->method, req->scheme, req->authority, req->path);
+>>>>>>> master
     return status;
 }
 
@@ -227,11 +301,17 @@ apr_status_t h2_request_add_header(h2_request *req, apr_pool_t *pool,
     return status;
 }
 
+<<<<<<< HEAD
 apr_status_t h2_request_end_headers(h2_request *req, apr_pool_t *pool, int eos)
+=======
+apr_status_t h2_request_end_headers(h2_request *req, apr_pool_t *pool, 
+                                    int eos, int push)
+>>>>>>> master
 {
     const char *s;
     
     if (req->eoh) {
+<<<<<<< HEAD
         return APR_EINVAL;
     }
 
@@ -240,6 +320,26 @@ apr_status_t h2_request_end_headers(h2_request *req, apr_pool_t *pool, int eos)
         return APR_BADARG;
     }
     apr_table_setn(req->headers, "Host", req->authority);
+=======
+        /* already done */
+        return APR_SUCCESS;
+    }
+
+    /* rfc7540, ch. 8.1.2.3:
+     * - if we have :authority, it overrides any Host header 
+     * - :authority MUST be ommited when converting h1->h2, so we
+     *   might get a stream without, but then Host needs to be there */
+    if (!req->authority) {
+        const char *host = apr_table_get(req->headers, "Host");
+        if (!host) {
+            return APR_BADARG;
+        }
+        req->authority = host;
+    }
+    else {
+        apr_table_setn(req->headers, "Host", req->authority);
+    }
+>>>>>>> master
 
     s = apr_table_get(req->headers, "Content-Length");
     if (s) {
@@ -271,6 +371,10 @@ apr_status_t h2_request_end_headers(h2_request *req, apr_pool_t *pool, int eos)
     }
 
     req->eoh = 1;
+<<<<<<< HEAD
+=======
+    h2_push_policy_determine(req, pool, push);
+>>>>>>> master
     
     /* In the presence of trailers, force behaviour of chunked encoding */
     s = apr_table_get(req->headers, "Trailer");
@@ -310,13 +414,21 @@ apr_status_t h2_request_add_trailer(h2_request *req, apr_pool_t *pool,
                                     const char *value, size_t vlen)
 {
     if (!req->trailers) {
+<<<<<<< HEAD
         ap_log_perror(APLOG_MARK, APLOG_DEBUG, APR_EINVAL, pool,
+=======
+        ap_log_perror(APLOG_MARK, APLOG_DEBUG, APR_EINVAL, pool, APLOGNO(03059)
+>>>>>>> master
                       "h2_request(%d): unanounced trailers",
                       req->id);
         return APR_EINVAL;
     }
     if (nlen == 0 || name[0] == ':') {
+<<<<<<< HEAD
         ap_log_perror(APLOG_MARK, APLOG_DEBUG, APR_EINVAL, pool,
+=======
+        ap_log_perror(APLOG_MARK, APLOG_DEBUG, APR_EINVAL, pool, APLOGNO(03060)
+>>>>>>> master
                       "h2_request(%d): pseudo header in trailer",
                       req->id);
         return APR_EINVAL;
@@ -324,6 +436,7 @@ apr_status_t h2_request_add_trailer(h2_request *req, apr_pool_t *pool,
     return add_h1_trailer(req, pool, name, nlen, value, vlen);
 }
 
+<<<<<<< HEAD
 #define OPT_COPY(p, s)  ((s)? apr_pstrdup(p, s) : NULL)
 
 void h2_request_copy(apr_pool_t *p, h2_request *dst, const h2_request *src)
@@ -346,19 +459,50 @@ request_rec *h2_request_create_rec(const h2_request *req, conn_rec *conn)
     int access_status = HTTP_OK;    
     
     apr_pool_create(&p, conn->pool);
+=======
+h2_request *h2_request_clone(apr_pool_t *p, const h2_request *src)
+{
+    h2_request *dst = apr_pmemdup(p, src, sizeof(*dst));
+    dst->method       = apr_pstrdup(p, src->method);
+    dst->scheme       = apr_pstrdup(p, src->scheme);
+    dst->authority    = apr_pstrdup(p, src->authority);
+    dst->path         = apr_pstrdup(p, src->path);
+    dst->headers      = apr_table_clone(p, src->headers);
+    if (src->trailers) {
+        dst->trailers = apr_table_clone(p, src->trailers);
+    }
+    return dst;
+}
+
+static request_rec *create_request(conn_rec *c, apr_table_t *headers) 
+{
+    request_rec *r;
+    apr_pool_t *p;
+
+    apr_pool_create(&p, c->pool);
+>>>>>>> master
     apr_pool_tag(p, "request");
     r = apr_pcalloc(p, sizeof(request_rec));
     AP_READ_REQUEST_ENTRY((intptr_t)r, (uintptr_t)conn);
     r->pool            = p;
+<<<<<<< HEAD
     r->connection      = conn;
     r->server          = conn->base_server;
+=======
+    r->connection      = c;
+    r->server          = c->base_server;
+>>>>>>> master
     
     r->user            = NULL;
     r->ap_auth_type    = NULL;
     
     r->allowed_methods = ap_make_method_list(p, 2);
     
+<<<<<<< HEAD
     r->headers_in      = apr_table_copy(r->pool, req->headers);
+=======
+    r->headers_in      = apr_table_clone(r->pool, headers);
+>>>>>>> master
     r->trailers_in     = apr_table_make(r->pool, 5);
     r->subprocess_env  = apr_table_make(r->pool, 25);
     r->headers_out     = apr_table_make(r->pool, 12);
@@ -369,9 +513,15 @@ request_rec *h2_request_create_rec(const h2_request *req, conn_rec *conn)
     r->request_config  = ap_create_request_config(r->pool);
     /* Must be set before we run create request hook */
     
+<<<<<<< HEAD
     r->proto_output_filters = conn->output_filters;
     r->output_filters  = r->proto_output_filters;
     r->proto_input_filters = conn->input_filters;
+=======
+    r->proto_output_filters = c->output_filters;
+    r->output_filters  = r->proto_output_filters;
+    r->proto_input_filters = c->input_filters;
+>>>>>>> master
     r->input_filters   = r->proto_input_filters;
     ap_run_create_request(r);
     r->per_dir_config  = r->server->lookup_defaults;
@@ -390,10 +540,25 @@ request_rec *h2_request_create_rec(const h2_request *req, conn_rec *conn)
      */
     r->used_path_info = AP_REQ_DEFAULT_PATH_INFO;
     
+<<<<<<< HEAD
     r->useragent_addr = conn->client_addr;
     r->useragent_ip = conn->client_ip;
     
     ap_run_pre_read_request(r, conn);
+=======
+    r->useragent_addr = c->client_addr;
+    r->useragent_ip = c->client_ip;
+    return r;
+}
+
+request_rec *h2_request_create_rec(const h2_request *req, conn_rec *c)
+{
+    int access_status = HTTP_OK;    
+    
+    request_rec *r = create_request(c, req->headers);
+
+    ap_run_pre_read_request(r, c);
+>>>>>>> master
     
     /* Time to populate r with the data we have. */
     r->request_time = req->request_time;
@@ -405,7 +570,11 @@ request_rec *h2_request_create_rec(const h2_request *req, conn_rec *conn)
     }
 
     ap_parse_uri(r, req->path);
+<<<<<<< HEAD
     r->protocol = (char*)"HTTP/2";
+=======
+    r->protocol = "HTTP/2";
+>>>>>>> master
     r->proto_num = HTTP_VERSION(2, 0);
 
     r->the_request = apr_psprintf(r->pool, "%s %s %s", 
@@ -436,8 +605,16 @@ request_rec *h2_request_create_rec(const h2_request *req, conn_rec *conn)
         /* Request check post hooks failed. An example of this would be a
          * request for a vhost where h2 is disabled --> 421.
          */
+<<<<<<< HEAD
         ap_die(access_status, r);
         ap_update_child_status(conn->sbh, SERVER_BUSY_LOG, r);
+=======
+        ap_log_cerror(APLOG_MARK, APLOG_DEBUG, 0, c, APLOGNO(03367)
+                      "h2_request(%d): access_status=%d, request_create failed",
+                      req->id, access_status);
+        ap_die(access_status, r);
+        ap_update_child_status(c->sbh, SERVER_BUSY_LOG, r);
+>>>>>>> master
         ap_run_log_transaction(r);
         r = NULL;
         goto traceout;

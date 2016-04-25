@@ -39,6 +39,10 @@ typedef enum {
     H2_CONF_TLS_WARMUP_SIZE,
     H2_CONF_TLS_COOLDOWN_SECS,
     H2_CONF_PUSH,
+<<<<<<< HEAD:mod_http2/h2_config.h
+=======
+    H2_CONF_PUSH_DIARY_SIZE,
+>>>>>>> master:mod_http2/h2_config.h
 } h2_config_var_t;
 
 struct apr_hash_t;
@@ -65,6 +69,11 @@ typedef struct h2_config {
     int tls_cooldown_secs;        /* Seconds of idle time before going back to small TLS records */
     int h2_push;                  /* if HTTP/2 server push is enabled */
     struct apr_hash_t *priorities;/* map of content-type to h2_priority records */
+<<<<<<< HEAD:mod_http2/h2_config.h
+=======
+    
+    int push_diary_size;          /* # of entries in push diary */
+>>>>>>> master:mod_http2/h2_config.h
 } h2_config;
 
 
@@ -88,7 +97,10 @@ void h2_config_init(apr_pool_t *pool);
 const struct h2_priority *h2_config_get_priority(const h2_config *conf, 
                                                  const char *content_type);
        
+<<<<<<< HEAD:mod_http2/h2_config.h
 int h2_config_async_mpm(void);
 
+=======
+>>>>>>> master:mod_http2/h2_config.h
 #endif /* __mod_h2__h2_config_h__ */
 

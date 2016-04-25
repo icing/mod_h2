@@ -16,6 +16,11 @@
 #ifndef __mod_h2__h2_task__
 #define __mod_h2__h2_task__
 
+<<<<<<< HEAD
+=======
+#include <http_core.h>
+
+>>>>>>> master
 /**
  * A h2_task fakes a HTTP/1.1 request from the data in a HTTP/2 stream 
  * (HEADER+CONT.+DATA) the module recieves.
@@ -36,9 +41,17 @@
  */
 
 struct apr_thread_cond_t;
+<<<<<<< HEAD
 struct h2_conn;
 struct h2_mplx;
 struct h2_task;
+=======
+struct h2_bucket_beam;
+struct h2_conn;
+struct h2_mplx;
+struct h2_task;
+struct h2_req_engine;
+>>>>>>> master
 struct h2_request;
 struct h2_resp_head;
 struct h2_worker;
@@ -48,6 +61,7 @@ typedef struct h2_task h2_task;
 struct h2_task {
     const char *id;
     int stream_id;
+<<<<<<< HEAD
     struct h2_mplx *mplx;
     
     const struct h2_request *request;
@@ -74,5 +88,62 @@ apr_status_t h2_task_destroy(h2_task *task);
 apr_status_t h2_task_do(h2_task *task, struct h2_worker *worker);
 
 void h2_task_register_hooks(void);
+=======
+    conn_rec *c;
+    struct h2_mplx *mplx;
+    apr_pool_t *pool;
+    const struct h2_request *request;
+    apr_bucket *eor;
+    struct apr_thread_cond_t *cond;
+    
+    unsigned int filters_set : 1;
+    unsigned int ser_headers : 1;
+    unsigned int frozen      : 1;
+    unsigned int blocking    : 1;
+    unsigned int detached    : 1;
+    
+    struct {
+        struct h2_bucket_beam *beam;
+        apr_bucket_brigade *bb;
+        apr_read_type_e block;
+        unsigned int chunked : 1;
+        unsigned int eos : 1;
+        unsigned int eos_written : 1;
+    } input;
+    struct {
+        struct h2_bucket_beam *beam;
+        struct h2_from_h1 *from_h1;
+        unsigned int response_open : 1;
+        apr_off_t written;
+        apr_bucket_brigade *bb;
+    } output;
+    
+    struct h2_req_engine *engine;   /* engine hosted by this task */
+    struct h2_req_engine *assigned; /* engine that task has been assigned to */
+    request_rec *r;                 /* request being processed in this task */
+};
+
+h2_task *h2_task_create(conn_rec *c, const struct h2_request *req, 
+                        struct h2_bucket_beam *input, struct h2_mplx *mplx);
+
+void h2_task_destroy(h2_task *task);
+
+apr_status_t h2_task_do(h2_task *task);
+
+void h2_task_register_hooks(void);
+/*
+ * One time, post config intialization.
+ */
+apr_status_t h2_task_init(apr_pool_t *pool, server_rec *s);
+
+extern APR_OPTIONAL_FN_TYPE(ap_logio_add_bytes_in) *h2_task_logio_add_bytes_in;
+extern APR_OPTIONAL_FN_TYPE(ap_logio_add_bytes_out) *h2_task_logio_add_bytes_out;
+
+apr_status_t h2_task_freeze(h2_task *task);
+apr_status_t h2_task_thaw(h2_task *task);
+int h2_task_is_detached(h2_task *task);
+
+void h2_task_set_io_blocking(h2_task *task, int blocking);
+>>>>>>> master
 
 #endif /* defined(__mod_h2__h2_task__) */

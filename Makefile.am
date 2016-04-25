@@ -13,12 +13,12 @@
 # limitations under the License.
 #
 SUBDIRS         = @BUILD_SUBDIRS@
-DIST_SUBDIRS    = mod_http2 sandbox setup
+DIST_SUBDIRS    = mod_http2
 
 ACLOCAL_AMFLAGS = -I m4
 
 
-dist_doc_DATA   = README
+dist_doc_DATA   = README README.md
 
 
 .PHONY: test loadtest start stop restart

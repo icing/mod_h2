@@ -24,8 +24,17 @@
 #include <http_config.h>
 #include <http_connection.h>
 #include <http_protocol.h>
+<<<<<<< HEAD
 #include <http_log.h>
 
+=======
+#include <http_request.h>
+#include <http_log.h>
+
+#include "mod_ssl.h"
+
+#include "mod_http2.h"
+>>>>>>> master
 #include "h2_private.h"
 
 #include "h2_stream.h"
@@ -33,9 +42,17 @@
 #include "h2_config.h"
 #include "h2_ctx.h"
 #include "h2_conn.h"
+<<<<<<< HEAD
 #include "h2_session.h"
 #include "h2_util.h"
 #include "h2_h2.h"
+=======
+#include "h2_request.h"
+#include "h2_session.h"
+#include "h2_util.h"
+#include "h2_h2.h"
+#include "mod_http2.h"
+>>>>>>> master
 
 const char *h2_tls_protos[] = {
     "h2", NULL
@@ -50,6 +67,7 @@ const char *H2_MAGIC_TOKEN = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
 /*******************************************************************************
  * The optional mod_ssl functions we need. 
  */
+<<<<<<< HEAD
 APR_DECLARE_OPTIONAL_FN(int, ssl_engine_disable, (conn_rec*));
 APR_DECLARE_OPTIONAL_FN(int, ssl_is_https, (conn_rec*));
 
@@ -65,6 +83,11 @@ APR_DECLARE_OPTIONAL_FN(char *, ssl_var_lookup,
 static char *(*opt_ssl_var_lookup)(apr_pool_t *, server_rec *,
                                    conn_rec *, request_rec *,
                                    char *);
+=======
+static APR_OPTIONAL_FN_TYPE(ssl_engine_disable) *opt_ssl_engine_disable;
+static APR_OPTIONAL_FN_TYPE(ssl_is_https) *opt_ssl_is_https;
+static APR_OPTIONAL_FN_TYPE(ssl_var_lookup) *opt_ssl_var_lookup;
+>>>>>>> master
 
 
 /*******************************************************************************
@@ -437,16 +460,26 @@ static int cipher_is_blacklisted(const char *cipher, const char **psource)
  * - process_conn take over connection in case of h2
  */
 static int h2_h2_process_conn(conn_rec* c);
+<<<<<<< HEAD
 static int h2_h2_post_read_req(request_rec *r);
 
 
+=======
+static int h2_h2_pre_close_conn(conn_rec* c);
+static int h2_h2_post_read_req(request_rec *r);
+
+>>>>>>> master
 /*******************************************************************************
  * Once per lifetime init, retrieve optional functions
  */
 apr_status_t h2_h2_init(apr_pool_t *pool, server_rec *s)
 {
     (void)pool;
+<<<<<<< HEAD
     ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, s, "h2_h2, child_init");
+=======
+    ap_log_error(APLOG_MARK, APLOG_TRACE1, 0, s, "h2_h2, child_init");
+>>>>>>> master
     opt_ssl_engine_disable = APR_RETRIEVE_OPTIONAL_FN(ssl_engine_disable);
     opt_ssl_is_https = APR_RETRIEVE_OPTIONAL_FN(ssl_is_https);
     opt_ssl_var_lookup = APR_RETRIEVE_OPTIONAL_FN(ssl_var_lookup);
@@ -491,14 +524,22 @@ int h2_is_acceptable_connection(conn_rec *c, int require_all)
             if (strncmp("TLS", val, 3) 
                 || !strcmp("TLSv1", val) 
                 || !strcmp("TLSv1.1", val)) {
+<<<<<<< HEAD
             ap_log_cerror(APLOG_MARK, APLOG_DEBUG, 0, c,
+=======
+            ap_log_cerror(APLOG_MARK, APLOG_DEBUG, 0, c, APLOGNO(03050)
+>>>>>>> master
                           "h2_h2(%ld): tls protocol not suitable: %s", 
                           (long)c->id, val);
                 return 0;
             }
         }
         else if (require_all) {
+<<<<<<< HEAD
             ap_log_cerror(APLOG_MARK, APLOG_DEBUG, 0, c,
+=======
+            ap_log_cerror(APLOG_MARK, APLOG_DEBUG, 0, c, APLOGNO(03051)
+>>>>>>> master
                           "h2_h2(%ld): tls protocol is indetermined", (long)c->id);
             return 0;
         }
@@ -509,14 +550,22 @@ int h2_is_acceptable_connection(conn_rec *c, int require_all)
         if (val && *val) {
             const char *source;
             if (cipher_is_blacklisted(val, &source)) {
+<<<<<<< HEAD
                 ap_log_cerror(APLOG_MARK, APLOG_DEBUG, 0, c,
+=======
+                ap_log_cerror(APLOG_MARK, APLOG_DEBUG, 0, c, APLOGNO(03052)
+>>>>>>> master
                               "h2_h2(%ld): tls cipher %s blacklisted by %s", 
                               (long)c->id, val, source);
                 return 0;
             }
         }
         else if (require_all) {
+<<<<<<< HEAD
             ap_log_cerror(APLOG_MARK, APLOG_DEBUG, 0, c,
+=======
+            ap_log_cerror(APLOG_MARK, APLOG_DEBUG, 0, c, APLOGNO(03053)
+>>>>>>> master
                           "h2_h2(%ld): tls cipher is indetermined", (long)c->id);
             return 0;
         }
@@ -562,7 +611,15 @@ void h2_h2_register_hooks(void)
      */
     ap_hook_process_connection(h2_h2_process_conn, 
                                mod_ssl, mod_reqtimeout, APR_HOOK_LAST);
+<<<<<<< HEAD
                                
+=======
+    
+    /* One last chance to properly say goodbye if we have not done so
+     * already. */
+    ap_hook_pre_close_connection(h2_h2_pre_close_conn, NULL, mod_ssl, APR_HOOK_LAST);
+
+>>>>>>> master
     /* With "H2SerializeHeaders On", we install the filter in this hook
      * that parses the response. This needs to happen before any other post
      * read function terminates the request with an error. Otherwise we will
@@ -584,6 +641,10 @@ int h2_h2_process_conn(conn_rec* c)
     ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, c, "h2_h2, process_conn");
     if (h2_ctx_is_task(ctx)) {
         /* our stream pseudo connection */
+<<<<<<< HEAD
+=======
+        ap_log_cerror(APLOG_MARK, APLOG_TRACE2, 0, c, "h2_h2, task, declined");
+>>>>>>> master
         return DECLINED;
     }
     
@@ -613,7 +674,11 @@ int h2_h2_process_conn(conn_rec* c)
                                     AP_MODE_SPECULATIVE, APR_BLOCK_READ, 24);
             
             if (status != APR_SUCCESS) {
+<<<<<<< HEAD
                 ap_log_cerror(APLOG_MARK, APLOG_DEBUG, status, c,
+=======
+                ap_log_cerror(APLOG_MARK, APLOG_DEBUG, status, c, APLOGNO(03054)
+>>>>>>> master
                               "h2_h2, error reading 24 bytes speculative");
                 apr_brigade_destroy(temp);
                 return DECLINED;
@@ -647,18 +712,44 @@ int h2_h2_process_conn(conn_rec* c)
                 return status;
             }
         }
+<<<<<<< HEAD
         if (h2_config_async_mpm()) {
             return h2_conn_process(ctx, 1);
         }
         else {
             return h2_conn_run(ctx, c);
         }
+=======
+        return h2_conn_run(ctx, c);
+>>>>>>> master
     }
     
     ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, c, "h2_h2, declined");
     return DECLINED;
 }
 
+<<<<<<< HEAD
+=======
+static int h2_h2_pre_close_conn(conn_rec *c)
+{
+    h2_ctx *ctx;
+
+    /* slave connection? */
+    if (c->master) {
+        return DECLINED;
+    }
+
+    ctx = h2_ctx_get(c, 0);
+    if (ctx) {
+        /* If the session has been closed correctly already, we will not
+         * fiond a h2_ctx here. The presence indicates that the session
+         * is still ongoing. */
+        return h2_conn_pre_close(ctx, c);
+    }
+    return DECLINED;
+}
+
+>>>>>>> master
 static int h2_h2_post_read_req(request_rec *r)
 {
     /* slave connection? */
@@ -674,7 +765,11 @@ static int h2_h2_post_read_req(request_rec *r)
             /* setup the correct output filters to process the response
              * on the proper mod_http2 way. */
             ap_log_rerror(APLOG_MARK, APLOG_TRACE3, 0, r, "adding task output filter");
+<<<<<<< HEAD
             if (task->serialize_headers) {
+=======
+            if (task->ser_headers) {
+>>>>>>> master
                 ap_add_output_filter("H1_TO_H2_RESP", task, r, r->connection);
             }
             else {
@@ -699,3 +794,7 @@ static int h2_h2_post_read_req(request_rec *r)
     }
     return DECLINED;
 }
+<<<<<<< HEAD
+=======
+
+>>>>>>> master

@@ -14,7 +14,7 @@
 #
 
 AC_PREREQ([2.69])
-AC_INIT([mod_http2], [1.0.12-DEV], [stefan.eissing@greenbytes.de])
+AC_INIT([mod_http2], [1.5.0], [stefan.eissing@greenbytes.de])
 
 LT_PREREQ([2.2.6])
 LT_INIT()
@@ -121,6 +121,20 @@ HTTPD_VERSION="$($APXS -q HTTPD_VERSION)"
 #
 AC_CHECK_LIB([nghttp2], [nghttp2_session_server_new2], ,
 [AC_MSG_ERROR("library nghttp2 not found")])
+
+AC_CHECK_HEADERS([nghttp2/nghttp2.h])
+# nghttp2 >= 1.3.0: access to stream weights
+AC_CHECK_FUNCS([nghttp2_stream_get_weight], 
+        [CPPFLAGS="$CPPFLAGS -DH2_NG2_STREAM_API"], [])
+# nghttp2 >= 1.5.0: changing stream priorities
+AC_CHECK_FUNCS([nghttp2_session_change_stream_priority], 
+        [CPPFLAGS="$CPPFLAGS -DH2_NG2_CHANGE_PRIO"], [])
+
+
+AC_CHECK_LIB([crypto], [SHA256_Init], [
+CPPFLAGS="$CPPFLAGS -DH2_OPENSSL"
+LIBS="$LIBS -lcrypto"],
+[AC_MSG_ERROR("libcrypto not found")])
 
 # Checks for header files.
 AC_CHECK_HEADERS([ \

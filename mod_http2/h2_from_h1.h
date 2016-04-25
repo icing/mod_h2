@@ -60,8 +60,11 @@ struct h2_from_h1 {
 
 h2_from_h1 *h2_from_h1_create(int stream_id, apr_pool_t *pool);
 
+<<<<<<< HEAD:mod_http2/h2_from_h1.h
 apr_status_t h2_from_h1_destroy(h2_from_h1 *response);
 
+=======
+>>>>>>> master:mod_http2/h2_from_h1.h
 apr_status_t h2_from_h1_read_response(h2_from_h1 *from_h1,
                                       ap_filter_t* f, apr_bucket_brigade* bb);
 

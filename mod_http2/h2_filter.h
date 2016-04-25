@@ -16,12 +16,35 @@
 #ifndef __mod_h2__h2_filter__
 #define __mod_h2__h2_filter__
 
+<<<<<<< HEAD
 struct h2_session;
 
 typedef struct {
     apr_bucket_brigade *bb;
     struct h2_session *session;
 } h2_filter_core_in;
+=======
+struct h2_stream;
+struct h2_session;
+
+typedef apr_status_t h2_filter_cin_cb(void *ctx, 
+                                      const char *data, apr_size_t len,
+                                      apr_size_t *readlen);
+
+typedef struct h2_filter_cin {
+    apr_pool_t *pool;
+    apr_bucket_brigade *bb;
+    h2_filter_cin_cb *cb;
+    void *cb_ctx;
+    apr_socket_t *socket;
+    apr_interval_time_t timeout;
+    apr_time_t start_read;
+} h2_filter_cin;
+
+h2_filter_cin *h2_filter_cin_create(apr_pool_t *p, h2_filter_cin_cb *cb, void *ctx);
+
+void h2_filter_cin_timeout_set(h2_filter_cin *cin, apr_interval_time_t timeout);
+>>>>>>> master
 
 apr_status_t h2_filter_core_input(ap_filter_t* filter,
                                   apr_bucket_brigade* brigade,
@@ -29,5 +52,12 @@ apr_status_t h2_filter_core_input(ap_filter_t* filter,
                                   apr_read_type_e block,
                                   apr_off_t readbytes);
 
+<<<<<<< HEAD
+=======
+#define H2_RESP_SOS_NOTE     "h2-sos-filter"
+
+apr_status_t h2_stream_filter(struct h2_stream *stream);
+int h2_filter_h2_status_handler(request_rec *r);
+>>>>>>> master
 
 #endif /* __mod_h2__h2_filter__ */

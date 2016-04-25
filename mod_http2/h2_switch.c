@@ -40,7 +40,11 @@
 apr_status_t h2_switch_init(apr_pool_t *pool, server_rec *s)
 {
     (void)pool;
+<<<<<<< HEAD:mod_http2/h2_switch.c
     ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, s, "h2_switch init");
+=======
+    ap_log_error(APLOG_MARK, APLOG_TRACE1, 0, s, "h2_switch init");
+>>>>>>> master:mod_http2/h2_switch.c
 
     return APR_SUCCESS;
 }
@@ -58,13 +62,17 @@ static int h2_protocol_propose(conn_rec *c, request_rec *r,
     if (strcmp(AP_PROTOCOL_HTTP1, ap_get_protocol(c))) {
         /* We do not know how to switch from anything else but http/1.1.
          */
-        ap_log_cerror(APLOG_MARK, APLOG_DEBUG, 0, c,
+        ap_log_cerror(APLOG_MARK, APLOG_DEBUG, 0, c, APLOGNO(03083)
                       "protocol switch: current proto != http/1.1, declined");
         return DECLINED;
     }
     
     if (!h2_is_acceptable_connection(c, 0)) {
+<<<<<<< HEAD:mod_http2/h2_switch.c
         ap_log_cerror(APLOG_MARK, APLOG_DEBUG, 0, c,
+=======
+        ap_log_cerror(APLOG_MARK, APLOG_DEBUG, 0, c, APLOGNO(03084)
+>>>>>>> master:mod_http2/h2_switch.c
                       "protocol propose: connection requirements not met");
         return DECLINED;
     }
@@ -82,14 +90,14 @@ static int h2_protocol_propose(conn_rec *c, request_rec *r,
          
         p = apr_table_get(r->headers_in, "HTTP2-Settings");
         if (!p) {
-            ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r,
+            ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, APLOGNO(03085)
                           "upgrade without HTTP2-Settings declined");
             return DECLINED;
         }
         
         p = apr_table_get(r->headers_in, "Connection");
         if (!ap_find_token(r->pool, p, "http2-settings")) {
-            ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r,
+            ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, APLOGNO(03086)
                           "upgrade without HTTP2-Settings declined");
             return DECLINED;
         }
@@ -98,7 +106,7 @@ static int h2_protocol_propose(conn_rec *c, request_rec *r,
          */
         p = apr_table_get(r->headers_in, "Content-Length");
         if (p && strcmp(p, "0")) {
-            ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r,
+            ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, APLOGNO(03087)
                           "upgrade with content-length: %s, declined", p);
             return DECLINED;
         }
@@ -158,12 +166,21 @@ static int h2_protocol_switch(conn_rec *c, request_rec *r, server_rec *s,
             h2_ctx_server_set(ctx, r->server);
             status = h2_conn_setup(ctx, r->connection, r);
             if (status != APR_SUCCESS) {
+<<<<<<< HEAD:mod_http2/h2_switch.c
                 ap_log_rerror(APLOG_MARK, APLOG_DEBUG, status, r,
+=======
+                ap_log_rerror(APLOG_MARK, APLOG_DEBUG, status, r, APLOGNO(03088)
+>>>>>>> master:mod_http2/h2_switch.c
                               "session setup");
                 return status;
             }
             
+<<<<<<< HEAD:mod_http2/h2_switch.c
             return h2_conn_run(ctx, c);
+=======
+            h2_conn_run(ctx, c);
+            return DONE;
+>>>>>>> master:mod_http2/h2_switch.c
         }
         return DONE;
     }
