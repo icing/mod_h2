@@ -1,0 +1,154 @@
+<!doctype html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="chrome=1">
+        <title>HTTP Workshop 2016</title>
+                
+        <link rel="stylesheet" href="stylesheets/styles.css">
+        <link rel="stylesheet" href="stylesheets/pygment_trac.css">
+        <link rel="stylesheet" href="stylesheets/mod_h2.css">
+        <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+        <!--[if lt IE 9]>
+        <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+        <![endif]-->
+    </head>
+    <body>
+        <div class="wrapper">
+            <div class="backlogo" style="background-image: none; padding-top: 0; top: 10em;">
+            </div>
+            <header>
+                <h1>mod_h[ttp]2</h1>
+                <p>HTTP/2 for <a href="https://httpd.apache.org/download.cgi">Apache httpd</a></p>
+            </header>
+            <section>
+                <h1>
+                    <a class="anchor" href="#top" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    HTTP Workshop 2016
+                </h1>
+                
+                <p>
+                    The second HTTP Workshop just ended this week. About 40 people converged on Stockholm to
+                    discuss all things HTTP. Presentations, opinions, experience exchange and talks a plenty. There
+                    are several good posts summarizing it:
+                    <ul>
+                        <li>from Daniel Stenberg: <a href="https://daniel.haxx.se/blog/2016/07/25/a-workshop-monday/">A Workshop Monday</a>, 
+                            <a href="https://daniel.haxx.se/blog/2016/07/27/workshop-day-two/">Workshop Day Two</a>,  
+                            <a href="https://daniel.haxx.se/blog/2016/07/27/a-third-day-of-deep-http-inspection/">A Third Day of Deep HTTP Inspection</a></li> 
+                        <li>Cory Benfield: <a href="https://lukasa.co.uk/2016/07/HTTP_Workshop_and_Python/">The HTTP Workshop and Python</a></li> 
+                    </ul>
+                    Go and read these!
+                </p>
+                <p>
+                    What can I bring additinally to the table? A little bit from Apache side, maybe. But remember that all this
+                    here is my personal point of view!
+                </p>
+                
+                <h2>
+                    <a id="push" class="anchor" href="#push" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    Push
+                </h2>
+                <p>
+                    The state of HTTP/2 Push was discussed from different angles. Cloudflare and Akamai stated experiences and
+                    measurements, Kazuho (h2o) presented his cache digests. Ilya, Yoav argued differences and synergies between 
+                    preload and push. Patrick (Mozilla) wondered if it is all worth the complexity.
+                </p>
+                <p>
+                    The consensus I took from all of this is that push can be very beneficial, but it is hard to get
+                    right. And it can also hurt a lot. Certainly just pushing all static resources at the client, all the
+                    time, is not the way to go.
+                </p>
+                <p>
+                    In Apache we do support pushes and the experimental cache digest for some time now, but there is lots
+                    of room for improvement. For example, we take the <code>Link</code> headers with <code>preload</code> and
+                    use those for pushing. But that means that the response header must first be calculated and until that
+                    the connection will idle. Bandwidth wasted.
+                </p>
+                <p>
+                    Expect lots of fiddling and fine tuning in this area in the months to come.
+                </p>
+
+                <h2>
+                    <a id="h2debug" class="anchor" href="#h2debug" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    H2 Debug
+                </h2>
+                <p>
+                    Cory Benfield and Brad Fitzpatrick prototyped a way to expose HTTP/2 state information to the client. The
+                    idea here is that clients interop problems offen arrive because of misatches in state (with flow control
+                    being the top number one). So given the client this information from the server's point of view will help
+                    to sort out misunderstandings.
+                </p>
+                <p>
+                    The information will be exposed on the path <code>/.well-known/h2/state</code> and it will only show
+                    information about the current connection. That should make it safe. And since HTTP/2 allows many requests
+                    on a connection, clients can ask for it almost all the time. Nice! 
+                </p>
+                <p>
+                    The two did sample implementations in their servers on day three. Apache has it now in trunk; expect it
+                    to be available in a github mod_h2 release soon!
+                </p>
+                <p>
+                    During our discussion of the feature, we considered possibilities for the server to interrogate the
+                    client for its state, too. This is still considerably difficult, even in HTTP/2, as there are no server-initiated
+                    requests really. Maybe it's all for the better that way. In the end, we decided we did not really need it, if
+                    clients make it available (preferably side-by-side) to the user.
+                </p>
+
+                <h2>
+                    <a id="quic" class="anchor" href="#quic" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    QUIC
+                </h2>
+                <p>
+                    The Big One. The monster change. With nice features. But look at the size of that thing!
+                </p>
+                <p>
+                    To summarize what it does in one sentence: it takes all things that are nicely hidden in your kernels
+                    about TCP, mixes them with a new TLS, ciphers and certificates and, with the little finger of its left
+                    hand, knocks over some assumptions in your HTTP(/2) stacks. It's like mashed potatoes in a stew mixed to
+                    a smoothie.
+                </p>
+                <p> 
+                    And it tastes really good!
+                </p>
+                <p>
+                    One of the really nice things it does is the following: you get a connection from your client to a server
+                    without tying it to IP addresses. This means you open a SSH session to a server, leave the house and go
+                    cellular, then enter a cafe WLAN before biking to your office and plug the 1 gig ethernet in, and your
+                    SSH is still alive and kicking. Or your download/upload continues (as you might have paused that on
+                    cellular automatically).
+                </p>
+                <p>
+                    But it's sooo complex to do all that right. And the Operating Systesm will not do it soonish (and bring a TLS
+                    library into kernel space). So, the connection management is in user space. Which means, when you want to
+                    handle a port in different processes, you need to route yourself (at least to my limited understanding). 
+                    And, and, and.
+                </p>
+                <p>
+                    So, do not expect that in Apache anytime soon, if at all. HTTP/1+2 will be there and keep you safe and warm
+                    for the near and mid-term future. But, one day, maybe? Will be interesting...
+                </p>
+
+                <p>
+                    Enjoy Apache. And the sun outside.
+                </p>
+
+                <p>Münster, 29.07.2016,</p>
+                
+                <p>Stefan Eissing, greenbytes GmbH</p>
+
+                <p>Copying and distribution of this file, with or without modification,
+                are permitted in any medium without royalty provided the copyright
+                notice and this notice are preserved.  This file is offered as-is,
+                without warranty of any kind. See LICENSE for details.
+                </p>
+                
+            </section>
+            <footer>
+                <p>This project is maintained by <a href="https://github.com/icing">icing</a></p>
+                <p><small>Hosted on GitHub Pages &mdash; Theme by <a href="https://github.com/orderedlist">orderedlist</a></small></p>
+            </footer>
+        </div>
+        <script src="javascripts/scale.fix.js"></script>
+        
+    </body>
+</html>
