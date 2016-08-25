@@ -46,6 +46,8 @@
                         <li><a href="#safari">Safari</a>
                     </ul>
                 </li>
+                <li><a href="#restrictions">Debugging</a>
+                </li>
                 <li><a href="#restrictions">Restrictions</a>
                     <ul>
                         <li><a href="#h2c-restrictions">h2c Restrictions</a>
@@ -64,7 +66,10 @@
                     how to h2 in apache
                 </h1>
                 
-                <p>Copyright (C) 2015 greenbytes GmbH</p>
+                <p>Copyright (C) 2016 greenbytes GmbH</p>
+                <p>
+                    <b>Update 2016-08-25:</b>LibreSSL minimum version added, connection reuse description updated. Chapter about Debugging added.
+                </p>
                 <p>
                     Support for HTTP/2 is finally being released with Apache httpd 2.4.17! This pages gives advice on
                     how to build/deploy/configure it. The plan is to update this as people find out new things (read: bugs)
@@ -121,9 +126,10 @@
                     server, the client will only ever talk HTTP/1.1. So, who does link with Apache and support it?
                     <ul>
                         <li><code>OpenSSL 1.0.2</code> and onward.</li>
+                        <li><code>LibreSSL 2.1.3</code> and onward.</li>
                         <li>???</li>
                     </ul>
-                    If you get your OpenSSL library from your Linux distro, the version number used there might be different from the 
+                    If you get your library from your Linux distro, the version number used there might be different from the 
                     official OpenSSL releases. Check with your distro in case of doubt.
                 </p>
 
@@ -372,6 +378,7 @@ sh> curl -v --http2 https://&lt;yourserver>/
                     Try adding the command line option <code>-k</code> to disable those checks in curl. If that
                     works, review yor SSL configuration and certificate.</li>
                 </ul>
+                Btw. <code>curl</code> nowadays defaults to HTTP/2 on https: connections. So it should work the same without the <code>--http2</code>.
                 </p>
 
 
@@ -478,6 +485,33 @@ The negotiated protocol: http/1.1
                     Again, we will address that in future releases so that you can enable it safely.
                 </p>
                 
+                <h2>
+                   <a id="h2-debug" class="anchor" href="#h2-debug" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                   Debugging</h2>
+                <p>
+                    If you need to debug a HTTP/2 connection with Apache, you can always raise the logging level for the <code>mod_http2</code> module.
+                    <pre>
+&lt;IfModule http2_module>
+    LogLevel http2:debug
+&lt;/IfModule></pre>
+                    With <code>debug</code> connections and HTTP/2 frames received/sent are logged. This gives you clues, if HTTP/2 is used and if the server receives what you client thinks got sent and vice versa.
+                </p>
+                <p>
+                    Experience shows that most interop problems arise from diverging ideas about the connection state between server
+                    and client. Especially flow control windows get often confused, which results in one side not sending any longer. The 
+                    connection freezes up.
+                </p>
+                <p>
+                    There is work underway to harmonize debug information by HTTP/2 servers. See <a href="http://www.ietf.org/id/draft-benfield-http2-debug-state-01.txt">this internet draft</a>. This is supported by <code>mod_http2</code> since release 1.6.0. You
+                    need to add the following configuration to your server:
+                    <pre>
+&lt;Location "/.well-known/h2/state">
+        SetHandler http2-status
+&lt;/Location></pre>
+                If you then open <code>https://&lt;yourserver>/.well-known/h2/state</code>, the server sends you back a JSON document containing the
+                state of the connection and all open stream, including flow control window sizes. This is information about the connection itself that
+                you have open. Not about other connections, so your privacy is assured.
+                </p>
 
                 <h2>
                    <a id="restrictions" class="anchor" href="#restrictions" aria-hidden="true"><span class="octicon octicon-link"></span></a>
@@ -554,16 +588,9 @@ The negotiated protocol: http/1.1
                     for efficiency in HTTP/1 to also benefit from HTTP/2 without much change.
                 </p>
                 <p>
-                    In Apache <code>mod_h[ttp]2</code> this is not fully implemented, yet. When <code>a.example.org</code> and 
-                    <code>b.example.org</code> are separate virtual hosts, Apache will not allow such connection reuse and
-                    inform the browser with status code <code>421 Misdirected Request</code> about it. The browser will understand
-                    that it has to open a new connection to <code>b.example.org</code>. All will work, however some efficiency gets lost.
+                    In Apache <code>mod_h[ttp]2</code> this reuse is being supported since 2.4.18. But all hosts need the <i>exact same</i>
+                    SSL configuration. Otherwise connection sharing is denied by the server.
                 </p>
-                <p>
-                    We expect to have the proper checks in place for the next release.
-                </p>
-                
-
 
                 <p></p>
                 <p>Münster, 12.10.2015,</p>
