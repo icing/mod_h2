@@ -1,0 +1,145 @@
+<!doctype html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="chrome=1">
+        <title>earlier</title>
+                
+        <link rel="stylesheet" href="stylesheets/styles.css">
+        <link rel="stylesheet" href="stylesheets/pygment_trac.css">
+        <link rel="stylesheet" href="stylesheets/mod_h2.css">
+        <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+        <!--[if lt IE 9]>
+        <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+        <![endif]-->
+    </head>
+    <body>
+        <div class="wrapper">
+            <div class="backlogo" style="background-image: none; padding-top: 0; top: 10em;">
+            </div>
+            <header>
+                <h1>mod_h[ttp]2</h1>
+                <p>HTTP/2 for <a href="https://httpd.apache.org/download.cgi">Apache httpd</a></p>
+            </header>
+            <section>
+                <h1>
+                    <a class="anchor" href="#top" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    Earlier
+                </h1>
+                
+                <p>
+                    There is one more thing I managed to get into the upcoming Apache httpd 2.4.24: earlier PUSHes.
+                </p>
+                <p>
+                    The table below shows how long it took for a HTTP/2 client (<code>nghttp</code>) to see response
+                    and associated PUSHed resources. Time is given in seconds since connection start, so this includes
+                    all TLS handshakes and such. Client and server running on the same machine.
+                </p>
+                <p>
+                    <table>
+                        <thead>
+                            <tr>
+                            <th>Request</th><th>Directive</th><th>Promises</ht><th>103 Status</ht><th>Promised Response</ht><th>Main Response</ht>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                            <tr class="row0"><td>Local File</td><td>Header add    </td><td>0.013</td><td>   - </td><td>0.013</td><td>0.013</td></tr>
+                            <tr class="row1"><td>          </td><td>H2PushResource</td><td>0.013</td><td>0.013</td><td>0.013</td><td>0.013</td></tr>
+                            <tr class="row0"><td>Proxy File</td><td>Header add    </td><td class="mark0">0.024</td><td>   - </td><td class="mark0">0.025</td><td>0.024</td></tr>
+                            <tr class="row1"><td>          </td><td>H2PushResource</td><td class="mark1">0.013</td><td>0.013</td><td class="mark1">0.013</td><td>0.024</td></tr>
+                            <tr class="row0"><td> Local CGI</td><td>Header add    </td><td class="mark0">0.091</td><td>   - </td><td class="mark0">0.091</td><td>0.091</td></tr>
+                            <tr class="row1"><td>          </td><td>H2PushResource</td><td class="mark1">0.013</td><td>0.013</td><td class="mark1">0.013</td><td>0.091</td></tr>
+                        </tbody>
+                    </table>
+                </p>
+                <p>
+                    The red numbers are from Apache 2.4.23 and older, the green ones are from 2.4.24. As you can see, PUSHes can now
+                    happen much earlier and reach the client faster than before.
+                </p>
+                <p>
+                    There are three variations of a resource setup listed, all of which are configured to PUSH 2 local file resources. The main,
+                    requested resource is a:
+                    <ol>
+                        <li>Local File: serving a local HTML file. Here no difference in methods can be seen. It all happens so fast.</li>
+                        <li>Proxy File: using <code>mod_proxy></code> to server a file from another local server. This example is from a 
+                        warmed-up proxy connction. But still the new PUSHes happen 11 ms earlier.</li> 
+                        <li>Local CGI: serving a simple Python script via <code>mod_cgid</code>. This is a simple CGI setup without
+                        any optimizations. Here you can see improvements of 78 ms.</li> 
+                    </ol>
+                    Of course the exact improvements depend on your setup and hardware and several other things involved. Numbers
+                    are just from my development laptop without any special tweaking.
+                </p>
+                <p>
+                    What causes this difference?
+                </p>
+                <p>
+                    There are now two different methods to PUSH resources now in Apache httpd 2.4.24:
+                    <ol>
+                        <li>Header add: which uses <code>mod_headers</code> to add <code>Link:</code> headers to a response 
+                        which then triggers <code>mod_http2</code> to perform PUSHes.</li>
+                        <li>H2PushResource: a new directive in 2.4.24 (or mod-h2 v1.8.0) that triggers when a request
+                        is read and performs PUSHes and generates <code>Link:</code> headers as needed.</li>
+                    </ol>
+                    The problem with the first approach is that it needs to wait for the real response. And that takes time
+                    to compute. The second one can PUSH when a request has been parsed (and certain things like 
+                    authentication and permission check have happened). And this often is significantly earlier.
+                </p>
+                <p>
+                    The idea for this comes from Tatsuhiro Tsujikawa,
+                    maker of <a href="https://www.nghttp2.org">nghttp2</a> and is proposed by Kazohu Oku, the person behind 
+                    he <a href="https://github.com/h2o/h2o">h2o</a> server, as a new standard. They both thought about how to improve
+                    on the Link header response and Tatsuhiro came up with the idea of using an interim response. 
+                    The <a href="https://kazuho.github.io/early-hints/">draft describing this</a>
+                    has been submitted to the HTTP working group.           
+                </p>
+                <p>
+                    <code>103</code>, being in the 1xx status range, is an <em>interim</em> response, meaning it precedes
+                    the real response which is yet to come. The HTTP standard talks about it 
+                    <a href="https://tools.ietf.org/html/rfc7231#section-6.2">here</a>. You might be familiar 
+                    with the 100 status code that is often used when uploading data to a server. But a client 
+                    may receive many 1xx resposnes before the real one and is expected to parse them and ignore 
+                    them if they mean nothing to it. That is what the standard says.
+                </p>
+                <p>
+                    But implementations do not always follow the standards and also mod_http2 was guilty of not
+                    respecting this aspect correctly. No more! 1xx responses, generated by the application, are
+                    forwarded to the client on HTTP/2 connections. And not only forwarded, but if such a response
+                    carries <code>Link</code> headers, the can trigger PUSHes just as the final response does.
+                </p>
+                <p>
+                    For using Apache as a reverse proxy, this currently means:
+                    <ul>
+                        <li>HTTP/2 backends can send <code>103 Early Hints</code> at any time and trigger
+                        resource PUSHing this way. This does not need extra configuration on the frontend.</li>
+                        <li>HTTP/1.1 backends have a more difficult time. There seem to be clients and proxies
+                        involved that have trouble with such a response. Discussions are ongoing about this.</li>
+                    </ul>
+                </p>
+                
+                <p>
+                    As usual, you can also throw this into your 2.4.23 Apache with <a href="https://github.com/icing/mod_h2/releases/tag/v1.8.0">v1.8.0</a> from github.
+                </p>
+                
+
+                <p>Münster, 17.11.2016,</p>
+                
+                <p>Stefan Eissing, greenbytes GmbH</p>
+
+                <p>Copyright (C) 2016 greenbytes GmbH</p>
+                <p>Copying and distribution of this file, with or without modification,
+                are permitted in any medium without royalty provided the copyright
+                notice and this notice are preserved.  This file is offered as-is,
+                without warranty of any kind. See LICENSE for details.
+                </p>
+                
+            </section>
+            <footer>
+                <p>This project is maintained by <a href="https://github.com/icing">icing</a></p>
+                <p><small>Hosted on GitHub Pages &mdash; Theme by <a href="https://github.com/orderedlist">orderedlist</a></small></p>
+            </footer>
+        </div>
+        <script src="javascripts/scale.fix.js"></script>
+        
+    </body>
+</html>

@@ -44,6 +44,17 @@ a, a:visited {
     float: right;
 }
 
+table .row1 {
+    color: #bd8047;
+}
+table .mark0 {
+    color: #cc0000;
+}
+table .mark1 {
+    color: #00cc00;
+}
+
+
 @media only screen and (max-width: 960px) {
     body {
         border-width: 52px;
