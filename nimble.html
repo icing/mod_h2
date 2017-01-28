@@ -1,0 +1,122 @@
+<!doctype html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="chrome=1">
+        <title>nimble</title>
+                
+        <link rel="stylesheet" href="stylesheets/styles.css">
+        <link rel="stylesheet" href="stylesheets/pygment_trac.css">
+        <link rel="stylesheet" href="stylesheets/mod_h2.css">
+        <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+        <!--[if lt IE 9]>
+        <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+        <![endif]-->
+    </head>
+    <body>
+        <div class="wrapper">
+            <div class="backlogo" style="background-image: none; padding-top: 0; top: 10em;">
+            </div>
+            <header>
+                <h1>mod_h[ttp]2</h1>
+                <p>HTTP/2 for <a href="https://httpd.apache.org/download.cgi">Apache httpd</a></p>
+            </header>
+            <section>
+                <h1>
+                    <a class="anchor" href="#top" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    Nimble
+                </h1>
+                
+                <p>
+                    <blockquote>
+                        <strong>nimble</strong> • quick and light in motion, <a href="https://www.merriam-webster.com/dictionary/nimble">Merriam-Webster</a>
+                    </blockquote>
+                    
+                </p>
+                <p>
+                    Almost four weeks ago Kyriakos Zarifis wrote to the <code>dev</code> mailing list:
+                    <blockquote>
+                    "I am experimenting with contention between lower/higher priority HTTP/2 streams, and I think I am noticing that high-priority frames are not given high priority (quickly enough)"
+                    </blockquote>
+                </p>
+                <p>
+                    And he had the numbers to prove it. He configured Apache httpd to PUSH a large image when serving a page with another image. The PUSHed images was configured to have low priority.
+                </p>
+                <p>
+                    What he, correctly, expected was that the html and contained image would be served with priority, while the PUSHed one gets much less bandwidth. What he however observed was:
+                    <div class="wide">
+                    <img src="images/nimble-push-0.png">
+                    </div>
+                    The dark green indicates frame sent for a stream. The light green the time the stream was open. Surprisingly, the server sent only frames of the low priority PUSHed images and the high priority images was completely ignored during this time.
+                </p>
+                <p>
+                    Looking at the server logs on very verbose, he saw that both requests had been received by <code>mod_h2</code> and even the answer for the second was ready to be served. Only this
+                    did just not happen until the previous image was done.
+                </p>
+                <p>
+                    WTF!
+                </p>
+                <p>
+                    In my ambition to make streaming out data faster and faster I had created an addict. <code>mod_h2</code> was just so happy it had data to send, it no longer cared about anything else. Only when the data ran dry did it ever look up to see if anything else needed doing.
+                </p>
+                <p>
+                    This is very bad, as Kyriakos showed in his second test setup:
+                    <div class="wide">
+                    <img src="images/nimble-preload-0.png">
+                    </div>
+                    Here, a user opens a first page and 2.5 seconds later navigates to another. Unfortunately, it takes very long for that page to be sent, because <code>mod_h2</code> wants to send all other output first before it cares for other responses. The user needs to wait more than two seconds 
+                    after her click. Clearly unacceptable.
+                </p>
+                <p>
+                    (Side note: does this affect your setup? Well, if you serve pages with a lot of static files, probably yes. If you have Apache as proxy, probably not.)
+                </p>
+                <p>
+                    Once the problem became clear, finding a solution was easy. From release v1.8.8 and onwards, <code>mod_h2</code> checks frequently for new data and evaluates priorities, even when a lot of other things are ongoing. The page navigation now serves the next page 5-20 ms after receiving the reuqest:
+                    <div class="wide" style="margin-left: -50%; margin-right: 25%;">
+                    <img src="images/nimble-preload-1.png">
+                    </div>
+                </p>
+                <p>
+                    and in the PUSH case from above, priorites are obeyed:
+                </p>
+                <p>
+                    <div class="wide"">
+                    <img src="images/nimble-push-1.png">
+                    </div>
+                    
+                </p>
+                <p>
+                    In other news, I have now a tattoo on my forearm saying:
+                    <blockquote>"Be fast <b>and</b> nimble!".</blockquote> 
+                </p>
+                <p>
+                    Many thanks to Kyriakos Zarifis for his work. He also provided the graphics
+                    shown here. If <em>you</em> find something or have questions, talk to us 
+                    at <code>dev at httpd.apache.org</code>.
+                </p>
+                <p>
+                    As usual, you can throw this into your 2.4.25 Apache with <a href="https://github.com/icing/mod_h2/releases/tag/v1.8.11">v1.8.11</a> from github. Which also has tons of other improvements.
+                </p>
+                
+
+                <p>Münster, 28.01.2017,</p>
+                
+                <p>Stefan Eissing, greenbytes GmbH</p>
+
+                <p>Copyright (C) 2016 greenbytes GmbH</p>
+                <p>Copying and distribution of this file, with or without modification,
+                are permitted in any medium without royalty provided the copyright
+                notice and this notice are preserved.  This file is offered as-is,
+                without warranty of any kind. See LICENSE for details.
+                </p>
+                
+            </section>
+            <footer>
+                <p>This project is maintained by <a href="https://github.com/icing">icing</a></p>
+                <p><small>Hosted on GitHub Pages &mdash; Theme by <a href="https://github.com/orderedlist">orderedlist</a></small></p>
+            </footer>
+        </div>
+        <script src="javascripts/scale.fix.js"></script>
+        
+    </body>
+</html>

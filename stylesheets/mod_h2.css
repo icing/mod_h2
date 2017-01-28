@@ -54,6 +54,9 @@ table .mark1 {
     color: #00cc00;
 }
 
+div.wide {
+    margin-left: -50%;
+}
 
 @media only screen and (max-width: 960px) {
     body {
