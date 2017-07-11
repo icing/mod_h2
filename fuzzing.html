@@ -1,0 +1,127 @@
+<!doctype html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="chrome=1">
+        <title>fuzzing</title>
+                
+        <link rel="stylesheet" href="stylesheets/styles.css">
+        <link rel="stylesheet" href="stylesheets/pygment_trac.css">
+        <link rel="stylesheet" href="stylesheets/mod_h2.css">
+        <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+        <!--[if lt IE 9]>
+        <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+        <![endif]-->
+    </head>
+    <body>
+        <div class="wrapper">
+            <div class="backlogo" style="background-image: none; padding-top: 0; top: 10em;">
+            </div>
+            <header>
+                <h1>mod_h[ttp]2</h1>
+                <p>HTTP/2 for <a href="https://httpd.apache.org/download.cgi">Apache httpd</a></p>
+            </header>
+            <section>
+                <h1>
+                    <a class="anchor" href="#top" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    fuzzing
+                </h1>
+                
+                <p>
+                    <blockquote>
+                        <strong>fuzz</strong> • (verb) to fly off in or become covered with fluffy particles, <a href="https://www.merriam-webster.com/dictionary/fuzzing">Merriam-Webster</a>
+                    </blockquote>
+                    
+                </p>
+                <p>
+                    I like this description. Unfortunately, it does not apply to programming. Merriam Webster also 
+                    offers another one:
+                    <blockquote>
+                        <strong>fuzz</strong> • (verb) to become blurred</a>
+                    </blockquote>
+                </p>
+                <p>
+                    which, very simplified, in software testing means you wiggle the input bits in all
+                    known and unknown directions to make the program misbehave. An idea task for
+                    a computer to perform.
+                </p>
+
+
+                <h2>honggfuzz</h2>
+                <p>
+                    For some time <a href="http://www.swiecki.net">Robert Święcki</a> has contacted my 
+                    sporadically about his <em>fuzzing</em> the Apache httpd server. His work can be
+                    found in his <a href="https://github.com/google/honggfuzz/blob/master/examples/apache/README.md">honggfuzz</a>
+                    github repository. He was the one behind <a href="http://seclists.org/oss-sec/2017/q2/504">CVE-2017-7659</a>, for example.
+                </p>
+                <p>
+                    He is always a cheerful, positive person - although he is in direct contact with the miserable side of human
+                    programming: crashes and erratic behaviour and tears. I do not know how he does it. ;-)
+                </p>
+                <p>
+                    As to <em>Fuzzing</em> itself, it is - fittingly - not easily definable with sharp borders. The
+                    <a href="https://en.wikipedia.org/wiki/Fuzzing">Wikipedia</a> article covers a lot of it. If asked
+                    for a description, I'd quote William Gibson from his 1984 Neuromancer:
+                    <blockquote>
+                    ...ICE patterns formed and reformed on the screen as he probed for gaps, skirted the most obvious traps, and mapped the route he'd take through Sense/Net's ICE.
+                    </blockquote>
+                </p>
+                <p>
+                    where network penetrators find the <em>gaps</em> in the defense and make the system
+                    let them do unintended things, such as granting them access.
+                    <div>
+                    <img src="images/fuzzy.png">
+                    </div>
+                </p>
+    
+                <h2>h2fuzz</h2>
+                <p>
+                    The last report batch of fuzzing mod_http2 came just a couple of days <em>after</em>
+                    the 2.4.26 release (bug reports always wait for a release to be published, believe me).
+                    And I cursed and cried a bit and had therapy. And after that I said to myself "No more!"
+                    and invested some time to make Robert's setup work for me - and anybody else. The
+                    result is <a href="https://github.com/icing/h2fuzz">h2fuzz</a> which you may clone 
+                    and run yourself (pre-requisites described in the README).
+                </p>
+                <p>
+                    This allowed me to reproduce Robert's crash reports and made it easy to test a variety
+                    of fixes. What made this very satisfying is that you immediately see it working (or
+                    crashing again in new ways). Usually, nailing down race conditions and spurious crashes
+                    often left me with some residual uncertainty. But having a fuzzer run for an hour or
+                    two without finding <em>anything</em> that feels <em>good</em>!
+                </p>
+                <p>
+                    You are invited to try this yourself. Also, there are other configurations to fuzz
+                    other products. It may be useful for something you are yourself working on!
+                </p>
+                <p>
+                    If you try this on mod_http2, please use the 2.4.27 release (or at least the 1.10.7
+                    release from github). I know already about crashes in earlier versions... I am however
+                    most certain that there are still bugs waiting in there to be discovered.
+                </p>
+                <p>
+                    
+                </p>
+                
+
+                <p>Münster, 11.07.01.2017,</p>
+                
+                <p>Stefan Eissing, greenbytes GmbH</p>
+
+                <p>Copyright (C) 2017 greenbytes GmbH</p>
+                <p>Copying and distribution of this file, with or without modification,
+                are permitted in any medium without royalty provided the copyright
+                notice and this notice are preserved.  This file is offered as-is,
+                without warranty of any kind. See LICENSE for details.
+                </p>
+                
+            </section>
+            <footer>
+                <p>This project is maintained by <a href="https://github.com/icing">icing</a></p>
+                <p><small>Hosted on GitHub Pages &mdash; Theme by <a href="https://github.com/orderedlist">orderedlist</a></small></p>
+            </footer>
+        </div>
+        <script src="javascripts/scale.fix.js"></script>
+        
+    </body>
+</html>
