@@ -1,0 +1,204 @@
+<!doctype html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="chrome=1">
+        <title>h2 and pool debugging</title>
+                
+        <link rel="stylesheet" href="stylesheets/styles.css">
+        <link rel="stylesheet" href="stylesheets/pygment_trac.css">
+        <link rel="stylesheet" href="stylesheets/mod_h2.css">
+        <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+        <!--[if lt IE 9]>
+        <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+        <![endif]-->
+    </head>
+    <body>
+        <div class="wrapper">
+            <div class="backlogo" style="background-image: none; padding-top: 0; top: 10em;">
+            </div>
+            <header>
+                <h1>mod_h[ttp]2</h1>
+                <p>HTTP/2 for <a href="https://httpd.apache.org/download.cgi">Apache httpd</a></p>
+            </header>
+            <section>
+                <h1>
+                    <a class="anchor" href="#top" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    h2 and APR Pool Debugging
+                </h1>
+                
+                <p>
+                    Someone <a href="https://github.com/hannob/apache-uaf"> dumped his findings </a> about 
+                    Use After Free's in Apache httpd on the internet yesterday. I will not go into the 
+                    social, political and other soft-issues aspects of this here. 
+                </p>
+                <p>
+                    In this blog post, I want to provide technical information related to the observed
+                    issues <em> in regard to Apache httpd's HTTP/2 implementation </em>. After all, this
+                    is what this github repository is about!
+                </p>
+            </section>
+            <section>
+                <h2>
+                    The h2 Issues Reported
+                </h2>
+                <p>
+                    There are 2:
+                </p>
+                <ol>
+                    <li>The log files showed failed assertions in pthread: 
+                        <blockquote>
+                        __pthread_tpp_change_priority: Assertion `new_prio == 
+                        -1 || (new_prio &grt;= fifo_min_prio && new_prio &lt;= fifo_max_prio)' failed.
+                        </blockquote>
+                        This happened without APR pool debugging, but the issue had already been known 
+                        and fixed in Spring 2018. If you are running a current Apache 2.4.x release, no need to worry. 
+                    </li>
+                    <li>Together with APR pool debugging, the address sanitation found several use after read. Stack
+                    traces can be found in the repository linked above. I'll discuss these in detail.</li>
+                </ol>
+                
+                <h3>
+                    Types of Use After Free
+                </h3>
+                <p>
+                    The reported data dump lists a lot of stack traces for various versions of Apache httpd. 
+                    90% of those show stack traces with <code>apr_pool_walk_tree</code> as the offender. The other, 10 files,
+                    are as follows:
+<pre>
+> for f in */*; do fgrep apr_pool_walk_ $f >/dev/null || echo $f; done
+apache-2.4.29/apache-2.4.29-heap-use-after-free-h2_stream_destroy-asan-error.15581
+apache-2.4.29/apache-2.4.29-heap-use-after-free-h2_stream_destroy-asan-error.15582
+apache-2.4.29/apache-2.4.29-heap-use-after-free-h2_stream_destroy-asan-error.15908
+apache-2.4.29/apache-2.4.29-heap-use-after-free-h2_stream_destroy-asan-error.18719
+apache-2.4.33/apache-2.4.33-SEGV-impl_pollset_remove-asan-error.22791
+apache-2.4.33/apache-2.4.33-SEGV-impl_pollset_remove-asan-error.28821
+apache-2.4.33/apache-2.4.33-heap-use-after-free-add_unless_null-asan-error.6415
+apache-2.4.34/apache-2.4.34-SEGV-impl_pollset_remove-asan-error.11548
+apache-2.4.34/apache-2.4.34-SEGV-impl_pollset_remove-asan-error.17207
+apache-2.4.34/apache-2.4.34-SEGV-impl_pollset_remove-asan-error.2350
+apache-2.4.34/apache-2.4.34-heap-use-after-free-abort_socket_nonblocking-asan-error.28259
+apache-2.4.37-without-mod_h2/apache-2.4.37-heap-use-after-free-set_neg_headers-asan-error.3921
+</pre>
+                Of those 10, a single one is from the current version, e.g. 2.4.37. That one is <em>not</em>
+                related to <code>h2</code>, so I will not discuss it here.
+                </p>
+                <p>
+                    <b>Summary:</b> <em>all</em> reported <code>HTTP/2</code> related issues that can
+                    be reproduced in a current version are connected to <code>apr_pool_walk_tree</code>.
+                </p>
+
+                <h3>
+                    What is apr_pool_walk_tree()? 
+                </h3>
+                <p>
+                    <code>apr_pool_walk_tree()</code> is an internal function of the Apache Runtime (APR).
+                    The APR encapsulates OS related differences into a common API and also provides several
+                    utility functions and data structures. One of those are the memory pools.
+                </p>
+                <p>
+                    APR memory pools are good for performance since they
+                    reduce the burden on the standard/OS memory allocator. They are also convenient
+                    to use since code does not need to <code>free()</code> every piece of data. When
+                    the pool is destroyed/cleared this is done for all data of the pool.
+                </p>
+                <p>
+                    These advantages come at a price: the pools are not thread safe (per se) and
+                    reuse of the allocated memory prevents modern tools to find coding errors. One
+                    of those is 'address sanitation' which tracks allocated/free'ed memory and
+                    reports reads after free.
+                </p>
+                <p>
+                    Now, to make such analysis easier again, APR offers a compile time flag named
+                    'pool debugging' that changes the implementation of the APR memory pools. The
+                    pools will return memory to the main allocator more frequently and, in addition,
+                    it will run several analysis functions on its internal state. These check for
+                    inconsistencies, for example.
+                </p>
+                <p>
+                    One of these is <code>apr_pool_walk_tree()</code>. It traverses the different
+                    memory pools (specifically all children of the current pool) and applies a function.
+                    Mainly, these are:
+                    <ul>
+                        <li><code>pool_num_bytes</code>: sums all allocated memory nodes in a pool and all child pools.</li>
+                        <li><code>pool_find</code>: finds the memory node that contains the given address in this pool or any child pool. This is triggered when you manipulate HTTP headers via the APR functions (read: for every request and response).</li>
+                    </ul>
+                    Useful for analyzing memory problems, not helpful in production.
+                </p>
+
+                <h3>
+                    What's the beef with h2? 
+                </h3>
+                <p>
+                    Contrary to HTTP/1 h2 uses a pool hierarchy that spans several threads. That means that
+                    <code>apr_pool_walk_tree()</code> reads pool data that is concurrently being modified in
+                    another thread. No surprise that sometimes data is being read by one thread that has been free()'d
+                    by another. 
+                </p>
+                <p>
+                    Since this debug code was part of the APR long before HTTP/2 was invented, mod_http2 had three
+                    options:
+                    <ol>
+                        <li>Use locking for all pools of a connection. This would slow down parallel
+                        processing of requests and needs care to avoid dead locks.</li>
+                        <li>Break the parent/child relation between pools. This makes real memory
+                        problems harder to analyze and resource de-allocation less automated and
+                        error prone.</li>
+                        <li>Accept the conflicts and change the debug code in future APR versions to
+                        allow for multi-threaded use. Advise against h2 and pool debugging in production
+                        setups.</li>
+                    </ol>
+                </p>
+                <p>
+                    I went with the last option and here we are. Until last week, I did not know
+                    of any release/distribution that ships APR with pool debugging. Now I know
+                    that there are OpenBSD releases that have it. They have not heard of any
+                    problems, maybe because Apache and h2 is not a frequent setup for them. They
+                    prefer their own web server. They are prepared to push changes should the
+                    need arise.
+                </p>
+                <p>
+                    In the meantime, the OpenBSD, APR and httpd devs are working on creating
+                    code changes that will work for all of us.
+                </p>
+                
+                <h3>
+                    Conclusions
+                </h3>
+                <p>
+                    The reported incompatibility between mod_h2 and APR pool debugging are known and
+                    a non-issue for almost everyone. People on OpenBSD that use Apache and HTTP/2
+                    will want to check with their distribution. In doubt, disable the h2 protocol
+                    unless you get confirmation.
+                </p>
+                <p>
+                    If there is any other distribution that runs h2 and APR pool debugging in a production
+                    environment, please report to me and I will update this page. You can also report
+                    any related problems or observations at <a href="https://bz.apache.org/bugzilla/show_bug.cgi?id=63098">the 
+                    official bug report we opened for this</a> or just follow any progress there.
+                </p>
+                <p>
+                    Thanks!
+                </p>
+                
+                <p>Münster, 22.01.2019,</p>
+                
+                <p>Stefan Eissing, greenbytes GmbH</p>
+
+                <p>Copyright (C) 2019 greenbytes GmbH</p>
+                <p>Copying and distribution of this file, with or without modification,
+                are permitted in any medium without royalty provided the copyright
+                notice and this notice are preserved.  This file is offered as-is,
+                without warranty of any kind. See LICENSE for details.
+                </p>
+                
+            </section>
+            <footer>
+                <p>This project is maintained by <a href="https://github.com/icing">icing</a></p>
+                <p><small>Hosted on GitHub Pages &mdash; Theme by <a href="https://github.com/orderedlist">orderedlist</a></small></p>
+            </footer>
+        </div>
+        <script src="javascripts/scale.fix.js"></script>
+        
+    </body>
+</html>
