@@ -1,0 +1,149 @@
+<!doctype html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="chrome=1">
+        <title>h2 padding</title>
+                
+        <link rel="stylesheet" href="stylesheets/styles.css">
+        <link rel="stylesheet" href="stylesheets/pygment_trac.css">
+        <link rel="stylesheet" href="stylesheets/mod_h2.css">
+        <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+        <!--[if lt IE 9]>
+        <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+        <![endif]-->
+    </head>
+    <body>
+        <div class="wrapper">
+            <div class="backlogo" style="background-image: none; padding-top: 0; top: 10em;">
+            </div>
+            <header>
+                <h1>mod_h[ttp]2</h1>
+                <p>HTTP/2 for <a href="https://httpd.apache.org/download.cgi">Apache httpd</a></p>
+            </header>
+            <section>
+                <h1>
+                    <a class="anchor" href="#top" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    h2 padding
+                </h1>
+                
+                <p>
+                    One of the less glamorous bits of the HTTP/2 protocol is <em>padding</em>. And
+                    with v1.14.0 of <code>mod_h2</code> you can configure it. But what for? And what
+                    does it do, exactly?
+                </p>
+                <p>
+                    <a href="https://en.wikipedia.org/wiki/Padding_(cryptography)">Padding</a> is a crypto graphic
+                    technique for obscuring message lengths. 
+                </p>
+                <p>
+                    A simple example is someone sending you an answer,
+                    encrypted, of 'Yes' or 'No'. A listener, knowing it is one of the two, does not need to 
+                    decrypt the response, just look at the length of it.  With padding, one can make
+                    both answers have the same length, preventing this sort of attack.
+                </p>
+                <h3>Fixed Length Padding</h3>
+                <p>
+                    In real life, however, fixed length padding is not secure. For security purposes alone,
+                    one could make any answer from a web server 1 terra byte lone, using padding. But this
+                    is for performance and usability reasons not practical. Real life protocols have
+                    to compromise.
+                </p>
+                <p>
+                    In HTTP/2, the range for padding a packet of data - a frame - is 0-255 bytes. Padding
+                    all frames to the same length is therefore not possible. The best one could possibly
+                    do by fixed length padding is to make all small frames 256 bytes long, a bit longer
+                    ones 512, even longer ones 768, etc. Or smaller steps, for example multiples of 16.
+                    In any case, there would be a threshold of payload length, where the observable
+                    frame length switches from on number to the next. This can, again, be exploited by
+                    an attacker.
+                </p>
+                <p>
+                    Coming back to our example: if the message to secure is of the form: 
+                    <code>"Dear $USER, my answer is $ANSWER!"</code>, an attacker would just use
+                    different user names of varying length to find out when the frame length switches.
+                    By observing many messages this way, an attacker will learn which user name
+                    length will make the frame length change with the answer.
+                </p>
+                <h3>Frame Lengths in h2</h3>
+                <p>
+                    You can check the visibility of answer lengths by installing <a href="https://www.wireshark.org">wireshark</a>
+                    and looking at HTTP/2 traffic. I did this by invoking <code>curl</code> and <code>nghttp</code>
+                    from the command line against a local Apache. I was calling a simple python script that echos
+                    the request data back. When I sent 'x', the server sent back one TLS frame with 95 bytes. When
+                    sending 'xx', it sent a frame with 96 bytes. On 'xxx', it had one with 97. This happens in TLS 1.2,
+                    as well as in the new 1.3.
+                </p>
+                <p>
+                    This is not always the case. When the server has enough frames to send, it will wrap several
+                    of them into a single TLS frame. h2 frame sizes will then not be visible. But an intermediate
+                    could just delay frames send from you to the server, so the server has less to respond with
+                    and is more likely to send one h2 frame inside one TLS frame.
+                </p>
+                <h3>Random Lengths</h3>
+                <p>
+                    The way to make limited padding work is to randomize the amount of padding. Using
+                    a pseudo random number generator, each frame gets 0-N bytes of padding. The higher
+                    the N, the better protected the message lengths are. The downside is traffic
+                    overhead, of course. The quality of the random number generator plays of course
+                    also a vital role here, as well as the timing or CPU usage information leaked etc.
+                    that might give a hint how many padding bytes were used.
+                </p>
+                <p>
+                    The take away here is that padding makes messages more secure than not padding,
+                    but it is difficult to assess <em>how much</em> more secure. In case of HTTP/2,
+                    where message lengths are easily observable, adding random padding seems to
+                    be an easy improvement.
+                </p>
+                <h3>H2Padding</h3>
+                <p>
+                    The <code>mod-h2</code> configuration directive, available since v1.14.1, is
+                    <code>H2Padding</code>. It takes the form:
+                    <pre>
+H2Padding N
+                    </pre>
+                    where <code>N</code> is a number in the range 0-8. You may specify that 
+                    globally or for each virtual host. The default setting is 0 - to keep the
+                    behaviour of previous versions - for now.
+                </p>
+                <p>
+                    <code>N</code> determines the number of bits of applicable padding length. 
+                    <code>0</code> applies no padding, <code>2</code> gives 0-3 padding bytes, 
+                    8 allows the full range of 0-255.
+                </p>
+                <p>
+                    This is still an area of experimentation. I am tempted
+                    to  make the default anything else but 0. Secure by default is a good design goal.
+                    And then there is the matter of IO size restrictions (see configuration
+                    directive <code>H2TLSWarmUpSize</code>). Should they apply a limit to padding or
+                    be shredded by it? 
+                </p>
+                <p>
+                    Feedback appreciated.
+                </p>
+
+                <p>
+                    Thanks!
+                </p>
+                
+                <p>Münster, 05.03.2019,</p>
+                
+                <p>Stefan Eissing, greenbytes GmbH</p>
+
+                <p>Copyright (C) 2019 greenbytes GmbH</p>
+                <p>Copying and distribution of this file, with or without modification,
+                are permitted in any medium without royalty provided the copyright
+                notice and this notice are preserved.  This file is offered as-is,
+                without warranty of any kind. See LICENSE for details.
+                </p>
+                
+            </section>
+            <footer>
+                <p>This project is maintained by <a href="https://github.com/icing">icing</a></p>
+                <p><small>Hosted on GitHub Pages &mdash; Theme by <a href="https://github.com/orderedlist">orderedlist</a></small></p>
+            </footer>
+        </div>
+        <script src="javascripts/scale.fix.js"></script>
+        
+    </body>
+</html>
