@@ -3,7 +3,7 @@
     <head>
         <meta charset="utf-8">
         <meta http-equiv="X-UA-Compatible" content="chrome=1">
-        <title>Proxying</title>
+        <title>h2 proxying</title>
                 
         <link rel="stylesheet" href="stylesheets/styles.css">
         <link rel="stylesheet" href="stylesheets/pygment_trac.css">
@@ -24,152 +24,87 @@
             <section>
                 <h1>
                     <a class="anchor" href="#top" aria-hidden="true"><span class="octicon octicon-link"></span></a>
-                    Proxying
+                    h2 proxying
                 </h1>
                 
                 <p>
-                    So, Apache 2.4.24 is about to get tagged and tested Real Soon Now and I managed to
-                    find some time to work on proxy setups and mod_h2. Which was needed badly. The result -
-                    so far - is the shiny <a href="https://github.com/icing/mod_h2/releases/tag/v1.7.5">v1.7.5</a>
-                    which you can drop into an Apache 2.4.23.
+                    With the v1.14.x versions of mod-h2, a drastic change was applied to the <code>mod_proxy_http2</code>
+                    module. The trigger was <a hef="https://bz.apache.org/bugzilla/show_bug.cgi?id=63170">PR 63170</a>
+                    on the Apache bugzilla. This caused me to reconsider my implementation.
                 </p>
                 <p>
-                    If you still run the plain vanilla <code>mod_h2</code> that comes with Apache 2.4.23, you
-                    will get several benefits from upgrading (be it from here or via the next Apache release). I
-                    describe those in more detail below:
-                </p>
-                
-                <h2>
-                    <a id="graceful" class="anchor" href="#graceful" aria-hidden="true"><span class="octicon octicon-link"></span></a>
-                    Timeouts
-                </h2>
-                <p>
-                    Connection timeouts are only active while doing IO. When the backend is happily chewing on a request,
-                    mod_http2 will wait very patiently for it to produce something. Only when request processing reads or
-                    writes and is blocked will the timeout happen. This also means that <code>ProxyTimeout</code> is treated
-                    separately from <code>Timeout</code>, as it should be.
+                    The good news is that the inappropriate behaviour of <code>mod_proxy_http2</code> has been
+                    fixed and the changes will become part of the next Apache httpd release! So, if you ever
+                    considered running HTTP/2 between Apache and a backend, the v1.14.1 and later is a good version
+                    to use.
                 </p>
                 <p>
-                    Example: you have timely clients and set a <code>Timeout</code> of 10 seconds. So when reading DATA
-                    for requests, or sending DATA for responses is blocked for more than 10 seconds, the request fails.
-                    But in the backend, you have a slow, old application server and requests can be quite complex, so
-                    you are willing to let it chew at a response for 5 minutes, before you suspect that something is
-                    wrong. You set the <code>ProxyTimeout</code> to 300 seconds.
+                    For the more technical depth oriented: the former implementation was a bit ambitious and 
+                    overconfident. To explain that, I need to go into more detail about <code>mod_proxy</code>
+                    and siblings behaviour.
                 </p>
                 <p>
-                    Before it got fixed, such a setup was not possible, since the 10 seconds would always trigger, even
-                    while waiting on the backend to produce something. Not so now.
+                    <code>mod_proxy</code> is a handler for a request, just like file system based lookups
+                    is another one. When you define your <code>ProxyPass</code> and such configuration, you
+                    specify where the proxy module should take over. <code>mod_proxy</code> then passes the
+                    request on to the sub-module configured, usually <code>mod_proxy_http</code> or, as here,
+                    <code>mod_proxy_http2</code>.  
+                </p>
+                <p>
+                    This sub-module then makes the request to the backend server, using <em>its</em>
+                    protocol. It does not matter how the request was done on the incoming connection. Which
+                    is nice, because you can offer HTTP/2 to clients while processing responses on a backend
+                    that does not even talk HTTP/2.
+                </p>
+                <p>
+                    Since all this started with the HTTP/1.x processing in mind, the proxy modules do
+                    one request at a time, return the response and are done - until called again for
+                    another request. This fits perfectly to HTTP/1 connections. However, h2 requests
+                    can work in parallel which is generally more efficient.
+                </p>
+                <p>
+                    And this is what <code>mod_proxy_http2</code> tried to enable. It was gathering
+                    incoming requests from the client connection onto a single connection to the backend.
+                    Which can make for some nice savings on your forward facing Apache server. It could
+                    make better use of its worker threads, serving more connections in parallel.
+                </p>
+                <p>
+                    But the implementation of <code>mod_proxy_http2</code> simply was not good enough.
+                    After attempts to fix concurrency problems, PR 63170 made me realize that the 
+                    design inherently suffered from lack of flow control. Which caused unreasonably
+                    memory demands when clients turned up the heat. 
+                </p>
+                <p>
+                    So, in v1.14.0 I threw out all the super-parallel stuff and <code>mod_proxy_http2</code>
+                    is now working similar to <code>mod_proxy_http</code>. It does one request at a time
+                    on a connection, serves the complete answer, frees resources and takes the next
+                    request. 
+                </p>
+                <p>
+                    Are there still advantages to be had when using it? I think so:
+                    <ol>
+                        <li>Header compression saves quite some bytes. Remember: the h2 connection is
+                        reused. Repeated headers become very efficient to transfer.</li>
+                        <li>Aborted requests are handled more gracefully and preserve the
+                        connection. If a large request needs to be aborted (for example, as the
+                        client closed its connection or RESETs a stream), a HTTP/2 connection is 
+                        cleaned up very easily and remains usable. In HTTP/1 it would need to
+                        be either closed or all data needed reading only to throw it away.</li>
+                    </ol>
+                </p>
+                <p>
+                    Still, the previous goal of sharing a h2 backend connection for many requests
+                    in parallel is good. I am still thinking about how a new approach to this might
+                    look - taking the lessons learned into account. For now, I hope the new
+                    <code>mod_proxy_http2</code> serves you well. 
                 </p>
 
-                <h2>
-                    <a id="cgidentity" class="anchor" href="#cgidentity" aria-hidden="true"><span class="octicon octicon-link"></span></a>
-                    CGIdentity
-                </h2>
-                <p>
-                    There was a CGI related problem. To be more exact, it was <code>mod_cgid</code> related. You see, <code>mod_cgid</code>
-                    talks to a daemon and needs some kind of identifier for each CGI process it triggers (so that it can kill a process
-                    it is not happy with, for example). Since several <code>httpd</code> processes might talk to the same daemon, such
-                    an identifier needs to be unique among the whole server.
-                </p>
-                <p>
-                    Now, connections have a server-wide unique ID and since there is only one request per connection, let's use
-                    the connection id to identify our CGI request. And this works nicely for HTTP/1.1. However in HTTP/2, there are
-                    several requests per connection <em>at the same time</em>. And up till now, when two or more of them where 
-                    CGIs, <code>mod_cgid</code> assigned the same id. And maybe cancelled the wrong one. Yikes!
-                </p>
-                <p>
-                    Since this only messed
-                    up CGIs on the same connection, it's not a security risk. You cannot mess with CGIs from someone else.
-                </p>
-                <p>
-                    Happily, connection ids are of type <code>long</code>. That means on 64-bit systems, and with the way Apache
-                    generates these ids, it is possible to squeeze the HTTP/2 stream id into it and have no collisions. On 32-bit
-                    systems, though, this needs more work. And the final result is not in yet...
-                </p>
-                <p>
-                    Needless to say, mod_http2 smoke tests now include those that run 50 uploads on 2 connections each against
-                    a CGI script and check the completeness of all results.
-                </p>
                 
-                <h2>
-                    <a id="cont" class="anchor" href="#cont" aria-hidden="true"><span class="octicon octicon-link"></span></a>
-                    Expecting a 100-continue
-                </h2>
-                <p>
-                    Many clients prefer the '<code>Expect: 100-continue</code>' request header when performing uploads. This worked
-                    for simple setups, but did not do the neccessary things when acting as a HTTP proxy. It generated the 
-                    '<code>100 Continue</code>' response way too early and suppressed the header when talking to the backend server.
-                </p>
-                <p>
-                    This has been fixed now. <code>Expect</code> headers are passed to the backend and only when the backend sends
-                    the <code>100</code> will <code>mod_http2</code> send this on to the client. So, now also HTTP/2 clients can be
-                    sure that <code>100 Continue</code> means "I am willing to take in your data, please send it".
-                </p>
-
-                <h2>
-                    <a id="graceful" class="anchor" href="#graceful" aria-hidden="true"><span class="octicon octicon-link"></span></a>
-                    Graceful restarts
-                </h2>
-                <p>
-                    Graceful server restarts lead to early request terminations. Now the module knows better and will process
-                    ongoing requests to the end before shutting down the connection. And it will notify the client that it is
-                    no longer willing to accept new ones.
-                </p>
-                
-
-                <h2>
-                    <a id="h2proxyhealth" class="anchor" href="#h2proxyhealth" aria-hidden="true"><span class="octicon octicon-link"></span></a>
-                    HTTP/2 Proxy Health
-                </h2>
-                <p>
-                    When adding more and more upload tests, those also executed in the <code>mod_proxy_http2</code> setups,
-                    and - to my misery - exhibited spurious failures now and then. What was going on?
-                </p>
-                <p>
-                    A closer look (and tons of trace outputs) showed that the failed requests where all sending data to
-                    the server. <code>mod_proxy_http2</code> did send it on to the backend and when the backend failed, no
-                    one was in possession of the data any longer and the request had to fail.
-                </p>
-                <p>
-                    But why did the backend fail? Turns out, it was no real failure, but the backend was just closing its
-                    connection after a keepalive timeout expired. The Apache proxy infrastructure keeps connections around
-                    for future reuse, so <code>mod_proxy_http2</code> often gets a connection where a HTTP/2 session has
-                    already been established and used. It can fire new requests right away and everyone is happy.
-                </p>
-                <p>
-                    But when the backend closed the connection, it sends a last <code>GOAWAY</code> frame, which is sitting
-                    in the connection buffers and make the connection look fine and healthy. It is handed to <code>mod_proxy_http2</code>
-                    which immediately sends requests over it, then reads only to find that the other side has already
-                    left the party.
-                </p>
-                <p>
-                    Originally, I though to fix this by letting <code>mod_proxy_http2</code> read from a live connection
-                    first. If it finds a GOAWAY, it can chuck the connection and create a new one. But what if the GOAWAY
-                    has not yet arrived, but is alreay on its way? The change would not help here.
-                </p>
-                <p>
-                    What is implemented now is safe even in those cases: <code>mod_proxy_http2</code> will continue to
-                    send of requests right away, but will suspend sending and request DATA until it is certain that the
-                    connection is still good. This means that request processing can start without unnecessary delays,
-                    but sending DATA will have the penalty of 1 RTT - if the connection was "old", e.g. did not receive
-                    frames for more than a second. 
-                    This seems quite ok, because RTT to backends is usually small and on busy servers, where backend
-                    connections stay busy, no delays are necessary.  
-                </p>
-                
-                <p>
-                </p>
-                <p>
-                    Hope to have a new Apache release by the end of the month. If you cannot wait, grab the lastest
-                    HTTP/2 support here. And let me know how it worked for you!
-                </p>
-                
-
-                <p>Münster, 18.10.2016,</p>
+                <p>Münster, 15.03.2019,</p>
                 
                 <p>Stefan Eissing, greenbytes GmbH</p>
 
-                <p>Copyright (C) 2016 greenbytes GmbH</p>
+                <p>Copyright (C) 2019 greenbytes GmbH</p>
                 <p>Copying and distribution of this file, with or without modification,
                 are permitted in any medium without royalty provided the copyright
                 notice and this notice are preserved.  This file is offered as-is,
