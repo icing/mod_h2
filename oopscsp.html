@@ -1,0 +1,292 @@
+<!doctype html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="chrome=1">
+        <title>Oopscsp</title>
+                
+        <link rel="stylesheet" href="stylesheets/styles.css">
+        <link rel="stylesheet" href="stylesheets/pygment_trac.css">
+        <link rel="stylesheet" href="stylesheets/mod_h2.css">
+        <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+        <!--[if lt IE 9]>
+        <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+        <![endif]-->
+    </head>
+    <body>
+        <div class="wrapper">
+            <div class="backlogo" style="background-image: none; padding-top: 0; top: 10em;">
+            </div>
+            <header>
+                <h1>Network Mods</h1>
+                <p>Modules in <a href="https://httpd.apache.org/download.cgi">Apache httpd</a></p>
+            </header>
+            <section>
+                <h1>
+                    <a class="anchor" href="#top" aria-hidden="true"><span class="octicon octicon-link"></span></a>
+                    Oopscsp!
+                </h1>
+                
+                <p>
+                    There are bugs and there are bugs. Most are just annoying or tedious to analyze. 
+                    Sometimes, however, you can learn something new.
+                </p>
+                <p>
+                    This particular bug was in the Akamai CDN caching infrastructure. In particular, the part
+                    handing out OCSP responses (disclaimer: I do not know if it was restricted to this)
+                    for a variety of Certificate Authorities, such as 
+                    Let's Encrypt (<a href="https://bugzilla.mozilla.org/show_bug.cgi?id=1576789">their bug report</a>).
+                </p>
+                
+                <h3>What happened?</h3>
+                <p>
+                    I had implemented a new <a href="https://en.wikipedia.org/wiki/OCSP_stapling">OCSP Stapling</a>
+                    as part of <a href="https://github.com/icing/mod_md">Apache's domain management module</a>. I
+                    test that with a local <a href="https://github.com/letsencrypt/boulder">boulder</a> installation.
+                    Which is the server Let's Encrypt runs, so it's very much as close to the real thing as
+                    you can get. Or so I thought.
+                </p>
+                <p>
+                    However, before I shipped the new feature, I deployed it on <a href="https://eissing.org">my site</a>.
+                    I was reasonably sure that it would work, since it uses <a href="https://curl.haxx.se">curl</a>
+                    as library for its communication. This weathered and well maintained piece of software
+                    is invaluable.
+                </p>
+                <p>
+                    The module started up, saw that it needed an OCSP response from <code>http://ocsp.int-x3.letsencrypt.org</code>,
+                    constructed the request data and <code>POST</code>ed it. It got a proper OCSP response back,
+                    openssl parsed it fine. But when asked about the certificate status report in it, openssl
+                    waved its hand and said "These aren't the status responses you are looking for!".
+                </p>
+                <p>
+                    Since I program in <code>C</code>, <a href="https://twitter.com/Lukasaoz/status/1159428352417161217">well 
+                    know for its memory corruption capabilities</a>, I looked at mistakes in my code first. That part looked
+                    all right, so I made hex dumps of the responses (yes, you still need to be able to do 
+                    that in programming) and saw that the response was a OCSP validation which reported the
+                    certificate to be in <code>GOOD</code> status. But it was for another certificate! 
+                </p>
+                <p>
+                    What?
+                </p>
+                <p>
+                    Ok, eliminate the impossible, Watson! I saved the request data constructed by my module and
+                    send the request using the <a href="https://curl.haxx.se">curl</a> (did I mention how fantastic
+                    this thing is?) command line version:
+<pre>
+&gt; curl -H 'Content-Type: application/ocsp-request' --data-binary @request.bin http://ocsp.int-x3.letsencrypt.org
+</pre>
+                    And it gave me a <a href="https://www.youtube.com/watch?v=JmpbaiTuM1Q">another response. 
+                    A better response!</a> The correct response!
+                </p>
+                <p>
+                    Back to my code. More logging statements. Did not find the mistake. Still got wrong
+                    answers. "Well, it was a long day - maybe I see it tomorrow", I thought.
+                </p>
+                <p>
+                    Checking the server again on the next day, I saw that it received the correct answer
+                    sometimes during the night (it keeps on trying as it is designed to)! Yay! 
+                    But throwing away the cached one, it tried again and...got a wrong answer again, 
+                    just like the day before.
+                </p>
+                <p>
+                    Testing the curl command line: it still retrieves the correct answer, all the time.
+                </p>
+                <p>
+                    Ok, time to go deeper, raising log levels to the extreme. Recording everything
+                    my module and libcurl does. The request from my module:
+<pre>
+POST / HTTP/1.1
+Host: ocsp.int-x3.letsencrypt.org
+User-Agent: Apache/mod_md
+Accept: */*
+Expect: 100-continue
+Content-Type: application/ocsp-request
+Content-Length: 85
+
+HTTP/1.1 100 Continue
+Cache-Control: max-age=1
+Expires: Tue, 20 Aug 2019 13:43:58 GMT
+
+HTTP/1.1 200 OK
+Content-Type: application/ocsp-response
+Content-Length: 527
+...
+</pre>
+                        and from the command line:
+<pre>
+POST / HTTP/1.1
+Host: ocsp.int-x3.letsencrypt.org
+User-Agent: curl/7.54.0
+Accept: */*
+Content-Type: application/ocsp-request
+Content-Length: 85
+
+HTTP/1.1 200 OK
+Content-Type: application/ocsp-response
+Content-Length: 527
+...
+</pre>
+                    Reproducing the first version in the command line via
+<pre>
+&gt; curl -H 'Expect: 100-continue' -H 'Content-Type: application/ocsp-request' --data-binary @request.bin http://ocsp.int-x3.letsencrypt.org
+</pre>
+                    confirmed: the wrong response came back for the <code>100-continue</code> variant.
+                    in the command line as well. No bug in my module. I suppressed <code>100-continue</code>
+                    in the module and the correct response was received and validated. Everyone
+                    was happy.
+                </p>
+                <p>
+                    Oops.
+                </p>
+                <h3>Reporting In</h3>
+                <p>
+                    I contacted <a href="https://binaryparadox.net">@cpu</a> at Let's Encrypt to tell
+                    him that their responders are acting a bit weird and gave him the data to reproduce.
+                </p>
+                <p>
+                    But he could not reproduce.
+                </p>
+                <p>
+                    I still could.
+                </p>
+                <p>
+                    Hmm.
+                </p>
+                <p>
+                    He then escalated this to their Akamai contacts, as Akamai was fronting their 
+                    OCSP responder. What IP addresses was I seeing? etc.
+                </p>
+                <p>
+                    A few hours later I was informed that the bug has been reproduced at Akamai and
+                    if I would keep this to myself until a fix was rolled out? Sure, not
+                    a problem.
+                </p>
+                <p>
+                    The rollout has been done, so I feel free to speculate about what happened.
+                </p>
+
+                <h3>POST Analysis</h3>
+                <p>
+                    The most peculiar thing about this bug is that a valid response was returned.
+                    Usually when something goes wrong, you get a garbled response, or an incomplete
+                    one or the connection just dies or the server catches fire. But not here,
+                    everything behaved as <em>if no one had noticed something wrong</em>.
+                </p>
+                <p>
+                    The fact that the wrong, valid responses were all different and varied
+                    in <code>Last-Modified</code> and <code>ETag</code> data, leads me to believe
+                    that I was seeing the responses to <em>requests from other clients</em>.
+                </p>
+                <p>
+                    The fact that sometime during the night, probably during low traffic hours,
+                    my module got the <em>correct response once</em>, makes it very likely
+                    that the response to my request was delivered, but <em>mostly to
+                    others</em>. 
+                </p>
+                <h4>Ordering Food</h4>
+                <p>
+                    Caveat: the following is pure speculation on my part.
+                </p>
+                <p>
+                    Imagine a restaurant where you order a meal at the counter and then
+                    stand in line at the dispenser where the trays with food are handed 
+                    out. Every customer takes her tray and leaves. Since the trays are
+                    produced in the sequence ordered, everything is fine.
+                </p>
+                <p>
+                    Now, a customer comes in and places an order to a meal that produces
+                    2 trays. No one has done this before. But it's a meal on the menu, nothing
+                    wrong with that.
+                </p>
+                <p>
+                    So, this special customer stands in line as well, and gets handed his
+                    tray. He <em>steps away</em>, realizes it's only one tray of two, and
+                    queues again at the dispenser to retrieve the other.
+                </p>
+                <p>
+                    This is fine <em>as long as he is the only customer</em> at the time. Imagine
+                    there being two. Customer 2 will get the other tray of customer 1.
+                    And customer 1 will get the tray of customer 2 as his second.
+                </p>
+                <p>
+                    It there are 10 people in the dispenser queue behind our special customer,
+                    they <em>will all get the wrong tray</em>.
+                </p>
+                <p>
+                    Now replace "tray" with "http/1.1 response" and it describes - <em>what I guess</em>
+                     - was going wrong at the OCSP responder.
+                </p>
+                <p>
+                    Side note: <code>HTTP/2</code> is preferable on 
+                    server-to-server communications. <code>HTTP/2</code>
+                    would place numbers on orders and trays, so customers know which one to pick up.
+                    End side note.
+                </p>
+                <h4>Security Impact</h4>
+                <p>
+                    This could have been very annoying for people all over the world. 
+                    Worst case scenario probably would be to ship this in Apache for
+                    various distributions and many people start using it at about the same time
+                    from different places, retrying and retrying.
+                </p>
+                
+                <h3>Lessons</h3>
+                <p>
+                    What can we learn from this? Besides the obvious things such as testing,
+                    variety in implementations and careful and responsive handling of security
+                    issues (props to LE and Akamai for handling this very professionally).
+                </p>
+                <p>
+                    First, personally, it was fun to be on the other side of a security incident for once.
+                    Very relaxing. 
+                </p>
+                <p>
+                    Second, when you are using CDNs for you services - and this holds true for all
+                    of them, Akamai, Cloudflare, Fastly, Amazon, Azure etc. - you need to add
+                    geo-location to your test dimensions. 
+                </p>
+                <p>
+                    If I had been a developer in California, I <em>would not have found this bug</em>. I
+                    would have shipped my module in Apache and all US users would have been
+                    happy.
+                </p>
+                <p>
+                    Third, there is no bug bounty for any of this. I am old-skooling this for
+                    the greater good, earning a little fame with this blog, maybe. That's it.
+                </p>
+                <p>
+                    And it worked this time and is ok. But I believe infrastructure companies, as CDNs are, 
+                    should offer a bug bounty program. It would make everyone more safe. Amen.
+                </p>
+                <p>
+                    Fourth, I believe there are still many bugs of this kind in the world. Mistakes 
+                    in coding are made everywhere. Some lead to crashes or user-after-frees and 
+                    for those there are excellent tools nowadays to find them. It's just a 
+                    matter of invested CPU cycles.
+                </p>
+                <p>
+                    For bugs such as this one, there is no automated search. A fuzzer
+                    does not verify that the OCSP response matches the fuzzed 
+                    request data. Nor was there any drop in responsiveness or peaks in 
+                    CPU/memory usage to be observed.
+                </p>
+                <p>
+                    These bugs will mostly remain hidden, unless computers become way smarter. 
+                </p>
+                
+                <p>Münster, 28.08.2019,</p>
+                
+                <p>Stefan Eissing</p>
+
+                <p>Copyright (C) 2019 Stefan Eissing</p>
+                
+            </section>
+            <footer>
+                <p>This project is maintained by <a href="https://github.com/icing">icing</a></p>
+                <p><small>Hosted on GitHub Pages &mdash; Theme by <a href="https://github.com/orderedlist">orderedlist</a></small></p>
+            </footer>
+        </div>
+        <script src="javascripts/scale.fix.js"></script>
+        
+    </body>
+</html>

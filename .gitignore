@@ -5,6 +5,7 @@ sandbox/test/conf/sites/mod-h2.greenbytes.de.conf
 *.slo
 *.lo
 *.la
+*.bak
 *.pcap
 .libs
 .configured
@@ -33,3 +34,4 @@ Makefile
 mod_h2-*.tar.gz
 mod_http2-*.tar.gz
 m4
+test/e2e/__pycache__
