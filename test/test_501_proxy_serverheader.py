@@ -18,7 +18,7 @@ class TestStore:
     def teardown_method(self, method):
         print("teardown_method: %s" % method.__name__)
 
-    def test_500_01(self, env):
+    def test_501_01(self, env):
         url = env.mkurl("https", "cgi", "/proxy/hello.py")
         r = env.curl_get(url, 5)
         assert 200 == r.response["status"]
