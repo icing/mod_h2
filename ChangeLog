@@ -1,3 +1,5 @@
+v1.15.25
+--------------------------------------------------------------------------------
  * A regression in v1.15.24 was fixed that could lead to httpd child
    processes not being terminated on a graceful reload or when reaching
    MaxConnectionsPerChild. When unprocessed h2 requests were queued at
