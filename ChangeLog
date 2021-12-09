@@ -1,4 +1,4 @@
-v1.15.26
+v1.15.27
 --------------------------------------------------------------------------------
  * When reaching server limits, such as MaxRequestsPerChild, the HTTP/2 connection
    send a GOAWAY frame much too early on new connections, leading to invalid
@@ -7,6 +7,8 @@ v1.15.26
    The module now initializes the HTTP/2 protocol correctly and allows the
    client to submit one request before the shutdown via a GOAWAY frame
    is being announced.
+
+v1.15.26 tagged wrong
 
 v1.15.25
 --------------------------------------------------------------------------------
