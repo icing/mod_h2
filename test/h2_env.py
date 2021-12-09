@@ -459,6 +459,7 @@ class H2TestEnv:
                     'AH01630',
                     'AH00135',
                     'AH02261',  # Re-negotiation handshake failed (our test_101
+                    'AH03490',  # scoreboard full, may happen in test against limits
                 ]:
                     # we know these happen normally in our tests
                     continue
