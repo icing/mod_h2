@@ -1,3 +1,4 @@
+ * Fix possible beam bucket double free from session destroy. [ylavic]
  * When a h2 request carries a ':scheme' pseudoheader, it gives a 400
    response if the scheme does not match the connection. Fixes #230.
 
