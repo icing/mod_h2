@@ -72,9 +72,7 @@ class HttpdTestSetup:
         self._source_dirs.append(source_dir)
 
     def add_modules(self, modules: List[str]):
-        for m in modules:
-            if m not in self._modules:
-                self._modules.append(m)
+        self._modules.extend(modules)
 
     def make(self):
         self._make_dirs()
@@ -122,11 +120,17 @@ class HttpdTestSetup:
             fd.write(t.substitute(var_map))
 
     def _make_modules_conf(self):
+        loaded = set()
         modules_conf = os.path.join(self.env.server_dir, 'conf/modules.conf')
         with open(modules_conf, 'w') as fd:
             # issue load directives for all modules we want that are shared
             missing_mods = list()
             for m in self._modules:
+                match = re.match(r'^mod_(.+)$', m)
+                if match:
+                    m = match.group(1)
+                if m in loaded:
+                    continue
                 mod_path = os.path.join(self.env.libexec_dir, f"mod_{m}.so")
                 if os.path.isfile(mod_path):
                     fd.write(f"LoadModule {m}_module   \"{mod_path}\"\n")
@@ -134,6 +138,7 @@ class HttpdTestSetup:
                     fd.write(f"#built static: LoadModule {m}_module   \"{mod_path}\"\n")
                 else:
                     missing_mods.append(m)
+                loaded.add(m)
         if len(missing_mods) > 0:
             raise Exception(f"Unable to find modules: {missing_mods} "
                             f"DSOs: {self.env.dso_modules}")
@@ -162,7 +167,7 @@ class HttpdTestEnv:
 
     @classmethod
     def get_ssl_module(cls):
-        return os.environ['SSL'] if 'SSL' in os.environ else 'ssl'
+        return os.environ['SSL'] if 'SSL' in os.environ else 'mod_ssl'
 
     def __init__(self, pytestconfig=None):
         self._our_dir = os.path.dirname(inspect.getfile(Dummy))
@@ -177,7 +182,11 @@ class HttpdTestEnv:
 
         self._curl = self.config.get('global', 'curl_bin')
         self._nghttp = self.config.get('global', 'nghttp')
+        if self._nghttp is None:
+            self._nghttp = 'nghttp'
         self._h2load = self.config.get('global', 'h2load')
+        if self._h2load is None:
+            self._h2load = 'h2load'
 
         self._http_port = int(self.config.get('test', 'http_port'))
         self._https_port = int(self.config.get('test', 'https_port'))
@@ -377,6 +386,19 @@ class HttpdTestEnv:
     def has_h2load(self):
         return self._h2load != ""
 
+    def h2load_is_at_least(self, minv):
+        if not self.has_h2load():
+            return False
+        p = subprocess.run([self._h2load, '--version'], capture_output=True, text=True)
+        if p.returncode != 0:
+            return False
+        s = p.stdout.strip()
+        m = re.match(r'h2load nghttp2/(\S+)', s)
+        if m:
+            hv = self._versiontuple(m.group(1))
+            return hv >= self._versiontuple(minv)
+        return False
+
     def has_nghttp(self):
         return self._nghttp != ""
 
@@ -548,7 +570,7 @@ class HttpdTestEnv:
         if not isinstance(urls, list):
             urls = [urls]
         u = urlparse(urls[0])
-        assert u.hostname, f"hostname not in url: {urls[0]}"
+        #assert u.hostname, f"hostname not in url: {urls[0]}"
         headerfile = f"{self.gen_dir}/curl.headers.{self._curl_headerfiles_n}"
         self._curl_headerfiles_n += 1
 
@@ -561,12 +583,12 @@ class HttpdTestEnv:
             args.append('--insecure')
         elif options and "--cacert" in options:
             pass
-        else:
+        elif u.hostname:
             ca_pem = self.get_ca_pem_file(u.hostname)
             if ca_pem:
                 args.extend(["--cacert", ca_pem])
 
-        if force_resolve and u.hostname != 'localhost' \
+        if force_resolve and u.hostname and u.hostname != 'localhost' \
                 and u.hostname != self._httpd_addr \
                 and not re.match(r'^(\d+|\[|:).*', u.hostname):
             assert u.port, f"port not in url: {urls[0]}"
@@ -610,9 +632,6 @@ class HttpdTestEnv:
 
     def curl_raw(self, urls, timeout=10, options=None, insecure=False,
                  force_resolve=True):
-        xopt = ['-vvvv']
-        if options:
-            xopt.extend(options)
         args, headerfile = self.curl_complete_args(
             urls=urls, timeout=timeout, options=options, insecure=insecure,
             force_resolve=force_resolve)

@@ -17,7 +17,7 @@ class H2TestSetup(HttpdTestSetup):
     def __init__(self, env: 'HttpdTestEnv'):
         super().__init__(env=env)
         self.add_source_dir(os.path.dirname(inspect.getfile(H2TestSetup)))
-        self.add_modules(["http2", "proxy_http2", "cgid", "autoindex"])
+        self.add_modules(["http2", "proxy_http2", "cgid", "autoindex", "ssl"])
 
     def make(self):
         super().make()
@@ -64,7 +64,7 @@ class H2TestEnv(HttpdTestEnv):
                              "H2MaxWorkers 64",
                              "Protocols h2 http/1.1 h2c",
                          ])
-        self.add_httpd_log_modules(["http2", "proxy_http2", "h2test"])
+        self.add_httpd_log_modules(["http2", "proxy_http2", "h2test", "proxy", "proxy_http"])
         self.add_cert_specs([
             CertificateSpec(domains=[
                 f"push.{self._http_tld}",
@@ -86,11 +86,16 @@ class H2TestEnv(HttpdTestEnv):
             'AH00135',
             'AH02261',  # Re-negotiation handshake failed (our test_101)
             'AH03490',  # scoreboard full, happens on limit tests
+            'AH02429',  # invalid chars in response header names, see test_h2_200
+            'AH02430',  # invalid chars in response header values, see test_h2_200
+            'AH10373',  # SSL errors on uncompleted handshakes, see test_h2_105
         ])
         self.httpd_error_log.add_ignored_patterns([
             re.compile(r'.*malformed header from script \'hecho.py\': Bad header: x.*'),
             re.compile(r'.*:tls_post_process_client_hello:.*'),
             re.compile(r'.*:tls_process_client_certificate:.*'),
+            re.compile(r'.*have incompatible TLS configurations.'),
+            re.compile(r'.*SSL Library Error: error:0A0000C[17]:.*'),
         ])
 
     def setup_httpd(self, setup: HttpdTestSetup = None):
@@ -107,8 +112,11 @@ class H2Conf(HttpdConf):
             ]
         }))
 
-    def start_vhost(self, domains, port=None, doc_root="htdocs", with_ssl=None):
-        super().start_vhost(domains=domains, port=port, doc_root=doc_root, with_ssl=with_ssl)
+    def start_vhost(self, domains, port=None, doc_root="htdocs", with_ssl=None,
+                    ssl_module=None, with_certificates=None):
+        super().start_vhost(domains=domains, port=port, doc_root=doc_root,
+                            with_ssl=with_ssl, ssl_module=ssl_module,
+                            with_certificates=with_certificates)
         if f"noh2.{self.env.http_tld}" in domains:
             protos = ["http/1.1"]
         elif port == self.env.https_port or with_ssl is True:

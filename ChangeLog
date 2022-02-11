@@ -1,6 +1,9 @@
+ * :scheme pseudo-header values, not matching the
+   connection scheme, are forwarded via absolute uris to the
+   http protocol processing to preserve semantics of the request.
+   Checks on combinations of pseudo-headers values/absence
+   have been added as described in RFC 7540. Fixes #230.
  * Fix possible beam bucket double free from session destroy. [ylavic]
- * When a h2 request carries a ':scheme' pseudoheader, it gives a 400
-   response if the scheme does not match the connection. Fixes #230.
 
 v2.0.2
 --------------------------------------------------------------------------------
