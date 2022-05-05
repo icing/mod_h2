@@ -7,7 +7,7 @@ import sys
 import time
 from datetime import timedelta, datetime
 from threading import Thread
-from typing import Dict, Tuple, Optional, List, Iterable
+from typing import Dict, Tuple, Optional, List, Iterable, Any
 
 from tqdm import tqdm
 
@@ -52,7 +52,7 @@ class H2LoadLogSummary:
         mean_duration = statistics.mean(durations)
         return H2LoadLogSummary(title=title, total=count, stati=stati,
                                 duration=duration, all_durations=all_durations,
-                                mean_duration=mean_duration)
+                                mean_duration=timedelta(seconds=mean_duration))
 
     def __init__(self, title: str, total: int, stati: Dict[int, int],
                  duration: timedelta, all_durations: timedelta,
@@ -80,7 +80,7 @@ class H2LoadLogSummary:
         return self._duration
 
     @property
-    def mean_duration_ms(self) -> float:
+    def mean_duration_ms(self) -> timedelta:
         return self._mean_duration / 1000.0
 
     @property
@@ -180,6 +180,7 @@ class H2LoadMonitor:
                             lines = lines[:-1]
                         else:
                             latest_data = None
+                        time.sleep(0.1)  # lets not do this too often
                         self._tqdm.update(n=len(lines))
                         if latest_data is None:
                             latest_data = fd.read()
@@ -199,7 +200,18 @@ def mk_text_file(fpath: str, lines: int):
             fd.write("\n")
 
 
+def get_prop(props, key, defval):
+    return props[key] if key in props else defval
+
+
 class LoadTestCase:
+
+    def __init__(self, env: H2TestEnv, props: Dict[str, Any]):
+        self.env = env
+        self.start_servers = get_prop(props, 'start_servers', 4)
+        self.dynamic_servers = get_prop(props, 'dynamic_servers', True)
+        self.h2_workers_min = get_prop(props, 'h2_workers_min', None)
+        self.h2_workers_max = get_prop(props, 'h2_workers_max', None)
 
     @staticmethod
     def from_scenario(scenario: Dict, env: H2TestEnv) -> 'UrlsLoadTest':
@@ -214,64 +226,69 @@ class LoadTestCase:
     def shutdown(self):
         raise NotImplemented
 
-    @staticmethod
-    def setup_base_conf(env: H2TestEnv, worker_count: int = 5000, extras=None) -> H2Conf:
-        conf = H2Conf(env=env, extras=extras)
-        # ylavic's formula
-        process_count = int(max(10, min(100, int(worker_count / 100))))
-        thread_count = int(max(25, int(worker_count / process_count)))
-        conf.add(f"""
-        StartServers             1
-        ServerLimit              {int(process_count * 2.5)}
-        ThreadLimit              {thread_count}
-        ThreadsPerChild          {thread_count}
-        MinSpareThreads          {thread_count}
-        MaxSpareThreads          {int(worker_count / 2)}
-        MaxRequestWorkers        {worker_count}
-        MaxConnectionsPerChild   0
-        KeepAliveTimeout         60
-        MaxKeepAliveRequests     0
-                """)
+    def setup_base_conf(self, worker_count: int = 1000,
+                        extras=None) -> H2Conf:
+        conf = H2Conf(env=self.env, extras=extras)
+        if self.dynamic_servers:
+            # ylavic's formula
+            process_count = int(max(10, min(100, int(worker_count / 100))))
+            server_limit = int(process_count * 2.5)
+            thread_count = int(max(25, int(worker_count / process_count)))
+        else:
+            server_limit = self.start_servers
+            thread_count = int(max(25, int(worker_count / self.start_servers)))
+        conf.add([
+            f"StartServers             {self.start_servers}",
+            # this seems to run into problems for higher values of start_servers.
+            # let the mpm decide for itself...
+            #f"ServerLimit              {server_limit}",
+            #f"ThreadLimit              {thread_count}",
+            #f"ThreadsPerChild          {thread_count}",
+            #f"MinSpareThreads          {thread_count}",
+            #f"MaxSpareThreads          {int(worker_count / 2)}",
+            #f"MaxRequestWorkers        {worker_count}",
+            f"MaxConnectionsPerChild   0",
+            f"KeepAliveTimeout         60",
+            f"MaxKeepAliveRequests     0",
+        ])
+        if self.h2_workers_min is not None:
+            conf.add(f"H2MinWorkers {self.h2_workers_min}")
+        if self.h2_workers_max is not None:
+            conf.add(f"H2MaxWorkers {self.h2_workers_max}")
         return conf
 
-    @staticmethod
-    def start_server(env: H2TestEnv, cd: timedelta = None):
+    def start_server(self, cd: timedelta = None):
         if cd:
             with tqdm(desc="connection cooldown", total=int(cd.total_seconds()), unit="s", leave=False) as t:
                 end = datetime.now() + cd
                 while datetime.now() < end:
                     time.sleep(1)
                     t.update()
-        assert env.apache_restart() == 0
+        assert self.env.apache_restart() == 0
 
-    @staticmethod
-    def server_setup(env: H2TestEnv, extras: Dict = None):
-        if not extras:
-            extras = {
-                'base': """
-            LogLevel ssl:warn
-            Protocols h2 http/1.1
-            H2MinWorkers 32
-            H2MaxWorkers 256
-                    """
-            }
-            extras['base'] += f"""
-            ProxyPreserveHost on
-            SSLProxyVerify require
-            SSLProxyCACertificateFile {env.ca.cert_file}
-            <Proxy https://127.0.0.1:{env.https_port}/>
-                SSLProxyEngine on
-            </Proxy>
-            <Proxy h2://127.0.0.1:{env.https_port}/>
-                SSLProxyEngine on
-            </Proxy>
-            """
-            extras[f"test1.{env.http_tld}"] = f"""
-            Protocols h2 http/1.1
-            ProxyPass /proxy-h1/ https://127.0.0.1:{env.https_port}/
-            ProxyPass /proxy-h2/ h2://127.0.0.1:{env.https_port}/
-            """
-        conf = LoadTestCase.setup_base_conf(env=env, extras=extras)
+    def server_setup(self):
+        extras = {
+            'base': [
+                "LogLevel ssl:warn",
+                "Protocols h2 http/1.1",
+                "",
+                "ProxyPreserveHost on",
+                "SSLProxyVerify require",
+                f"SSLProxyCACertificateFile {self.env.ca.cert_file}",
+                f"<Proxy https://127.0.0.1:{self.env.https_port}/>",
+                "    SSLProxyEngine on",
+                "</Proxy>",
+                f"<Proxy h2://127.0.0.1:{self.env.https_port}/>",
+                "    SSLProxyEngine on",
+                "</Proxy>",
+            ],
+            f"test1.{self.env.http_tld}": [
+                "Protocols h2 http/1.1",
+                f"ProxyPass /proxy-h1/ https://127.0.0.1:{self.env.https_port}/",
+                f"ProxyPass /proxy-h2/ h2://127.0.0.1:{self.env.https_port}/",
+            ],
+        }
+        conf = self.setup_base_conf(extras=extras)
         conf.add_vhost_test1()
         conf.install()
 
@@ -280,50 +297,29 @@ class UrlsLoadTest(LoadTestCase):
 
     SETUP_DONE = False
 
-    def __init__(self, env: H2TestEnv, location: str,
-                 clients: int, requests: int,
-                 file_count: int,
-                 file_sizes: List[int],
-                 measure: str,
-                 protocol: str = 'h2',
-                 max_parallel: int = 1,
-                 threads: int = None, warmup: bool = False):
-        self.env = env
-        self._location = location
-        self._clients = clients
-        self._measure = measure
-        self._requests = requests
-        self._file_count = file_count
-        self._file_sizes = file_sizes
-        self._protocol = protocol
-        self._max_parallel = max_parallel
-        self._threads = threads if threads is not None else min(2, self._clients)
+    def __init__(self, env: H2TestEnv, props: Dict[str, Any]):
+        super().__init__(env=env, props=props)
+        self._location = props['location']
+        self._clients = props['clients']
+        self._measure = props['measure']
+        self._requests = props['requests']
+        self._file_count = props['file_count']
+        self._file_sizes = props['file_sizes']
+        self._protocol = get_prop(props, 'protocol', 'h2')
+        self._max_parallel = get_prop(props, 'max_parallel', 1)
+        self._threads = get_prop(props, 'threads', self._clients)
+        self._warmup = get_prop(props, 'warmup', False)
         self._url_file = "{gen_dir}/h2load-urls.txt".format(gen_dir=self.env.gen_dir)
-        self._warmup = warmup
 
     @staticmethod
     def from_scenario(scenario: Dict, env: H2TestEnv) -> 'UrlsLoadTest':
-        return UrlsLoadTest(
-            env=env,
-            location=scenario['location'],
-            clients=scenario['clients'], requests=scenario['requests'],
-            file_sizes=scenario['file_sizes'], file_count=scenario['file_count'],
-            protocol=scenario['protocol'], max_parallel=scenario['max_parallel'],
-            warmup=scenario['warmup'], measure=scenario['measure']
-        )
+        return UrlsLoadTest(env=env, props=scenario)
 
     def next_scenario(self, scenario: Dict) -> 'UrlsLoadTest':
-        return UrlsLoadTest(
-            env=self.env,
-            location=scenario['location'],
-            clients=scenario['clients'], requests=scenario['requests'],
-            file_sizes=scenario['file_sizes'], file_count=scenario['file_count'],
-            protocol=scenario['protocol'], max_parallel=scenario['max_parallel'],
-            warmup=scenario['warmup'], measure=scenario['measure']
-        )
+        return UrlsLoadTest(env=self.env, props=scenario)
 
-    def _setup(self, cls, extras: Dict = None):
-        LoadTestCase.server_setup(env=self.env, extras=extras)
+    def _setup(self):
+        self.server_setup()
         docs_a = os.path.join(self.env.server_docs_dir, "test1")
         uris = []
         for i in range(self._file_count):
@@ -338,7 +334,7 @@ class UrlsLoadTest(LoadTestCase):
         with open(self._url_file, 'w') as fd:
             fd.write("\n".join(uris))
             fd.write("\n")
-        self.start_server(env=self.env)
+        self.start_server()
 
     def _teardown(self):
         # we shutdown apache at program exit
@@ -386,7 +382,7 @@ class UrlsLoadTest(LoadTestCase):
                 monitor.stop()
 
     def run(self) -> H2LoadLogSummary:
-        path = self._setup(self.__class__)
+        path = self._setup()
         try:
             if self._warmup:
                 self.run_test(mode="warmup", path=path)
@@ -414,38 +410,26 @@ class StressTest(LoadTestCase):
 
     SETUP_DONE = False
 
-    def __init__(self, env: H2TestEnv, location: str,
-                 clients: int, requests: int, file_count: int,
-                 file_sizes: List[int],
-                 protocol: str = 'h2',
-                 max_parallel: int = 1,
-                 cooldown: timedelta = None,
-                 threads: int = None, ):
-        self.env = env
-        self._location = location
-        self._clients = clients
-        self._requests = requests
-        self._file_count = file_count
-        self._file_sizes = file_sizes
-        self._protocol = protocol
-        self._max_parallel = max_parallel
-        self._cooldown = cooldown if cooldown else timedelta(seconds=0)
-        self._threads = threads if threads is not None else min(2, self._clients)
+    def __init__(self, env: H2TestEnv, props: Dict[str, Any]):
+        super().__init__(env=env, props=props)
+        self._location = props['location']
+        self._clients = props['clients']
+        self._measure = props['measure']
+        self._requests = props['requests']
+        self._file_count = props['file_count']
+        self._file_sizes = props['file_sizes']
+        self._protocol = get_prop(props, 'protocol', 'h2')
+        self._max_parallel = get_prop(props, 'max_parallel', 1)
+        self._threads = get_prop(props, 'threads', self._clients)
+        self._cooldown = get_prop(props, 'cooldown', timedelta(seconds=0))
         self._url_file = "{gen_dir}/h2load-urls.txt".format(gen_dir=self.env.gen_dir)
         self._is_setup = False
 
     @staticmethod
-    def from_scenario(scenario: Dict, env: H2TestEnv) -> 'UrlsLoadTest':
-        return StressTest(
-            env=env,
-            location=scenario['location'],
-            clients=scenario['clients'], requests=scenario['requests'],
-            file_sizes=scenario['file_sizes'], file_count=scenario['file_count'],
-            protocol=scenario['protocol'], max_parallel=scenario['max_parallel'],
-            cooldown=scenario['cooldown']
-        )
+    def from_scenario(scenario: Dict, env: H2TestEnv) -> 'StressTest':
+        return StressTest(env=env, props=scenario)
 
-    def next_scenario(self, scenario: Dict) -> 'UrlsLoadTest':
+    def next_scenario(self, scenario: Dict) -> 'StressTest':
         self._location = scenario['location']
         self._clients = scenario['clients']
         self._requests = scenario['requests']
@@ -456,13 +440,7 @@ class StressTest(LoadTestCase):
         return self
 
     def _setup(self, cls):
-        LoadTestCase.server_setup(env=self.env, extras={
-            'base': f"""
-            H2MinWorkers    32
-            H2MaxWorkers    128
-            H2MaxWorkerIdleSeconds 5
-            """
-        })
+        self.server_setup()
         if not cls.SETUP_DONE:
             with tqdm(desc="setup resources", total=self._file_count, unit="file", leave=False) as t:
                 docs_a = os.path.join(self.env.server_docs_dir, "test1")
@@ -479,7 +457,7 @@ class StressTest(LoadTestCase):
                     fd.write("\n".join(uris))
                     fd.write("\n")
             cls.SETUP_DONE = True
-        self.start_server(env=self.env)
+        self.start_server()
         self._is_setup = True
 
     def shutdown(self):
@@ -546,18 +524,19 @@ class StressTest(LoadTestCase):
 class LoadTest:
 
     @staticmethod
-    def print_table(table: List[List[str]], foot_notes: List[str] = None):
+    def print_table(table: List[List[str]], hlines = 1, foot_notes: List[str] = None):
         col_widths = []
         col_sep = "   "
-        for row in table[1:]:
+        for row in table[hlines:]:
             for idx, cell in enumerate(row):
                 if idx >= len(col_widths):
                     col_widths.append(len(cell))
                 else:
                     col_widths[idx] = max(len(cell), col_widths[idx])
         row_len = sum(col_widths) + (len(col_widths) * len(col_sep))
-        print(f"{' '.join(table[0]):^{row_len}}")
-        for row in table[1:]:
+        for l in table[0:hlines]:
+            print(f"{' '.join(l):^{row_len}}")
+        for row in table[hlines:]:
             line = ""
             for idx, cell in enumerate(row):
                 line += f"{col_sep if idx > 0 else ''}{cell:>{col_widths[idx]}}"
@@ -616,6 +595,132 @@ class LoadTest:
                     {"clients": 32},
                 ],
             },
+            "1k-1k": {
+                "title": "1k files, 1k size, *conn (50k req/conn), {protocol} ({measure})",
+                "class": UrlsLoadTest,
+                "location": "/",
+                "file_count": 100,
+                "file_sizes": [1],
+                "start_servers": 4,
+                "h2_workers_min": 1,
+                "h2_workers_max": 128,
+                "requests": 50000,
+                "warmup": False,
+                "measure": "req/s",
+                "protocol": 'h2',
+                "max_parallel": 1,
+                "row0_title": "max requests",
+                "row_title": "{protocol} {max_parallel:3d}",
+                "rows": [
+                    {"protocol": 'h2', "max_parallel": 1},
+                    {"protocol": 'h2', "max_parallel": 2},
+                    {"protocol": 'h2', "max_parallel": 6},
+                    {"protocol": 'h2', "max_parallel": 20},
+                    {"protocol": 'h1', "max_parallel": 1},
+                ],
+                "col_title": "{clients}c",
+                "clients": 1,
+                "columns": [
+                    {"clients": 1, "requests": 50000},
+                    {"clients": 2, "requests": 100000},
+                    {"clients": 4, "requests": 200000},
+                    {"clients": 8, "requests": 400000},
+                    {"clients": 12, "requests": 600000},
+                    {"clients": 16, "requests": 800000},
+                    {"clients": 20, "requests": 1000000},
+                    {"clients": 24, "requests": 1200000},
+                ],
+            },
+            "server-workers": {
+                "title": "1k files, 1k size, {clients} conn, {max_parallel} parallel, {protocol} ({measure})",
+                "class": UrlsLoadTest,
+                "location": "/",
+                "file_count": 100,
+                "file_sizes": [1],
+                "start_servers": 1,
+                "h2_workers_min": 1,
+                "h2_workers_max": 1,
+                "clients": 16,
+                "requests": 200000,
+                "warmup": False,
+                "measure": "req/s",
+                "protocol": 'h2',
+                "max_parallel": 6,
+                "row0_title": "servers",
+                "row_title": "{start_servers}",
+                "rows": [
+                    {"start_servers": 1},
+                    {"start_servers": 2},
+                    {"start_servers": 4},
+                    {"start_servers": 8},
+                ],
+                "col_title": "{h2_workers_max}w",
+                "columns": [
+                    {"h2_workers_max": 1},
+                    {"h2_workers_max": 4},
+                    {"h2_workers_max": 16},
+                    {"h2_workers_max": 32},
+                    {"h2_workers_max": 64},
+                    {"h2_workers_max": 128},
+                ],
+            },
+            "server-h1": {
+                "title": "1k files, 1k size, {clients} conn, {max_parallel} parallel, {protocol} ({measure})",
+                "class": UrlsLoadTest,
+                "location": "/",
+                "file_count": 100,
+                "file_sizes": [1],
+                "start_servers": 1,
+                "h2_workers_min": 1,
+                "h2_workers_max": 1,
+                "clients": 16,
+                "requests": 200000,
+                "warmup": False,
+                "measure": "req/s",
+                "protocol": 'h1',
+                "max_parallel": 6,
+                "row0_title": "servers",
+                "row_title": "{start_servers}",
+                "rows": [
+                    {"start_servers": 1},
+                    {"start_servers": 2},
+                    {"start_servers": 4},
+                    {"start_servers": 8},
+                ],
+                "col_title": "{h2_workers_max}w",
+                "columns": [
+                    {"h2_workers_max": 1},
+                ],
+            },
+            "1k-10k": {
+                "title": "1k files, 10k size, *conn, 100k req, {protocol} ({measure})",
+                "class": UrlsLoadTest,
+                "location": "/",
+                "file_count": 100,
+                "file_sizes": [10],
+                "requests": 100000,
+                "warmup": False,
+                "measure": "req/s",
+                "protocol": 'h2',
+                "max_parallel": 1,
+                "row0_title": "max requests",
+                "row_title": "{protocol} {max_parallel:3d} {requests}",
+                "rows": [
+                    {"protocol": 'h2', "max_parallel": 1, "requests": 100000},
+                    {"protocol": 'h2', "max_parallel": 2, "requests": 100000},
+                    {"protocol": 'h2', "max_parallel": 6, "requests": 100000},
+                    {"protocol": 'h2', "max_parallel": 20, "requests": 100000},
+                    {"protocol": 'h1', "max_parallel": 1, "requests": 100000},
+                ],
+                "col_title": "{clients}c",
+                "clients": 1,
+                "columns": [
+                    {"clients": 1},
+                    {"clients": 2},
+                    {"clients": 6},
+                    {"clients": 12},
+                ],
+            },
             "long": {
                 "title": "1k files, 10k size, *conn, 100k req, {protocol} ({measure})",
                 "class": UrlsLoadTest,
@@ -632,9 +737,9 @@ class LoadTest:
                 "rows": [
                     {"max_parallel": 1,  "requests": 100000},
                     {"max_parallel": 2,  "requests": 100000},
-                    #{"max_parallel": 6,  "requests": 250000},
-                    #{"max_parallel": 20, "requests": 500000},
-                    #{"max_parallel": 50, "requests": 750000},
+                    {"max_parallel": 6,  "requests": 250000},
+                    {"max_parallel": 20, "requests": 500000},
+                    {"max_parallel": 50, "requests": 750000},
                 ],
                 "col_title": "{clients}c",
                 "clients": 1,
@@ -702,7 +807,6 @@ class LoadTest:
                     {"protocol": 'h2', "max_parallel": 6, "clients": 6},
                 ],
                 "col_title": "{file_sizes}",
-                "clients": 1,
                 "columns": [
                     {"file_sizes": [10], "requests": 100000},
                     {"file_sizes": [100], "requests": 50000},
@@ -795,16 +899,17 @@ class LoadTest:
                 if name not in scenarios:
                     raise LoadTestException(f"unknown test scenario: {name}")
                 scenario = scenarios[name]
+                test = scenario['class'].from_scenario(scenario, env=env)
                 table = [
                     [scenario['title'].format(**scenario)],
+                    [f"base: {test.start_servers} server, {test.h2_workers_min}/{test.h2_workers_max} h2 workers"],
                 ]
                 foot_notes = []
                 headers = [scenario['row0_title']]
                 for col in scenario['columns']:
                     headers.append(scenario['col_title'].format(**col))
                 table.append(headers)
-                cls.print_table(table)
-                test = scenario['class'].from_scenario(scenario, env=env)
+                cls.print_table(table, hlines=2)
                 for row in scenario['rows']:
                     if args.protocol is not None and row['protocol'] != args.protocol:
                         continue
@@ -822,7 +927,7 @@ class LoadTest:
                             foot_notes.append(fnote)
                         row_line.append("{0}{1}".format(result,
                                                         f"[{len(foot_notes)}]" if fnote else ""))
-                        cls.print_table(table, foot_notes)
+                        cls.print_table(table, hlines=2, foot_notes=foot_notes)
                 test.shutdown()
 
         except KeyboardInterrupt:
