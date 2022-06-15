@@ -59,7 +59,6 @@ AC_ARG_ENABLE([poll-streams],
 
 # Checks for programs.
 AC_PROG_CC
-AC_PROG_CC_STDC
 
 # extern, we need to find where the apxs is. which then
 # can tell us the various directories we need.
@@ -232,6 +231,7 @@ if test "x$werror" != "xno"; then
 
     # This is used by the APR_OFFSET macro
     AX_CHECK_COMPILE_FLAG([-Wno-null-pointer-subtraction], [WERROR_CFLAGS="$WERROR_CFLAGS -Wno-null-pointer-subtraction"])
+    AX_CHECK_COMPILE_FLAG([-Wno-null-dereference], [WERROR_CFLAGS="$WERROR_CFLAGS -Wno-null-dereference"])
 fi
 AC_SUBST(WERROR_CFLAGS)
 
