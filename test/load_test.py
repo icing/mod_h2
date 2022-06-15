@@ -180,7 +180,7 @@ class H2LoadMonitor:
                             lines = lines[:-1]
                         else:
                             latest_data = None
-                        time.sleep(0.1)  # lets not do this too often
+                        time.sleep(0.2)  # lets not do this too often
                         self._tqdm.update(n=len(lines))
                         if latest_data is None:
                             latest_data = fd.read()
@@ -212,6 +212,7 @@ class LoadTestCase:
         self.dynamic_servers = get_prop(props, 'dynamic_servers', True)
         self.h2_workers_min = get_prop(props, 'h2_workers_min', None)
         self.h2_workers_max = get_prop(props, 'h2_workers_max', None)
+        self.h2_workers_fast = get_prop(props, 'h2_workers_fast', None)
 
     @staticmethod
     def from_scenario(scenario: Dict, env: H2TestEnv) -> 'UrlsLoadTest':
@@ -246,7 +247,7 @@ class LoadTestCase:
             #f"ThreadsPerChild          {thread_count}",
             #f"MinSpareThreads          {thread_count}",
             #f"MaxSpareThreads          {int(worker_count / 2)}",
-            #f"MaxRequestWorkers        {worker_count}",
+            f"MaxRequestWorkers        {worker_count}",
             f"MaxConnectionsPerChild   0",
             f"KeepAliveTimeout         60",
             f"MaxKeepAliveRequests     0",
@@ -255,6 +256,8 @@ class LoadTestCase:
             conf.add(f"H2MinWorkers {self.h2_workers_min}")
         if self.h2_workers_max is not None:
             conf.add(f"H2MaxWorkers {self.h2_workers_max}")
+        if self.h2_workers_fast is not None and self.h2_workers_fast > 0:
+            conf.add(f"H2FastWorkers {self.h2_workers_fast} 10ms")
         return conf
 
     def start_server(self, cd: timedelta = None):
@@ -286,6 +289,9 @@ class LoadTestCase:
                 "Protocols h2 http/1.1",
                 f"ProxyPass /proxy-h1/ https://127.0.0.1:{self.env.https_port}/",
                 f"ProxyPass /proxy-h2/ h2://127.0.0.1:{self.env.https_port}/",
+                "<Location \"/h2test/delay\">",
+                "    SetHandler h2test-delay",
+                "</Location>",
             ],
         }
         conf = self.setup_base_conf(extras=extras)
@@ -307,8 +313,9 @@ class UrlsLoadTest(LoadTestCase):
         self._file_sizes = props['file_sizes']
         self._protocol = get_prop(props, 'protocol', 'h2')
         self._max_parallel = get_prop(props, 'max_parallel', 1)
-        self._threads = get_prop(props, 'threads', self._clients)
+        self._threads = min(4, self._clients)
         self._warmup = get_prop(props, 'warmup', False)
+        self._delays = get_prop(props, 'delays', [])
         self._url_file = "{gen_dir}/h2load-urls.txt".format(gen_dir=self.env.gen_dir)
 
     @staticmethod
@@ -331,6 +338,9 @@ class UrlsLoadTest(LoadTestCase):
             if not os.path.isfile(fpath):
                 mk_text_file(os.path.join(docs_a, fname), 8 * fsize)
             uris.append(f"{self._location}{fname}")
+        for d in self._delays:
+            for i in reversed(range(0, len(uris), d[0])):
+                uris.insert(i, f"/h2test/delay?{d[1]}")
         with open(self._url_file, 'w') as fd:
             fd.write("\n".join(uris))
             fd.write("\n")
@@ -477,7 +487,7 @@ class StressTest(LoadTestCase):
             args = [
                 'h2load',
                 '--clients={0}'.format(self._clients),
-                '--threads={0}'.format(min(self._clients, 2)),
+                '--threads={0}'.format(min(self._clients, 4)),
                 '--requests={0}'.format(self._requests),
                 '--input-file={0}'.format(self._url_file),
                 '--log-file={0}'.format(log_file),
@@ -603,7 +613,7 @@ class LoadTest:
                 "file_sizes": [1],
                 "start_servers": 4,
                 "h2_workers_min": 1,
-                "h2_workers_max": 128,
+                "h2_workers_max": 40,
                 "requests": 50000,
                 "warmup": False,
                 "measure": "req/s",
@@ -612,22 +622,61 @@ class LoadTest:
                 "row0_title": "max requests",
                 "row_title": "{protocol} {max_parallel:3d}",
                 "rows": [
-                    {"protocol": 'h2', "max_parallel": 1},
-                    {"protocol": 'h2', "max_parallel": 2},
+                    #{"protocol": 'h2', "max_parallel": 1},
+                    #{"protocol": 'h2', "max_parallel": 2},
                     {"protocol": 'h2', "max_parallel": 6},
-                    {"protocol": 'h2', "max_parallel": 20},
+                    {"protocol": 'h2', "max_parallel": 12},
+                    {"protocol": 'h2', "max_parallel": 24},
+                    {"protocol": 'h2', "max_parallel": 48},
+                    {"protocol": 'h2', "max_parallel": 96},
                     {"protocol": 'h1', "max_parallel": 1},
                 ],
                 "col_title": "{clients}c",
                 "clients": 1,
                 "columns": [
                     {"clients": 1, "requests": 50000},
-                    {"clients": 2, "requests": 100000},
+                    {"clients": 12, "requests": 600000},
+                    {"clients": 24, "requests": 1200000},
+                    {"clients": 48, "requests": 1200000},
+                    {"clients": 96, "requests": 1200000},
+                ],
+            },
+            "1p-10c": {
+                "title": "fast workers(fw), {start_servers} process, {clients} conn, {max_parallel} parallel, 1m req, ({measure})",
+                "class": UrlsLoadTest,
+                "location": "/",
+                "file_count": 1000,
+                "file_sizes": [1],
+                "start_servers": 1,
+                "h2_workers_min": 40,
+                "h2_workers_max": 160,
+                "clients": 17,
+                "requests": 1000000,
+                "warmup": False,
+                "measure": "req/s",
+                "protocol": 'h2',
+                "max_parallel": 96,
+                "row0_title": "proto  delays",
+                "row_title": "{protocol} {delays}",
+                "rows": [
+                    {"protocol": 'h2', "delays": []},
+                    #{"protocol": 'h1', "delays": []},
+                    {"protocol": 'h2', "delays": [[1000, '20ms']]},
+                    {"protocol": 'h2', "delays": [[100, '20ms']]},
+                    {"protocol": 'h2', "delays": [[50, '20ms']]},
+                    {"protocol": 'h2', "delays": [[10, '20ms']]},
+                    #{"protocol": 'h1', "delays": [[100, '20ms']]},
+                ],
+                "col_title": "{clients}c",
+                "clients": 1,
+                "columns": [
+                    {"clients": 1, "requests": 50000},
+                    #{"clients": 2, "requests": 100000},
                     {"clients": 4, "requests": 200000},
                     {"clients": 8, "requests": 400000},
-                    {"clients": 12, "requests": 600000},
-                    {"clients": 16, "requests": 800000},
-                    {"clients": 20, "requests": 1000000},
+                    #{"clients": 12, "requests": 600000},
+                    #{"clients": 16, "requests": 800000},
+                    #{"clients": 20, "requests": 1000000},
                     {"clients": 24, "requests": 1200000},
                 ],
             },
@@ -894,6 +943,7 @@ class LoadTest:
         rv = 0
         try:
             log.debug("starting tests")
+            env.httpd_error_log.clear_log()
             names = args.names if len(args.names) else sorted(scenarios.keys())
             for name in names:
                 if name not in scenarios:
@@ -920,7 +970,6 @@ class LoadTest:
                         t.update(row)
                         t.update(col)
                         test = test.next_scenario(t)
-                        env.httpd_error_log.clear_log()
                         summary = test.run()
                         result, fnote = test.format_result(summary)
                         if fnote:

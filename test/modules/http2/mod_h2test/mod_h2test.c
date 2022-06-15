@@ -43,6 +43,65 @@ AP_DECLARE_MODULE(h2test) = {
 #endif
 };
 
+#define SECS_PER_HOUR      (60*60)
+#define SECS_PER_DAY       (24*SECS_PER_HOUR)
+
+static apr_status_t duration_parse(apr_interval_time_t *ptimeout, const char *value,
+                                   const char *def_unit)
+{
+    char *endp;
+    apr_int64_t n;
+
+    n = apr_strtoi64(value, &endp, 10);
+    if (errno) {
+        return errno;
+    }
+    if (!endp || !*endp) {
+        if (!def_unit) def_unit = "s";
+    }
+    else if (endp == value) {
+        return APR_EINVAL;
+    }
+    else {
+        def_unit = endp;
+    }
+
+    switch (*def_unit) {
+    case 'D':
+    case 'd':
+        *ptimeout = apr_time_from_sec(n * SECS_PER_DAY);
+        break;
+    case 's':
+    case 'S':
+        *ptimeout = (apr_interval_time_t) apr_time_from_sec(n);
+        break;
+    case 'h':
+    case 'H':
+        /* Time is in hours */
+        *ptimeout = (apr_interval_time_t) apr_time_from_sec(n * SECS_PER_HOUR);
+        break;
+    case 'm':
+    case 'M':
+        switch (*(++def_unit)) {
+        /* Time is in milliseconds */
+        case 's':
+        case 'S':
+            *ptimeout = (apr_interval_time_t) n * 1000;
+            break;
+        /* Time is in minutes */
+        case 'i':
+        case 'I':
+            *ptimeout = (apr_interval_time_t) apr_time_from_sec(n * 60);
+            break;
+        default:
+            return APR_EGENERAL;
+        }
+        break;
+    default:
+        return APR_EGENERAL;
+    }
+    return APR_SUCCESS;
+}
 
 static int h2test_post_config(apr_pool_t *p, apr_pool_t *plog,
                               apr_pool_t *ptemp, server_rec *s)
@@ -163,9 +222,10 @@ static int h2test_delay_handler(request_rec *r)
     }
 
     if (r->args) {
-        rv = apr_cstr_atoi(&i, r->args);
-        if (APR_SUCCESS == rv) {
-            delay = apr_time_from_sec(i);
+        rv = duration_parse(&delay, r->args, "s");
+        if (APR_SUCCESS != rv) {
+            ap_die(HTTP_BAD_REQUEST, r);
+            return OK;
         }
     }
 
