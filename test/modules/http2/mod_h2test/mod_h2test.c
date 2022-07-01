@@ -243,21 +243,6 @@ static int h2test_delay_handler(request_rec *r)
     ap_set_content_type(r, "application/octet-stream");
 
     bb = apr_brigade_create(r->pool, c->bucket_alloc);
-    /* copy any request body into the response */
-    if ((rv = ap_setup_client_block(r, REQUEST_CHUNKED_DECHUNK))) goto cleanup;
-    if (ap_should_client_block(r)) {
-        do {
-            l = ap_get_client_block(r, &buffer[0], sizeof(buffer));
-            if (l > 0) {
-                ap_log_rerror(APLOG_MARK, APLOG_TRACE1, 0, r,
-                              "delay_handler: reading %ld bytes from request body", l);
-            }
-        } while (l > 0);
-        if (l < 0) {
-            return AP_FILTER_ERROR;
-        }
-    }
-
     memset(buffer, 0, sizeof(buffer));
     l = sizeof(buffer);
     for (i = 0; i < chunks; ++i) {
@@ -290,6 +275,71 @@ cleanup:
     return AP_FILTER_ERROR;
 }
 
+static int h2test_trailer_handler(request_rec *r)
+{
+    conn_rec *c = r->connection;
+    apr_bucket_brigade *bb;
+    apr_bucket *b;
+    apr_status_t rv;
+    char buffer[8192];
+    int i, chunks = 3;
+    long l;
+    int body_len = 0;
+
+    if (strcmp(r->handler, "h2test-trailer")) {
+        return DECLINED;
+    }
+    if (r->method_number != M_GET && r->method_number != M_POST) {
+        return DECLINED;
+    }
+
+    if (r->args) {
+        body_len = (int)apr_atoi64(r->args);
+        if (body_len < 0) body_len = 0;
+    }
+
+    ap_log_rerror(APLOG_MARK, APLOG_TRACE1, 0, r, "trailer_handler: processing request, %d body length",
+                  body_len);
+    r->status = 200;
+    r->clength = body_len;
+    ap_set_content_length(r, body_len);
+
+    ap_set_content_type(r, "application/octet-stream");
+    apr_table_mergen(r->headers_out, "Trailer", "trailer-content-length");
+    apr_table_set(r->trailers_out, "trailer-content-length",
+                  apr_psprintf(r->pool, "%d", body_len));
+
+    bb = apr_brigade_create(r->pool, c->bucket_alloc);
+    memset(buffer, 0, sizeof(buffer));
+    while (body_len > 0) {
+        l = (sizeof(buffer) > body_len)? body_len : sizeof(buffer);
+        body_len -= l;
+        rv = apr_brigade_write(bb, NULL, NULL, buffer, l);
+        if (APR_SUCCESS != rv) goto cleanup;
+        rv = ap_pass_brigade(r->output_filters, bb);
+        if (APR_SUCCESS != rv) goto cleanup;
+        ap_log_rerror(APLOG_MARK, APLOG_TRACE1, 0, r,
+                      "trailer_handler: passed %ld bytes as response body", l);
+    }
+    /* we are done */
+    b = apr_bucket_eos_create(c->bucket_alloc);
+    APR_BRIGADE_INSERT_TAIL(bb, b);
+    rv = ap_pass_brigade(r->output_filters, bb);
+    apr_brigade_cleanup(bb);
+    ap_log_rerror(APLOG_MARK, APLOG_TRACE1, rv, r, "trailer_handler: response passed");
+
+cleanup:
+    ap_log_rerror(APLOG_MARK, APLOG_TRACE1, rv, r,
+                  "trailer_handler: request cleanup, r->status=%d, aborte=%d",
+                  r->status, c->aborted);
+    if (rv == APR_SUCCESS
+        || r->status != HTTP_OK
+        || c->aborted) {
+        return OK;
+    }
+    return AP_FILTER_ERROR;
+}
+
 /* Install this module into the apache2 infrastructure.
  */
 static void h2test_hooks(apr_pool_t *pool)
@@ -309,5 +359,6 @@ static void h2test_hooks(apr_pool_t *pool)
     /* test h2 handlers */
     ap_hook_handler(h2test_echo_handler, NULL, NULL, APR_HOOK_MIDDLE);
     ap_hook_handler(h2test_delay_handler, NULL, NULL, APR_HOOK_MIDDLE);
+    ap_hook_handler(h2test_trailer_handler, NULL, NULL, APR_HOOK_MIDDLE);
 }
 
