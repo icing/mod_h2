@@ -90,6 +90,7 @@ struct h2_stream {
     unsigned int scheduled : 1; /* stream has been scheduled */
     unsigned int input_closed : 1; /* no more request data/trailers coming */
     unsigned int push_policy;   /* which push policy to use for this request */
+    unsigned int sent_trailers : 1; /* trailers have been submitted */
 
     conn_rec *c2;               /* connection processing stream */
     
