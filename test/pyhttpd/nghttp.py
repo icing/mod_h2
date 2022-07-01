@@ -80,27 +80,29 @@ class Nghttp:
         # chunk output into lines. nghttp mixes text
         # meta output with bytes from the response body.
         lines = [l.decode() for l in btext.split(b'\n')]
+
         for lidx, l in enumerate(lines):
             if len(l) == 0:
                 body += '\n'
                 continue
-            m = re.match(r'\[.*] recv \(stream_id=(\d+)\) (\S+): (\S*)', l)
+            m = re.match(r'(.*)\[.*] recv \(stream_id=(\d+)\) (\S+): (\S*)', l)
             if m:
-                s = self.get_stream(streams, m.group(1))
-                hname = m.group(2)
-                hval = m.group(3)
+                body += m.group(1)
+                s = self.get_stream(streams, m.group(2))
+                hname = m.group(3)
+                hval = m.group(4)
                 print("stream %d header %s: %s" % (s["id"], hname, hval))
                 header = s["header"]
                 if hname in header: 
                     header[hname] += ", %s" % hval
                 else:
                     header[hname] = hval
-                body = ''
                 continue
 
-            m = re.match(r'\[.*] recv HEADERS frame <.* stream_id=(\d+)>', l)
+            m = re.match(r'(.*)\[.*] recv HEADERS frame <.* stream_id=(\d+)>', l)
             if m:
-                s = self.get_stream(streams, m.group(1))
+                body += m.group(1)
+                s = self.get_stream(streams, m.group(2))
                 if s:
                     print("stream %d: recv %d header" % (s["id"], len(s["header"]))) 
                     response = s["response"]
@@ -118,13 +120,12 @@ class Nghttp:
                             response["previous"] = prev
                     response[hkey] = s["header"]
                     s["header"] = {} 
-                body = ''
                 continue
             
             m = re.match(r'(.*)\[.*] recv DATA frame <length=(\d+), .*stream_id=(\d+)>', l)
             if m:
-                s = self.get_stream(streams, m.group(3))
                 body += m.group(1)
+                s = self.get_stream(streams, m.group(3))
                 blen = int(m.group(2))
                 if s:
                     print("stream %d: %d DATA bytes added" % (s["id"], blen))
@@ -140,9 +141,10 @@ class Nghttp:
                 skip_indents = True
                 continue
                 
-            m = re.match(r'\[.*] recv PUSH_PROMISE frame <.* stream_id=(\d+)>', l)
+            m = re.match(r'(.*)\[.*] recv PUSH_PROMISE frame <.* stream_id=(\d+)>', l)
             if m:
-                s = self.get_stream(streams, m.group(1))
+                body += m.group(1)
+                s = self.get_stream(streams, m.group(2))
                 if s:
                     # headers we have are request headers for the PUSHed stream
                     # these have been received on the originating stream, the promised
@@ -176,8 +178,8 @@ class Nghttp:
             
             if '[' != l[0]:
                 skip_indents = None
-                body += l + '\n' 
-                
+                body += l + '\n'
+
         # the main request is done on the lowest odd numbered id
         main_stream = 99999999999
         for sid in streams:
@@ -283,7 +285,7 @@ Content-Transfer-Encoding: binary
     def _run(self, args) -> ExecResult:
         print(("execute: %s" % " ".join(args)))
         start = datetime.now()
-        p = subprocess.run(args, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
+        p = subprocess.run(args, capture_output=True, text=False)
         return ExecResult(args=args, exit_code=p.returncode,
                           stdout=p.stdout, stderr=p.stderr,
                           duration=datetime.now() - start)
