@@ -1,3 +1,8 @@
+v2.0.3
+--------------------------------------------------------------------------------
+ * A bug that prevented trailers (e.g. HEADER frame at the end) to be
+   generated in certain cases was fixed. See #233 where it prevented
+   gRPC responses to be properly generated.
  * :scheme pseudo-header values, not matching the
    connection scheme, are forwarded via absolute uris to the
    http protocol processing to preserve semantics of the request.
