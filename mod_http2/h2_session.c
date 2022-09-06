@@ -931,6 +931,12 @@ apr_status_t h2_session_create(h2_session **psession, conn_rec *c, request_rec *
      * setting in relation to older streams non-working. */
     nghttp2_option_set_no_closed_streams(options, 1);
 #endif
+#ifdef DH2_NG2_RFC9113_STRICTNESS
+    /* nghttp2 v1.50.0 introduces the strictness checks on leading/trailing
+     * whitespace of RFC 9113. */
+    nghttp2_option_set_no_rfc9113_leading_and_trailing_ws_validation(options,
+        h2_config_sgeti(s, H2_CONF_HEADER_STRICTNESS) < 9113);
+#endif
     rv = nghttp2_session_server_new2(&session->ngh2, callbacks,
                                      session, options);
     nghttp2_session_callbacks_del(callbacks);
