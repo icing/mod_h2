@@ -230,6 +230,7 @@ class HttpdTestEnv:
 
         self._verify_certs = False
         self._curl_headerfiles_n = 0
+        self._h2load_version = None
 
     def add_httpd_conf(self, lines: List[str]):
         self._httpd_base_conf.extend(lines)
@@ -377,6 +378,7 @@ class HttpdTestEnv:
         return []
 
     def _versiontuple(self, v):
+        v = re.sub(r'(\d+\.\d+(\.\d+)?)(-\S+)?', r'\1', v)
         return tuple(map(int, v.split('.')))
 
     def httpd_is_at_least(self, minv):
@@ -389,14 +391,16 @@ class HttpdTestEnv:
     def h2load_is_at_least(self, minv):
         if not self.has_h2load():
             return False
-        p = subprocess.run([self._h2load, '--version'], capture_output=True, text=True)
-        if p.returncode != 0:
-            return False
-        s = p.stdout.strip()
-        m = re.match(r'h2load nghttp2/(\S+)', s)
-        if m:
-            hv = self._versiontuple(m.group(1))
-            return hv >= self._versiontuple(minv)
+        if self._h2load_version is None:
+            p = subprocess.run([self._h2load, '--version'], capture_output=True, text=True)
+            if p.returncode != 0:
+                return False
+            s = p.stdout.strip()
+            m = re.match(r'h2load nghttp2/(\S+)', s)
+            if m:
+                self._h2load_version = self._versiontuple(m.group(1))
+        if self._h2load_version is not None:
+            return self._h2load_version >= self._versiontuple(minv)
         return False
 
     def has_nghttp(self):

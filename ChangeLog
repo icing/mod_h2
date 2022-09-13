@@ -1,7 +1,8 @@
- * new directive `H2HeaderChecks (highest|rfc7540|rfc9113)` to configure
+ * new directive `H2HeaderStrictness (highest|rfc7540|rfc9113)` to configure
    the strictness of HTTP header checks. rfc9113 forbids leading and trailing
-   whitespace in headers and is supported via nghttp2 v1.50.0 onward.
-   The default is the old behavior, e.g. rfc7540.
+   whitespace in headers and is supported when building against
+   nghttp2 v1.50.0 or newer. The default is the backward compatible
+   behavior, e.g. rfc7540.
 
 v2.0.3
 --------------------------------------------------------------------------------

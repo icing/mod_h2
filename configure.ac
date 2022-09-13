@@ -125,10 +125,15 @@ AC_SUBST(LOAD_WATCHDOG)
 export BUILD_SUBDIRS="mod_http2"
 AC_SUBST(BUILD_SUBDIRS)
 
-# We need nghttp2 to be in our link path, check for it.
-#
-AC_CHECK_LIB([nghttp2], [nghttp2_session_server_new2], ,
-[AC_MSG_ERROR("library nghttp2 not found")])
+# We need nghttp2
+PKG_CHECK_MODULES([LIBNGHTTP2], [libnghttp2 >= 1.2.0],
+                  [have_nghttp2=yes], [have_nghttp2=no])
+if test "x${have_nghttp2}" = "xno"; then
+  AC_MSG_ERROR($LIBNGHTTP2_PKG_ERRORS)
+fi
+
+CFLAGS="$LIBNGHTTP2_CFLAGS $CFLAGS"
+LIBS="$LIBNGHTTP2_LIBS $LIBS"
 
 AC_CHECK_HEADERS([nghttp2/nghttp2.h])
 # nghttp2 >= 1.3.0: access to stream weights
@@ -149,7 +154,7 @@ dnl # nghttp2 >= 1.50.0: rfc9113 leading/trailing whitespec strictness
 AC_CHECK_FUNCS([nghttp2_option_set_no_rfc9113_leading_and_trailing_ws_validation],
         [CPPFLAGS="$CPPFLAGS -DH2_NG2_RFC9113_STRICTNESS"], [])
 
-AC_PATH_PROG([NGHTTP], [nghttp])
+AC_PATH_PROG([NGHTTP], [nghttp], [], [$APR_BINDIR$PATH_SEPARATOR$PATH])
 if test "x${NGHTTP}" = "x"; then
     if test -x "${prefix}/bin/nghttp"; then
         NGHTTP="${prefix}/bin/nghttp"
@@ -159,7 +164,7 @@ if test "x${NGHTTP}" = "x"; then
 fi
 AC_SUBST(NGHTTP)
 
-AC_PATH_PROG([H2LOAD], [h2load])
+AC_PATH_PROG([H2LOAD], [h2load], [], [$APR_BINDIR$PATH_SEPARATOR$PATH])
 if test "x${H2LOAD}" = "x"; then
     if test -x "${prefix}/bin/h2load"; then
         H2LOAD="${prefix}/bin/h2load"
@@ -340,6 +345,7 @@ AC_MSG_NOTICE([summary of build options:
     LIBS:           ${LIBS}
     CPPFLAGS:       ${CPPFLAGS}
     curl            ${CURL_MSG}
+    Libnghttp2:     ${LIBNGHTTP2_VERSION} (CFLAGS='${LIBNGHTTP2_CFLAGS}' LIBS='${LIBNGHTTP2_LIBS}')
     nghttp          ${NGHTTP:--}
     h2load          ${H2LOAD:--}
     apachectl       ${APACHECTL:--}

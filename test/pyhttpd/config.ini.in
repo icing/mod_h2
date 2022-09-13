@@ -1,7 +1,7 @@
 [global]
 curl_bin = curl
-nghttp = nghttp
-h2load = h2load
+nghttp = @NGHTTP@
+h2load = @H2LOAD@
 
 prefix = @prefix@
 exec_prefix = @exec_prefix@

@@ -175,7 +175,8 @@ content-type: text/html
             r = env.curl_get(url, 5)
             assert r.response["status"] == 200
             assert "HTTP/2" == r.response["protocol"]
-            assert n == len(r.response["body"])
+            assert n == len(r.response["body"]), \
+                f'Expected {n} response bytes, curl: {r.stdout}'
             n *= 2
 
     # test various response body lengths to work correctly 
