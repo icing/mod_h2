@@ -1,8 +1,14 @@
+v2.0.4
+--------------------------------------------------------------------------------
  * new directive `H2HeaderStrictness (highest|rfc7540|rfc9113)` to configure
    the strictness of HTTP header checks. rfc9113 forbids leading and trailing
    whitespace in headers and is supported when building against
    nghttp2 v1.50.0 or newer. The default is the backward compatible
    behavior, e.g. rfc7540.
+ * Integrated improvements from Apache httpd 2.4.x branch:
+   - remove unused and insecure code. Fixes PR66037.
+   - preserve the port number given in a HTTP/1.1
+     request that was Upgraded to HTTP/2. Fixes PR65881.
 
 v2.0.3
 --------------------------------------------------------------------------------
