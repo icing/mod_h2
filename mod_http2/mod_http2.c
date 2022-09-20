@@ -171,7 +171,9 @@ static int http2_is_h2(conn_rec *);
 
 static void http2_get_num_workers(server_rec *s, int *minw, int *maxw)
 {
-    h2_get_num_workers(s, minw, maxw);
+    apr_time_t tdummy;
+
+    h2_get_workers_config(s, minw, maxw, &tdummy);
 }
 
 /* Runs once per created child process. Perform any process 
@@ -316,7 +318,7 @@ static const char *val_H2_STREAM_ID(apr_pool_t *p, server_rec *s,
                                     conn_rec *c, request_rec *r, h2_conn_ctx_t *ctx)
 {
     const char *cp = val_H2_STREAM_TAG(p, s, c, r, ctx);
-    if (cp && (cp = ap_strchr_c(cp, '-'))) {
+    if (cp && (cp = ap_strrchr_c(cp, '-'))) {
         return ++cp;
     }
     return NULL;

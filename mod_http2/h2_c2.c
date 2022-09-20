@@ -144,17 +144,9 @@ apr_status_t h2_c2_child_init(apr_pool_t *pool, server_rec *s)
                              APR_PROTO_TCP, pool);
 }
 
-/* APR callback invoked if allocation fails. */
-static int abort_on_oom(int retcode)
+conn_rec *h2_c2_create(conn_rec *c1, apr_pool_t *parent,
+                       apr_bucket_alloc_t *buckt_alloc)
 {
-    ap_abort_on_oom();
-    return retcode; /* unreachable, hopefully. */
-}
-
-conn_rec *h2_c2_create(conn_rec *c1, apr_pool_t *parent)
-{
-    apr_allocator_t *allocator;
-    apr_status_t status;
     apr_pool_t *pool;
     conn_rec *c2;
     void *cfg;
@@ -169,16 +161,7 @@ conn_rec *h2_c2_create(conn_rec *c1, apr_pool_t *parent)
      * independent of its parent pool in the sense that it can work in
      * another thread.
      */
-    apr_allocator_create(&allocator);
-    apr_allocator_max_free_set(allocator, ap_max_mem_free);
-    status = apr_pool_create_ex(&pool, parent, NULL, allocator);
-    if (status != APR_SUCCESS) {
-        ap_log_cerror(APLOG_MARK, APLOG_ERR, status, c1,
-                      APLOGNO(10004) "h2_c2: create pool");
-        return NULL;
-    }
-    apr_allocator_owner_set(allocator, pool);
-    apr_pool_abort_set(abort_on_oom, pool);
+    apr_pool_create(&pool, parent);
     apr_pool_tag(pool, "h2_c2_conn");
 
     c2 = (conn_rec *) apr_palloc(pool, sizeof(conn_rec));
@@ -231,6 +214,21 @@ void h2_c2_destroy(conn_rec *c2)
     ap_log_cerror(APLOG_MARK, APLOG_TRACE3, 0, c2,
                   "h2_c2(%s): destroy", c2->log_id);
     apr_pool_destroy(c2->pool);
+}
+
+void h2_c2_abort(conn_rec *c2, conn_rec *from)
+{
+    h2_conn_ctx_t *conn_ctx = h2_conn_ctx_get(c2);
+
+    AP_DEBUG_ASSERT(conn_ctx);
+    AP_DEBUG_ASSERT(conn_ctx->stream_id);
+    if (conn_ctx->beam_in) {
+        h2_beam_abort(conn_ctx->beam_in, from);
+    }
+    if (conn_ctx->beam_out) {
+        h2_beam_abort(conn_ctx->beam_out, from);
+    }
+    c2->aborted = 1;
 }
 
 typedef struct {
@@ -298,12 +296,12 @@ static apr_status_t h2_c2_filter_in(ap_filter_t* f,
                           conn_ctx->id, conn_ctx->stream_id, block, (long)readbytes);
         }
         if (conn_ctx->beam_in) {
-            if (conn_ctx->pipe_in_prod[H2_PIPE_OUT]) {
+            if (conn_ctx->pipe_in[H2_PIPE_OUT]) {
 receive:
                 status = h2_beam_receive(conn_ctx->beam_in, f->c, fctx->bb, APR_NONBLOCK_READ,
                                          conn_ctx->mplx->stream_max_mem);
                 if (APR_STATUS_IS_EAGAIN(status) && APR_BLOCK_READ == block) {
-                    status = h2_util_wait_on_pipe(conn_ctx->pipe_in_prod[H2_PIPE_OUT]);
+                    status = h2_util_wait_on_pipe(conn_ctx->pipe_in[H2_PIPE_OUT]);
                     if (APR_SUCCESS == status) {
                         goto receive;
                     }
@@ -726,5 +724,8 @@ void h2_c2_register_hooks(void)
                               NULL, AP_FTYPE_PROTOCOL);
     ap_register_output_filter("H2_C2_TRAILERS_OUT", h2_c2_filter_trailers_out,
                               NULL, AP_FTYPE_PROTOCOL);
+
+    /* special bucket type transfer through a h2_bucket_beam */
+    h2_register_bucket_beamer(h2_bucket_headers_beam);
 }
 
