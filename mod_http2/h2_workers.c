@@ -319,7 +319,7 @@ static void* APR_THREAD_FUNC slot_run(apr_thread_t *thread, void *wctx)
             if (APR_TIMEUP == rv) {
                 APR_RING_REMOVE(slot, link);
                 --workers->idle_slots;
-                ap_log_error(APLOG_MARK, APLOG_ERR, 0, workers->s,
+                ap_log_error(APLOG_MARK, APLOG_TRACE1, 0, workers->s,
                              "h2_workers: idle timeout slot %d in state %d (%d activations)",
                              slot->id, slot->state, slot->activations);
                 break;

@@ -974,6 +974,9 @@ static void workers_shutdown(void *baton, int graceful)
     /* time to wakeup and assess what to do */
     ap_log_cerror(APLOG_MARK, APLOG_TRACE2, 0, m->c1,
                   H2_MPLX_MSG(m, "workers shutdown, waking pollset"));
+    if (!graceful) {
+        m->aborted = 1;
+    }
     apr_pollset_wakeup(m->pollset);
     apr_thread_mutex_unlock(m->poll_lock);
 }
@@ -1115,6 +1118,7 @@ static apr_status_t mplx_pollset_poll(h2_mplx *m, apr_interval_time_t timeout,
     h2_conn_ctx_t *conn_ctx;
     h2_stream *stream;
 
+    ap_assert(!m->aborted);
     /* Make sure we are not called recursively. */
     ap_assert(!m->polling);
     m->polling = 1;
@@ -1153,7 +1157,9 @@ static apr_status_t mplx_pollset_poll(h2_mplx *m, apr_interval_time_t timeout,
             H2_MPLX_LEAVE(m);
             rv = apr_pollset_poll(m->pollset, timeout >= 0? timeout : -1, &nresults, &results);
             H2_MPLX_ENTER_ALWAYS(m);
-
+            if (APR_STATUS_IS_EINTR(rv) && m->aborted) {
+                goto cleanup;
+            }
         } while (APR_STATUS_IS_EINTR(rv));
 
         if (APR_SUCCESS != rv) {
