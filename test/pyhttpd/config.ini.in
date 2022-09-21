@@ -19,6 +19,7 @@ version = @HTTPD_VERSION@
 name = @progname@
 dso_modules = @DSO_MODULES@
 static_modules = @STATIC_MODULES@
+mpm_modules = mpm_event mpm_worker
 
 [test]
 gen_dir = @abs_srcdir@/../gen
