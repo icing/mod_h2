@@ -95,6 +95,7 @@ class H2TestEnv(HttpdTestEnv):
             'AH02429',  # invalid chars in response header names, see test_h2_200
             'AH02430',  # invalid chars in response header values, see test_h2_200
             'AH10373',  # SSL errors on uncompleted handshakes, see test_h2_105
+            'AH01247',  # mod_cgid sometimes freaks out on load tests
         ])
         self.httpd_error_log.add_ignored_patterns([
             re.compile(r'.*malformed header from script \'hecho.py\': Bad header: x.*'),
