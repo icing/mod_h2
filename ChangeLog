@@ -1,3 +1,10 @@
+v2.0.5
+--------------------------------------------------------------------------------
+ * Synchronized changes from Apache trunk development. Improvements in pollset
+   handling and simplification of response data passing to main connection.
+ * Improvements in shutdown scenarios that wake up a potentially sleeping
+   pollset that might block a clean child exit.
+
 v2.0.4
 --------------------------------------------------------------------------------
  * new directive `H2HeaderStrictness (highest|rfc7540|rfc9113)` to configure
