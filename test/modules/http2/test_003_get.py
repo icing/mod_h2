@@ -1,9 +1,10 @@
 import re
 import pytest
 
-from .env import H2Conf
+from .env import H2Conf, H2TestEnv
 
 
+@pytest.mark.skipif(condition=H2TestEnv.is_unsupported, reason="mod_http2 not supported here")
 class TestGet:
 
     @pytest.fixture(autouse=True, scope='class')
@@ -175,8 +176,7 @@ content-type: text/html
             r = env.curl_get(url, 5)
             assert r.response["status"] == 200
             assert "HTTP/2" == r.response["protocol"]
-            assert n == len(r.response["body"]), \
-                f'Expected {n} response bytes, curl: {r.stdout}'
+            assert n == len(r.response["body"])
             n *= 2
 
     # test various response body lengths to work correctly 
@@ -228,3 +228,12 @@ content-type: text/html
         r = env.nghttp().get(url, options=opt)
         assert r.exit_code == 0, r
         assert r.response['status'] == 200
+
+    # Test that we get a proper `Date` and `Server` headers on responses
+    def test_h2_003_60(self, env):
+        url = env.mkurl("https", "test1", "/index.html")
+        r = env.curl_get(url)
+        assert r.exit_code == 0, r
+        assert r.response['status'] == 200
+        assert 'date' in r.response['header']
+        assert 'server' in r.response['header']
