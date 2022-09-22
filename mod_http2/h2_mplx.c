@@ -636,7 +636,7 @@ static apr_status_t c1_process_stream(h2_mplx *m,
                                       h2_stream_pri_cmp_fn *cmp,
                                       h2_session *session)
 {
-    apr_status_t rv;
+    apr_status_t rv = APR_SUCCESS;
 
     if (m->aborted) {
         rv = APR_ECONNABORTED;
@@ -652,9 +652,6 @@ static apr_status_t c1_process_stream(h2_mplx *m,
                       H2_STRM_MSG(stream, "process %s %s://%s%s"),
                       r->method, r->scheme, r->authority, r->path);
     }
-
-    rv = h2_stream_setup_input(stream);
-    if (APR_SUCCESS != rv) goto cleanup;
 
     stream->scheduled = 1;
     h2_ihash_add(m->streams, stream);
@@ -790,23 +787,19 @@ static apr_status_t c2_setup_io(h2_mplx *m, conn_rec *c2, h2_stream *stream, h2_
         h2_beam_on_was_empty(conn_ctx->beam_out, c2_beam_output_write_notify, c2);
     }
 
-    if (stream->input) {
-        conn_ctx->beam_in = stream->input;
-        h2_beam_on_send(stream->input, c2_beam_input_write_notify, c2);
-        h2_beam_on_received(stream->input, c2_beam_input_read_notify, c2);
-        h2_beam_on_consumed(stream->input, c1_input_consumed, stream);
-    }
+    conn_ctx->beam_in = stream->input;
+    h2_beam_on_send(stream->input, c2_beam_input_write_notify, c2);
+    h2_beam_on_received(stream->input, c2_beam_input_read_notify, c2);
+    h2_beam_on_consumed(stream->input, c1_input_consumed, stream);
 
 #if H2_USE_PIPES
-    if (stream->input) {
-        if (!conn_ctx->pipe_in[H2_PIPE_OUT]) {
-            action = "create input write pipe";
-            rv = apr_file_pipe_create_pools(&conn_ctx->pipe_in[H2_PIPE_OUT],
-                                            &conn_ctx->pipe_in[H2_PIPE_IN],
-                                            APR_READ_BLOCK,
-                                            c2->pool, c2->pool);
-            if (APR_SUCCESS != rv) goto cleanup;
-        }
+    if (!conn_ctx->pipe_in[H2_PIPE_OUT]) {
+        action = "create input write pipe";
+        rv = apr_file_pipe_create_pools(&conn_ctx->pipe_in[H2_PIPE_OUT],
+                                        &conn_ctx->pipe_in[H2_PIPE_IN],
+                                        APR_READ_BLOCK,
+                                        c2->pool, c2->pool);
+        if (APR_SUCCESS != rv) goto cleanup;
     }
 #else
     memset(&conn_ctx->pipe_in, 0, sizeof(conn_ctx->pipe_in));
@@ -1070,31 +1063,6 @@ apr_status_t h2_mplx_c1_client_rst(h2_mplx *m, int stream_id)
     stream = h2_ihash_get(m->streams, stream_id);
     if (stream && !reset_is_acceptable(stream)) {
         m_be_annoyed(m);
-    }
-    H2_MPLX_LEAVE(m);
-    return status;
-}
-
-apr_status_t h2_mplx_c1_input_closed(h2_mplx *m, int stream_id)
-{
-    h2_stream *stream;
-    h2_conn_ctx_t *c2_ctx;
-    apr_status_t status = APR_EAGAIN;
-
-    H2_MPLX_ENTER_ALWAYS(m);
-    stream = h2_ihash_get(m->streams, stream_id);
-    if (stream && (c2_ctx = h2_conn_ctx_get(stream->c2))) {
-        if (c2_ctx->beam_in) {
-            apr_bucket_brigade *tmp =apr_brigade_create(
-                stream->pool, m->c1->bucket_alloc);
-            apr_bucket *eos = apr_bucket_eos_create(m->c1->bucket_alloc);
-            apr_off_t written;
-
-            APR_BRIGADE_INSERT_TAIL(tmp, eos);
-            status = h2_beam_send(c2_ctx->beam_in, m->c1,
-                      tmp, APR_BLOCK_READ, &written);
-            apr_brigade_destroy(tmp);
-        }
     }
     H2_MPLX_LEAVE(m);
     return status;

@@ -3,6 +3,8 @@
  * referring to #234, adding an explicit close after a request has been
    processed to prevent missing EOS indicators from leaving a stream open
    indefinitely.
+ * fixed a race condition in end-of-input handling for requests (introduced
+   in the v2.0.x line).
 
 v2.0.5
 --------------------------------------------------------------------------------

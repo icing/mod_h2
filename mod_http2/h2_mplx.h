@@ -200,15 +200,6 @@ apr_status_t h2_mplx_c1_streams_do(h2_mplx *m, h2_mplx_stream_cb *cb, void *ctx)
 apr_status_t h2_mplx_c1_client_rst(h2_mplx *m, int stream_id);
 
 /**
- * Input for stream has been closed. Notify a possibly started
- * and waiting stream by sending an EOS.
- * @param m the mplx
- * @param stream_id the closed stream
- * @return APR_SUCCESS iff EOS was sent, APR_EAGAIN if not necessary
- */
-apr_status_t h2_mplx_c1_input_closed(h2_mplx *m, int stream_id);
-
-/**
  * Get readonly access to a stream for a secondary connection.
  */
 const struct h2_stream *h2_mplx_c2_stream_get(h2_mplx *m, int stream_id);

@@ -219,6 +219,9 @@ static apr_status_t wait_not_empty(h2_bucket_beam *beam, conn_rec *c, apr_read_t
         if (beam->aborted) {
             rv = APR_ECONNABORTED;
         }
+        else if (beam->closed) {
+            rv = APR_EOF;
+        }
         else if (APR_BLOCK_READ != block) {
             rv = APR_EAGAIN;
         }
