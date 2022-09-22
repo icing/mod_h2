@@ -604,6 +604,9 @@ static apr_status_t c2_process(h2_conn_ctx_t *conn_ctx, conn_rec *c)
     /* After the call to ap_process_request, the
      * request pool may have been deleted. */
     r = NULL;
+    if (conn_ctx->beam_out) {
+        h2_beam_close(conn_ctx->beam_out, c);
+    }
 
     ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, c,
                   "h2_c2(%s-%d): process_request done",

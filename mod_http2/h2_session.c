@@ -1903,8 +1903,10 @@ apr_status_t h2_session_process(h2_session *session, int async)
             status = h2_mplx_c1_poll(session->mplx, session->s->timeout,
                                      on_stream_input, on_stream_output, session);
             if (APR_STATUS_IS_TIMEUP(status)) {
-                h2_session_dispatch_event(session, H2_SESSION_EV_CONN_TIMEOUT, status, NULL);
-                break;
+                if (session->open_streams == 0) {
+                    h2_session_dispatch_event(session, H2_SESSION_EV_CONN_TIMEOUT, status, NULL);
+                    break;
+                }
             }
             else if (APR_SUCCESS != status) {
                 h2_session_dispatch_event(session, H2_SESSION_EV_CONN_ERROR, status, NULL);

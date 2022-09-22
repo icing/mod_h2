@@ -317,7 +317,7 @@ AC_PATH_PROG([PKGCONFIG], [pkg-config])
 
 # do we poll streams, when available, or disable this (e.g. for test runs)
 if test "$poll_streams" = "no"; then
-CPPFLAGS="$CPPFLAGS -DH2_NO_POLL_STREAMS"
+CPPFLAGS="$CPPFLAGS -DH2_NO_PIPES"
 fi
 
 

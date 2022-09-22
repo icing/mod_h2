@@ -1,3 +1,9 @@
+ * fixed handling of connection `Timeout` setting to not apply when streams
+   are still being processed. Adjusted test case expectation.
+ * referring to #234, adding an explicit close after a request has been
+   processed to prevent missing EOS indicators from leaving a stream open
+   indefinitely.
+
 v2.0.5
 --------------------------------------------------------------------------------
  * Synchronized changes from Apache trunk development. Improvements in pollset
