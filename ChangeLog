@@ -1,3 +1,5 @@
+v2.0.6
+--------------------------------------------------------------------------------
  * fixed handling of connection `Timeout` setting to not apply when streams
    are still being processed. Adjusted test case expectation.
  * referring to #234, adding an explicit close after a request has been
