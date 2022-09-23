@@ -1864,10 +1864,35 @@ apr_status_t h2_session_process(h2_session *session, int async)
                  * connection handling when nothing really happened. */
                 h2_c1_read(session);
                 if (H2_SESSION_ST_IDLE == session->state) {
-                    ap_log_cerror(APLOG_MARK, APLOG_DEBUG, status, c,
-                                  H2_SSSN_LOG(APLOGNO(10306), session,
-                                  "returning to mpm c1 monitoring"));
-                    goto leaving;
+                    if (async) {
+                        ap_log_cerror(APLOG_MARK, APLOG_DEBUG, status, c,
+                                      H2_SSSN_LOG(APLOGNO(10306), session,
+                                      "returning to mpm c1 monitoring"));
+                        goto leaving;
+                    }
+                    else {
+                        /* Not an async mpm, we must continue waiting
+                         * for client data to arrive until the configured
+                         * server Timeout/KeepAliveTimeout happens */
+                        apr_time_t timeout = (session->open_streams == 0)?
+                            session->s->keep_alive_timeout :
+                            session->s->timeout;
+                        status = h2_mplx_c1_poll(session->mplx, timeout,
+                                                 on_stream_input,
+                                                 on_stream_output, session);
+                        if (APR_STATUS_IS_TIMEUP(status)) {
+                            if (session->open_streams == 0) {
+                                h2_session_dispatch_event(session,
+                                    H2_SESSION_EV_CONN_TIMEOUT, status, NULL);
+                                break;
+                            }
+                        }
+                        else if (APR_SUCCESS != status) {
+                            h2_session_dispatch_event(session,
+                                H2_SESSION_EV_CONN_ERROR, status, NULL);
+                            break;
+                        }
+                    }
                 }
             }
             else {

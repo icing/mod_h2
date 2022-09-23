@@ -448,7 +448,7 @@ void h2_mplx_c1_destroy(h2_mplx *m)
                   H2_MPLX_MSG(m, "start release"));
     /* How to shut down a h2 connection:
      * 0. abort and tell the workers that no more work will come from us */
-    m->aborted = 1;
+    m->shutdown = m->aborted = 1;
 
     H2_MPLX_ENTER_ALWAYS(m);
 
@@ -967,6 +967,7 @@ static void workers_shutdown(void *baton, int graceful)
     /* time to wakeup and assess what to do */
     ap_log_cerror(APLOG_MARK, APLOG_TRACE2, 0, m->c1,
                   H2_MPLX_MSG(m, "workers shutdown, waking pollset"));
+    m->shutdown = 1;
     if (!graceful) {
         m->aborted = 1;
     }
@@ -1125,7 +1126,10 @@ static apr_status_t mplx_pollset_poll(h2_mplx *m, apr_interval_time_t timeout,
             H2_MPLX_LEAVE(m);
             rv = apr_pollset_poll(m->pollset, timeout >= 0? timeout : -1, &nresults, &results);
             H2_MPLX_ENTER_ALWAYS(m);
-            if (APR_STATUS_IS_EINTR(rv) && m->aborted) {
+            if (APR_STATUS_IS_EINTR(rv) && m->shutdown) {
+                if (!m->aborted) {
+                    rv = APR_SUCCESS;
+                }
                 goto cleanup;
             }
         } while (APR_STATUS_IS_EINTR(rv));

@@ -63,7 +63,8 @@ struct h2_mplx {
     struct h2_stream *stream0;      /* HTTP/2's stream 0 */
     server_rec *s;                  /* server for master conn */
 
-    int aborted;
+    int shutdown;                   /* we are shutting down */
+    int aborted;                    /* we need to get out of here asap */
     int polling;                    /* is waiting/processing pollset events */
     ap_conn_producer_t *producer;   /* registered producer at h2_workers */
 
