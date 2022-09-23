@@ -1,3 +1,5 @@
+v2.0.7
+--------------------------------------------------------------------------------
  * fixed idle connection handling for non-async MPMs, like worker.
    With mpm_worker, idle conection could go into a busy loop waiting for
    new data to arrive.
