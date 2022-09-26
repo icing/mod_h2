@@ -27,16 +27,7 @@ struct apr_thread_cond_t;
  * across threads with as little copying as possible.
  */
 
-typedef void h2_beam_mutex_leave(struct apr_thread_mutex_t *lock);
-
-typedef struct {
-    apr_thread_mutex_t *mutex;
-    h2_beam_mutex_leave *leave;
-} h2_beam_lock;
-
 typedef struct h2_bucket_beam h2_bucket_beam;
-
-typedef apr_status_t h2_beam_mutex_enter(void *ctx, h2_beam_lock *pbl);
 
 typedef void h2_beam_io_callback(void *ctx, h2_bucket_beam *beam,
                                  apr_off_t bytes);
@@ -57,8 +48,7 @@ struct h2_bucket_beam {
     apr_pool_t *pool;
     h2_blist buckets_to_send;
     h2_blist buckets_consumed;
-    apr_pool_t *recv_pool;
-    
+
     apr_size_t max_buf_size;
     apr_interval_time_t timeout;
 
@@ -254,11 +244,5 @@ apr_off_t h2_beam_get_buffered(h2_bucket_beam *beam);
  * Get the memory used by the buffered buckets, approximately.
  */
 apr_off_t h2_beam_get_mem_used(h2_bucket_beam *beam);
-
-typedef apr_bucket *h2_bucket_beamer(h2_bucket_beam *beam,
-                                     apr_bucket_brigade *dest,
-                                     const apr_bucket *src);
-
-void h2_register_bucket_beamer(h2_bucket_beamer *beamer);
 
 #endif /* h2_bucket_beam_h */

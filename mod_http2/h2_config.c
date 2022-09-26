@@ -75,7 +75,7 @@ typedef struct h2_config {
     int padding_always;
     int output_buffered;
     apr_interval_time_t stream_timeout;/* beam timeout */
-   int header_strictness;           /* which rfc to follow when verifying header */
+    int header_strictness;           /* which rfc to follow when verifying header */
 } h2_config;
 
 typedef struct h2_dir_config {

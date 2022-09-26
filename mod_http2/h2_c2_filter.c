@@ -30,6 +30,8 @@
 #include <util_time.h>
 
 #include "h2_private.h"
+#include "h2.h"
+#include "h2_config.h"
 #include "h2_conn_ctx.h"
 #include "h2_headers.h"
 #include "h2_c1.h"

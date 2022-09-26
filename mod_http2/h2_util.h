@@ -526,4 +526,19 @@ void h2_util_drain_pipe(apr_file_t *pipe);
  */
 apr_status_t h2_util_wait_on_pipe(apr_file_t *pipe);
 
+
+#if AP_MODULE_MAGIC_AT_LEAST(20211221, 6)
+/**
+ * Give an estimate of the length of the header fields,
+ * without compression or other formatting decorations.
+ */
+apr_size_t headers_length_estimate(ap_bucket_headers *hdrs);
+
+/**
+ * Give an estimate of the length of the response meta data size,
+ * without compression or other formatting decorations.
+ */
+apr_size_t response_length_estimate(ap_bucket_response *resp);
+#endif /* AP_MODULE_MAGIC_AT_LEAST(20211221, 6) */
+
 #endif /* defined(__mod_h2__h2_util__) */

@@ -125,27 +125,6 @@ static int h2_post_config(apr_pool_t *p, apr_pool_t *plog,
                  myfeats.dyn_windows? "+DWINS"  : "",
                  ngh2?                ngh2->version_str : "unknown");
     
-    switch (h2_conn_mpm_type()) {
-        case H2_MPM_SIMPLE:
-        case H2_MPM_MOTORZ:
-        case H2_MPM_NETWARE:
-        case H2_MPM_WINNT:
-            /* not sure we need something extra for those. */
-            break;
-        case H2_MPM_EVENT:
-        case H2_MPM_WORKER:
-            /* all fine, we know these ones */
-            break;
-        case H2_MPM_PREFORK:
-            /* ok, we now know how to handle that one */
-            break;
-        case H2_MPM_UNKNOWN:
-            /* ??? */
-            ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, s, APLOGNO(03091)
-                         "post_config: mpm type unknown");
-            break;
-    }
-    
     if (!h2_mpm_supported() && !mpm_warned) {
         mpm_warned = 1;
         ap_log_error(APLOG_MARK, APLOG_WARNING, 0, s, APLOGNO(10034)
@@ -181,24 +160,7 @@ static void http2_get_num_workers(server_rec *s, int *minw, int *maxw)
  */
 static void h2_child_init(apr_pool_t *pchild, server_rec *s)
 {
-    apr_allocator_t *allocator;
-    apr_thread_mutex_t *mutex;
     apr_status_t rv;
-
-    /* The allocator of pchild has no mutex with MPM prefork, but we need one
-     * for h2 workers threads synchronization. Even though mod_http2 shouldn't
-     * be used with prefork, better be safe than sorry, so forcibly set the
-     * mutex here. For MPM event/worker, pchild has no allocator so pconf's
-     * is used, with its mutex.
-     */
-    allocator = apr_pool_allocator_get(pchild);
-    if (allocator) {
-        mutex = apr_allocator_mutex_get(allocator);
-        if (!mutex) {
-            apr_thread_mutex_create(&mutex, APR_THREAD_MUTEX_DEFAULT, pchild);
-            apr_allocator_mutex_set(allocator, mutex);
-        }
-    }
 
     /* Set up our connection processing */
     rv = h2_c1_child_init(pchild, s);

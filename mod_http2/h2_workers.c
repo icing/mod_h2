@@ -21,8 +21,10 @@
 
 #include <mpm_common.h>
 #include <httpd.h>
+#include <http_connection.h>
 #include <http_core.h>
 #include <http_log.h>
+#include <http_protocol.h>
 
 #include "h2.h"
 #include "h2_private.h"

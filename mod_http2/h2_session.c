@@ -27,6 +27,7 @@
 #include <http_core.h>
 #include <http_config.h>
 #include <http_log.h>
+#include <http_protocol.h>
 #include <scoreboard.h>
 
 #include <mpm_common.h>

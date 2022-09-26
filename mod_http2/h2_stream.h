@@ -17,6 +17,8 @@
 #ifndef __mod_h2__h2_stream__
 #define __mod_h2__h2_stream__
 
+#include <http_protocol.h>
+
 #include "h2.h"
 
 /**
@@ -40,6 +42,7 @@ struct h2_request;
 struct h2_headers;
 struct h2_session;
 struct h2_bucket_beam;
+struct h2_headers;
 
 typedef struct h2_stream h2_stream;
 
@@ -213,8 +216,6 @@ apr_status_t h2_stream_recv_frame(h2_stream *stream, int frame_type, int flags, 
 apr_status_t h2_stream_recv_DATA(h2_stream *stream, uint8_t flags,
                                  const uint8_t *data, size_t len);
 
-apr_status_t h2_stream_flush_input(h2_stream *stream);
-
 /**
  * Reset the stream. Stream write/reads will return errors afterwards.
  *
@@ -270,13 +271,14 @@ apr_table_t *h2_stream_get_trailers(h2_stream *stream);
  *
  * @param stream the stream for which to submit
  */
-apr_status_t h2_stream_submit_pushes(h2_stream *stream, h2_headers *response);
+apr_status_t h2_stream_submit_pushes(h2_stream *stream,
+                                     struct h2_headers *response);
 
 /**
  * Get priority information set for this stream.
  */
 const struct h2_priority *h2_stream_get_priority(h2_stream *stream, 
-                                                 h2_headers *response);
+                                                 struct h2_headers *response);
 
 /**
  * Return a textual representation of the stream state as in RFC 7540

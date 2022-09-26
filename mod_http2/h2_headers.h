@@ -21,6 +21,15 @@
 
 struct h2_bucket_beam;
 
+typedef struct h2_headers h2_headers;
+struct h2_headers {
+    int         status;
+    apr_table_t *headers;
+    apr_table_t *notes;
+    apr_off_t   raw_bytes;      /* RAW network bytes that generated this request - if known. */
+};
+
+
 extern const apr_bucket_type_t h2_bucket_type_headers;
 
 #define H2_BUCKET_IS_HEADERS(e)     (e->type == &h2_bucket_type_headers)
@@ -31,10 +40,6 @@ apr_bucket * h2_bucket_headers_create(apr_bucket_alloc_t *list,
                                        h2_headers *r);
                                        
 h2_headers *h2_bucket_headers_get(apr_bucket *b);
-
-apr_bucket *h2_bucket_headers_beam(struct h2_bucket_beam *beam,
-                                    apr_bucket_brigade *dest,
-                                    const apr_bucket *src);
 
 /**
  * Create the headers from the given status and headers
@@ -91,5 +96,8 @@ apr_size_t h2_headers_length(h2_headers *headers);
  * For all other buckets, return 0.
  */
 apr_size_t h2_bucket_headers_headers_length(apr_bucket *b);
+
+apr_bucket *h2_bucket_headers_clone(apr_bucket *b, apr_pool_t *pool,
+                                    apr_bucket_alloc_t *list);
 
 #endif /* defined(__mod_h2__h2_headers__) */

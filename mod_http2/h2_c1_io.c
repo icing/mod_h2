@@ -486,12 +486,11 @@ static apr_status_t read_and_feed(h2_session *session)
     rv = ap_get_brigade(session->c1->input_filters,
                         session->bbtmp, AP_MODE_READBYTES,
                         APR_NONBLOCK_READ, bytes_requested);
-    ap_log_cerror(APLOG_MARK, APLOG_TRACE2, rv, session->c1,
-                  H2_SSSN_MSG(session, "c1 get_brigade"));
 
     if (APR_SUCCESS == rv) {
         if (!APR_BRIGADE_EMPTY(session->bbtmp)) {
-            h2_util_bb_log(session->c1, session->id, APLOG_TRACE2, "c1 in", session->bbtmp);
+            h2_util_bb_log(session->c1, session->id, APLOG_TRACE2, "c1 in",
+                           session->bbtmp);
             rv = c1_in_feed_brigade(session, session->bbtmp, &bytes_fed);
             session->io.bytes_read += bytes_fed;
         }
