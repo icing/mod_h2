@@ -197,7 +197,7 @@ static h2_headers *create_response(request_rec *r)
     }
     
     if (!apr_is_empty_array(r->content_languages)) {
-        unsigned int i;
+        int i;
         char *token;
         char **languages = (char **)(r->content_languages->elts);
         const char *field = apr_table_get(r->headers_out, "Content-Language");
@@ -351,7 +351,7 @@ static apr_status_t get_line(h2_response_parser *parser, apr_bucket_brigade *bb,
                  * HUGE_STRING_LEN which might be an issue.
                  */
                 status = apr_brigade_length(parser->tmp, 0, &brigade_length);
-                if ((status != APR_SUCCESS) || (brigade_length > len)) {
+                if ((status != APR_SUCCESS) || (brigade_length > (apr_off_t)len)) {
                     ap_log_cerror(APLOG_MARK, APLOG_ERR, 0, parser->c, APLOGNO(10257)
                                   "h2_c2(%s): read response, line too long",
                                   parser->id);
@@ -826,8 +826,10 @@ apr_status_t h2_c2_filter_request_in(ap_filter_t* f,
     }
 
     ap_log_rerror(APLOG_MARK, APLOG_TRACE2, 0, f->r,
-                  "h2_c2(%s-%d): request input, exp=%d",
-                  conn_ctx->id, conn_ctx->stream_id, r->expecting_100);
+                  "h2_c2(%s-%d): request input, mode=%d, block=%d, "
+                  "readbytes=%ld, exp=%d",
+                  conn_ctx->id, conn_ctx->stream_id, mode, block,
+                  (long)readbytes, r->expecting_100);
     if (!conn_ctx->request->chunked) {
         status = ap_get_brigade(f->next, bb, mode, block, readbytes);
         /* pipe data through, just take care of trailers */
