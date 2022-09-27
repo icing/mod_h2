@@ -19,6 +19,8 @@
 
 #include "h2.h"
 
+#if !AP_HAS_RESPONSE_BUCKETS
+
 struct h2_bucket_beam;
 
 typedef struct h2_headers h2_headers;
@@ -99,5 +101,7 @@ apr_size_t h2_bucket_headers_headers_length(apr_bucket *b);
 
 apr_bucket *h2_bucket_headers_clone(apr_bucket *b, apr_pool_t *pool,
                                     apr_bucket_alloc_t *list);
+
+#endif /* !AP_HAS_RESPONSE_BUCKETS */
 
 #endif /* defined(__mod_h2__h2_headers__) */

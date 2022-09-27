@@ -111,7 +111,7 @@ apr_status_t h2_request_rcreate(h2_request **preq, apr_pool_t *pool,
             }
         }
     }
-    
+
     req = apr_pcalloc(pool, sizeof(*req));
     req->method      = apr_pstrdup(pool, r->method);
     req->scheme      = scheme;
@@ -124,32 +124,32 @@ apr_status_t h2_request_rcreate(h2_request **preq, apr_pool_t *pool,
     x.headers = req->headers;
     x.status = APR_SUCCESS;
     apr_table_do(set_h1_header, &x, r->headers_in, NULL);
-    
+
     *preq = req;
     return x.status;
 }
 
-apr_status_t h2_request_add_header(h2_request *req, apr_pool_t *pool, 
+apr_status_t h2_request_add_header(h2_request *req, apr_pool_t *pool,
                                    const char *name, size_t nlen,
                                    const char *value, size_t vlen,
                                    size_t max_field_len, int *pwas_added)
 {
     apr_status_t status = APR_SUCCESS;
-    
+
     *pwas_added = 0;
     if (nlen <= 0) {
         return status;
     }
-    
+
     if (name[0] == ':') {
         /* pseudo header, see ch. 8.1.2.3, always should come first */
         if (!apr_is_empty_table(req->headers)) {
             ap_log_perror(APLOG_MARK, APLOG_ERR, 0, pool,
-                          APLOGNO(02917) 
+                          APLOGNO(02917)
                           "h2_request: pseudo header after request start");
             return APR_EGENERAL;
         }
-        
+
         if (H2_HEADER_METHOD_LEN == nlen
             && !strncmp(H2_HEADER_METHOD, name, nlen)) {
             req->method = apr_pstrndup(pool, value, vlen);
@@ -171,17 +171,17 @@ apr_status_t h2_request_add_header(h2_request *req, apr_pool_t *pool,
             memset(buffer, 0, 32);
             strncpy(buffer, name, (nlen > 31)? 31 : nlen);
             ap_log_perror(APLOG_MARK, APLOG_WARNING, 0, pool,
-                          APLOGNO(02954) 
+                          APLOGNO(02954)
                           "h2_request: ignoring unknown pseudo header %s",
                           buffer);
         }
     }
     else {
         /* non-pseudo header, add to table */
-        status = h2_req_add_header(req->headers, pool, name, nlen, value, vlen, 
+        status = h2_req_add_header(req->headers, pool, name, nlen, value, vlen,
                                    max_field_len, pwas_added);
     }
-    
+
     return status;
 }
 
@@ -190,7 +190,7 @@ apr_status_t h2_request_end_headers(h2_request *req, apr_pool_t *pool, int eos, 
     const char *s;
 
     /* rfc7540, ch. 8.1.2.3:
-     * - if we have :authority, it overrides any Host header 
+     * - if we have :authority, it overrides any Host header
      * - :authority MUST be omitted when converting h1->h2, so we
      *   might get a stream without, but then Host needs to be there */
     if (!req->authority) {
@@ -204,6 +204,17 @@ apr_status_t h2_request_end_headers(h2_request *req, apr_pool_t *pool, int eos, 
         apr_table_setn(req->headers, "Host", req->authority);
     }
 
+#if AP_HAS_RESPONSE_BUCKETS
+    if (eos) {
+        s = apr_table_get(req->headers, "Content-Length");
+        if (!s && apr_table_get(req->headers, "Content-Type")) {
+            /* If we have a content-type, but already seen eos, no more
+             * data will come. Signal a zero content length explicitly.
+             */
+            apr_table_setn(req->headers, "Content-Length", "0");
+        }
+    }
+#else /* AP_HAS_RESPONSE_BUCKETS */
     s = apr_table_get(req->headers, "Content-Length");
     if (!s) {
         /* HTTP/2 does not need a Content-Length for framing, but our
@@ -225,6 +236,7 @@ apr_status_t h2_request_end_headers(h2_request *req, apr_pool_t *pool, int eos, 
             apr_table_setn(req->headers, "Content-Length", "0");
         }
     }
+#endif /* else AP_HAS_RESPONSE_BUCKETS */
     req->raw_bytes += raw_bytes;
 
     return APR_SUCCESS;
@@ -298,9 +310,32 @@ static request_rec *my_ap_create_request(conn_rec *c)
 }
 #endif
 
+#if AP_HAS_RESPONSE_BUCKETS
+apr_bucket *h2_request_create_bucket(const h2_request *req, request_rec *r)
+{
+    conn_rec *c = r->connection;
+    apr_table_t *headers = apr_table_copy(r->pool, req->headers);
+    const char *uri = req->path;
+
+    AP_DEBUG_ASSERT(req->authority);
+    if (req->scheme && (ap_cstr_casecmp(req->scheme,
+                        ap_ssl_conn_is_ssl(c->master? c->master : c)? "https" : "http")
+                        || !ap_cstr_casecmp("CONNECT", req->method))) {
+        /* Client sent a non-matching ':scheme' pseudo header or CONNECT.
+         * In this case, we use an absolute URI.
+         */
+        uri = apr_psprintf(r->pool, "%s://%s%s",
+                           req->scheme, req->authority, req->path ? req->path : "");
+    }
+
+    return ap_bucket_request_create(req->method, uri, "HTTP/2.0", headers,
+                                    r->pool, c->bucket_alloc);
+}
+#endif
+
 request_rec *h2_create_request_rec(const h2_request *req, conn_rec *c)
 {
-    int access_status = HTTP_OK;    
+    int access_status = HTTP_OK;
 
 #if AP_MODULE_MAGIC_AT_LEAST(20120211, 106)
     request_rec *r = ap_create_request(c);
@@ -421,7 +456,7 @@ request_rec *h2_create_request_rec(const h2_request *req, conn_rec *c)
      */
     ap_add_input_filter_handle(ap_http_input_filter_handle,
                                NULL, r, r->connection);
-    
+
     if ((access_status = ap_post_read_request(r))) {
         /* Request check post hooks failed. An example of this would be a
          * request for a vhost where h2 is disabled --> 421.
@@ -432,8 +467,8 @@ request_rec *h2_create_request_rec(const h2_request *req, conn_rec *c)
         goto die;
     }
 
-    AP_READ_REQUEST_SUCCESS((uintptr_t)r, (char *)r->method, 
-                            (char *)r->uri, (char *)r->server->defn_name, 
+    AP_READ_REQUEST_SUCCESS((uintptr_t)r, (char *)r->method,
+                            (char *)r->uri, (char *)r->server->defn_name,
                             r->status);
     return r;
 
@@ -466,6 +501,3 @@ die:
     AP_READ_REQUEST_FAILURE((uintptr_t)r);
     return NULL;
 }
-
-
-

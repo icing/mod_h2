@@ -613,9 +613,21 @@ transfer:
             else if (APR_BUCKET_IS_FLUSH(bsender)) {
                 brecv = apr_bucket_flush_create(bb->bucket_alloc);
             }
+#if AP_HAS_RESPONSE_BUCKETS
+            else if (AP_BUCKET_IS_RESPONSE(bsender)) {
+                brecv = ap_bucket_response_clone(bsender, bb->p, bb->bucket_alloc);
+            }
+            else if (AP_BUCKET_IS_REQUEST(bsender)) {
+                brecv = ap_bucket_request_clone(bsender, bb->p, bb->bucket_alloc);
+            }
+            else if (AP_BUCKET_IS_HEADERS(bsender)) {
+                brecv = ap_bucket_headers_clone(bsender, bb->p, bb->bucket_alloc);
+            }
+#else
             else if (H2_BUCKET_IS_HEADERS(bsender)) {
                 brecv = h2_bucket_headers_clone(bsender, bb->p, bb->bucket_alloc);
             }
+#endif /* AP_HAS_RESPONSE_BUCKETS */
             else if (AP_BUCKET_IS_ERROR(bsender)) {
                 ap_bucket_error *eb = bsender->data;
                 brecv = ap_bucket_error_create(eb->status, eb->data,

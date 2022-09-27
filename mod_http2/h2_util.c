@@ -1173,7 +1173,7 @@ apr_size_t h2_util_table_bytes(apr_table_t *t, apr_size_t pair_extra)
 static void fit_bucket_into(apr_bucket *b, apr_off_t *plen)
 {
     /* signed apr_off_t is at least as large as unsigned apr_size_t.
-     * Propblems may arise when they are both the same size. Then
+     * Problems may arise when they are both the same size. Then
      * the bucket length *may* be larger than a value we can hold
      * in apr_off_t. Before casting b->length to apr_off_t we must
      * check the limitations.
@@ -1503,6 +1503,36 @@ static apr_status_t ngheader_create(h2_ngheader **ph, apr_pool_t *p,
     return ctx.status;
 }
 
+#if AP_HAS_RESPONSE_BUCKETS
+
+static int is_unsafe(ap_bucket_response *h)
+{
+    const char *v = h->notes? apr_table_get(h->notes, H2_HDR_CONFORMANCE) : NULL;
+    return (v && !strcmp(v, H2_HDR_CONFORMANCE_UNSAFE));
+}
+
+apr_status_t h2_res_create_ngtrailer(h2_ngheader **ph, apr_pool_t *p,
+                                    ap_bucket_headers *headers)
+{
+    return ngheader_create(ph, p, 0,
+                           0, NULL, NULL, headers->headers);
+}
+
+apr_status_t h2_res_create_ngheader(h2_ngheader **ph, apr_pool_t *p,
+                                    ap_bucket_response *response)
+{
+    const char *keys[] = {
+        ":status"
+    };
+    const char *values[] = {
+        apr_psprintf(p, "%d", response->status)
+    };
+    return ngheader_create(ph, p, is_unsafe(response),
+                           H2_ALEN(keys), keys, values, response->headers);
+}
+
+#else /* AP_HAS_RESPONSE_BUCKETS */
+
 static int is_unsafe(h2_headers *h)
 {
     const char *v = h->notes? apr_table_get(h->notes, H2_HDR_CONFORMANCE) : NULL;
@@ -1528,6 +1558,8 @@ apr_status_t h2_res_create_ngheader(h2_ngheader **ph, apr_pool_t *p,
     return ngheader_create(ph, p, is_unsafe(headers),
                            H2_ALEN(keys), keys, values, headers->headers);
 }
+
+#endif /* else AP_HAS_RESPONSE_BUCKETS */
 
 apr_status_t h2_req_create_ngheader(h2_ngheader **ph, apr_pool_t *p,
                                     const struct h2_request *req)
@@ -1826,7 +1858,8 @@ apr_status_t h2_util_wait_on_pipe(apr_file_t *pipe)
     return apr_file_read(pipe, rb, &nr);
 }
 
-#if AP_MODULE_MAGIC_AT_LEAST(20211221, 6)
+#if AP_HAS_RESPONSE_BUCKETS
+
 static int add_header_lengths(void *ctx, const char *name, const char *value)
 {
     apr_size_t *plen = ctx;
@@ -1847,4 +1880,5 @@ apr_size_t response_length_estimate(ap_bucket_response *resp)
     apr_table_do(add_header_lengths, &len, resp->headers, NULL);
     return len;
 }
-#endif /* AP_MODULE_MAGIC_AT_LEAST(20211221, 6) */
+
+#endif /* AP_HAS_RESPONSE_BUCKETS */

@@ -148,7 +148,7 @@ static int on_frame(h2_stream_state_t state, int frame_type,
 {
     ap_assert(frame_type >= 0);
     ap_assert(state >= 0);
-    if (frame_type < 0 || (apr_size_t)frame_type >= maxlen) {
+    if ((apr_size_t)frame_type >= maxlen) {
         return state; /* NOP, ignore unknown frame types */
     }
     return on_map(state, frame_map[frame_type]);
@@ -263,15 +263,18 @@ static apr_status_t close_input(h2_stream *stream)
     if (!stream->rst_error
         && stream->trailers_in
         && !apr_is_empty_table(stream->trailers_in)) {
-        h2_headers *r;
-        
         ap_log_cerror(APLOG_MARK, APLOG_TRACE2, 0, stream->session->c1,
                       H2_STRM_MSG(stream, "adding trailers"));
-        r = h2_headers_create(HTTP_OK, stream->trailers_in, NULL,
-            stream->in_trailer_octets, stream->pool);
-        stream->trailers_in = NULL;
-        b = h2_bucket_headers_create(c->bucket_alloc, r);
+#if AP_HAS_RESPONSE_BUCKETS
+        b = ap_bucket_headers_create(stream->trailers_in,
+                                     stream->pool, c->bucket_alloc);
+#else
+        b = h2_bucket_headers_create(c->bucket_alloc,
+            h2_headers_create(HTTP_OK, stream->trailers_in, NULL,
+                              stream->in_trailer_octets, stream->pool));
+#endif
         input_append_bucket(stream, b);
+        stream->trailers_in = NULL;
     }
 
     stream->input_closed = 1;
@@ -885,9 +888,15 @@ static apr_bucket *get_first_response_bucket(apr_bucket_brigade *bb)
     if (bb) {
         apr_bucket *b = APR_BRIGADE_FIRST(bb);
         while (b != APR_BRIGADE_SENTINEL(bb)) {
+#if AP_HAS_RESPONSE_BUCKETS
+            if (AP_BUCKET_IS_RESPONSE(b)) {
+                return b;
+            }
+#else
             if (H2_BUCKET_IS_HEADERS(b)) {
                 return b;
             }
+#endif
             b = APR_BUCKET_NEXT(b);
         }
     }
@@ -975,7 +984,13 @@ cleanup:
 
 static int bucket_pass_to_c1(apr_bucket *b)
 {
+#if AP_HAS_RESPONSE_BUCKETS
+    return !AP_BUCKET_IS_RESPONSE(b)
+           && !AP_BUCKET_IS_HEADERS(b)
+           && !APR_BUCKET_IS_EOS(b);
+#else
     return !H2_BUCKET_IS_HEADERS(b) && !APR_BUCKET_IS_EOS(b);
+#endif
 }
 
 apr_status_t h2_stream_read_to(h2_stream *stream, apr_bucket_brigade *bb, 
@@ -996,11 +1011,16 @@ apr_status_t h2_stream_read_to(h2_stream *stream, apr_bucket_brigade *bb,
 static apr_status_t buffer_output_process_headers(h2_stream *stream)
 {
     conn_rec *c1 = stream->session->c1;
-    h2_headers *headers = NULL, *resp = NULL;
     apr_status_t rv = APR_EAGAIN;
     int ngrv = 0, is_empty;
     h2_ngheader *nh = NULL;
     apr_bucket *b, *e;
+#if AP_HAS_RESPONSE_BUCKETS
+    ap_bucket_response *resp = NULL;
+    ap_bucket_headers *headers = NULL;
+#else
+    h2_headers *headers = NULL, *resp = NULL;
+#endif
 
     if (!stream->out_buffer) goto cleanup;
 
@@ -1008,6 +1028,27 @@ static apr_status_t buffer_output_process_headers(h2_stream *stream)
     while (b != APR_BRIGADE_SENTINEL(stream->out_buffer)) {
         e = APR_BUCKET_NEXT(b);
         if (APR_BUCKET_IS_METADATA(b)) {
+#if AP_HAS_RESPONSE_BUCKETS
+            if (AP_BUCKET_IS_RESPONSE(b)) {
+                resp = b->data;
+                APR_BUCKET_REMOVE(b);
+                apr_bucket_destroy(b);
+                ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, c1,
+                              H2_STRM_MSG(stream, "process response %d"),
+                              resp->status);
+                b = e;
+                break;
+            }
+            else if (AP_BUCKET_IS_HEADERS(b)) {
+                headers = b->data;
+                APR_BUCKET_REMOVE(b);
+                apr_bucket_destroy(b);
+                ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, c1,
+                              H2_STRM_MSG(stream, "process headers"));
+                b = e;
+                break;
+            }
+#else /* AP_HAS_RESPONSE_BUCKETS */
             if (H2_BUCKET_IS_HEADERS(b)) {
                 headers = h2_bucket_headers_get(b);
                 APR_BUCKET_REMOVE(b);
@@ -1022,6 +1063,7 @@ static apr_status_t buffer_output_process_headers(h2_stream *stream)
                 b = e;
                 break;
             }
+#endif /* else AP_HAS_RESPONSE_BUCKETS */
         }
         else {
             if (!stream->response) {
@@ -1111,9 +1153,15 @@ static apr_status_t buffer_output_process_headers(h2_stream *stream)
         is_empty = 0;
         while (b != APR_BRIGADE_SENTINEL(stream->out_buffer)) {
             if (APR_BUCKET_IS_METADATA(b)) {
+#if AP_HAS_RESPONSE_BUCKETS
+                if (AP_BUCKET_IS_HEADERS(b)) {
+                    break;
+                }
+#else
                 if (H2_BUCKET_IS_HEADERS(b)) {
                     break;
                 }
+#endif
                 else if (APR_BUCKET_IS_EOS(b)) {
                     is_empty = 1;
                     break;
@@ -1180,7 +1228,11 @@ cleanup:
     return rv;
 }
 
+#if AP_HAS_RESPONSE_BUCKETS
+apr_status_t h2_stream_submit_pushes(h2_stream *stream, ap_bucket_response *response)
+#else
 apr_status_t h2_stream_submit_pushes(h2_stream *stream, h2_headers *response)
+#endif
 {
     apr_status_t status = APR_SUCCESS;
     apr_array_header_t *pushes;
@@ -1208,8 +1260,13 @@ apr_table_t *h2_stream_get_trailers(h2_stream *stream)
     return NULL;
 }
 
-const h2_priority *h2_stream_get_priority(h2_stream *stream, 
+#if AP_HAS_RESPONSE_BUCKETS
+const h2_priority *h2_stream_get_priority(h2_stream *stream,
+                                          ap_bucket_response *response)
+#else
+const h2_priority *h2_stream_get_priority(h2_stream *stream,
                                           h2_headers *response)
+#endif
 {
     if (response && stream->initiated_on) {
         const char *ctype = apr_table_get(response->headers, "content-type");
@@ -1319,10 +1376,20 @@ static apr_off_t output_data_buffered(h2_stream *stream, int *peos, int *pheader
                     *peos = 1;
                     break;
                 }
+#if AP_HAS_RESPONSE_BUCKETS
+                else if (AP_BUCKET_IS_RESPONSE(b)) {
+                    break;
+                }
+                else if (AP_BUCKET_IS_HEADERS(b)) {
+                    *pheader_blocked = 1;
+                    break;
+                }
+#else
                 else if (H2_BUCKET_IS_HEADERS(b)) {
                     *pheader_blocked = 1;
                     break;
                 }
+#endif
             }
             else {
                 buf_len += b->length;

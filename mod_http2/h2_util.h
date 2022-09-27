@@ -18,6 +18,10 @@
 #define __mod_h2__h2_util__
 
 #include <nghttp2/nghttp2.h>
+#include <http_protocol.h>
+
+#include "h2.h"
+#include "h2_headers.h"
 
 /*******************************************************************************
  * some debugging/format helpers
@@ -391,19 +395,26 @@ const char *h2_util_base64url_encode(const char *data,
 
 int h2_util_ignore_header(const char *name);
 
-struct h2_headers;
-
 typedef struct h2_ngheader {
     nghttp2_nv *nv;
     apr_size_t nvlen;
 } h2_ngheader;
 
+#if AP_HAS_RESPONSE_BUCKETS
+apr_status_t h2_res_create_ngtrailer(h2_ngheader **ph, apr_pool_t *p,
+                                     ap_bucket_headers *headers);
+apr_status_t h2_res_create_ngheader(h2_ngheader **ph, apr_pool_t *p,
+                                    ap_bucket_response *response);
+apr_status_t h2_req_create_ngheader(h2_ngheader **ph, apr_pool_t *p,
+                                    const struct h2_request *req);
+#else
 apr_status_t h2_res_create_ngtrailer(h2_ngheader **ph, apr_pool_t *p, 
                                      struct h2_headers *headers); 
 apr_status_t h2_res_create_ngheader(h2_ngheader **ph, apr_pool_t *p, 
                                     struct h2_headers *headers); 
 apr_status_t h2_req_create_ngheader(h2_ngheader **ph, apr_pool_t *p, 
                                     const struct h2_request *req);
+#endif
 
 /**
  * Add a HTTP/2 header and return the table key if it really was added
@@ -510,7 +521,7 @@ void h2_util_drain_pipe(apr_file_t *pipe);
 apr_status_t h2_util_wait_on_pipe(apr_file_t *pipe);
 
 
-#if AP_MODULE_MAGIC_AT_LEAST(20211221, 6)
+#if AP_HAS_RESPONSE_BUCKETS
 /**
  * Give an estimate of the length of the header fields,
  * without compression or other formatting decorations.
@@ -522,6 +533,6 @@ apr_size_t headers_length_estimate(ap_bucket_headers *hdrs);
  * without compression or other formatting decorations.
  */
 apr_size_t response_length_estimate(ap_bucket_response *resp);
-#endif /* AP_MODULE_MAGIC_AT_LEAST(20211221, 6) */
+#endif /* AP_HAS_RESPONSE_BUCKETS */
 
 #endif /* defined(__mod_h2__h2_util__) */
