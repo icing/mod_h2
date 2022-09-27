@@ -56,6 +56,15 @@ static module *mpm_module;
 static int mpm_supported = 1;
 static apr_socket_t *dummy_socket;
 
+#if AP_HAS_RESPONSE_BUCKETS
+
+static ap_filter_rec_t *c2_net_in_filter_handle;
+static ap_filter_rec_t *c2_net_out_filter_handle;
+static ap_filter_rec_t *c2_request_in_filter_handle;
+static ap_filter_rec_t *c2_notes_out_filter_handle;
+
+#endif /* AP_HAS_RESPONSE_BUCKETS */
+
 static void check_modules(int force)
 {
     static int checked = 0;
@@ -122,70 +131,6 @@ apr_status_t h2_c2_child_init(apr_pool_t *pool, server_rec *s)
     check_modules(1);
     return apr_socket_create(&dummy_socket, APR_INET, SOCK_STREAM,
                              APR_PROTO_TCP, pool);
-}
-
-conn_rec *h2_c2_create(conn_rec *c1, apr_pool_t *parent,
-                       apr_bucket_alloc_t *buckt_alloc)
-{
-    apr_pool_t *pool;
-    conn_rec *c2;
-    void *cfg;
-
-    ap_assert(c1);
-    ap_log_cerror(APLOG_MARK, APLOG_TRACE3, 0, c1,
-                  "h2_c2: create for c1(%ld)", c1->id);
-
-    /* We create a pool with its own allocator to be used for
-     * processing a request. This is the only way to have the processing
-     * independent of its parent pool in the sense that it can work in
-     * another thread.
-     */
-    apr_pool_create(&pool, parent);
-    apr_pool_tag(pool, "h2_c2_conn");
-
-    c2 = (conn_rec *) apr_palloc(pool, sizeof(conn_rec));
-    memcpy(c2, c1, sizeof(conn_rec));
-
-    c2->master                 = c1;
-    c2->pool                   = pool;
-    c2->conn_config            = ap_create_conn_config(pool);
-    c2->notes                  = apr_table_make(pool, 5);
-    c2->input_filters          = NULL;
-    c2->output_filters         = NULL;
-    c2->keepalives             = 0;
-#if AP_MODULE_MAGIC_AT_LEAST(20180903, 1)
-    c2->filter_conn_ctx        = NULL;
-#endif
-    c2->bucket_alloc           = apr_bucket_alloc_create(pool);
-#if !AP_MODULE_MAGIC_AT_LEAST(20180720, 1)
-    c2->data_in_input_filters  = 0;
-    c2->data_in_output_filters = 0;
-#endif
-    /* prevent mpm_event from making wrong assumptions about this connection,
-     * like e.g. using its socket for an async read check. */
-    c2->clogging_input_filters = 1;
-    c2->log                    = NULL;
-    c2->aborted                = 0;
-    /* We cannot install the master connection socket on the secondary, as
-     * modules mess with timeouts/blocking of the socket, with
-     * unwanted side effects to the master connection processing.
-     * Fortunately, since we never use the secondary socket, we can just install
-     * a single, process-wide dummy and everyone is happy.
-     */
-    ap_set_module_config(c2->conn_config, &core_module, dummy_socket);
-    /* TODO: these should be unique to this thread */
-    c2->sbh = NULL; /*c1->sbh;*/
-    /* TODO: not all mpm modules have learned about secondary connections yet.
-     * copy their config from master to secondary.
-     */
-    if (mpm_module) {
-        cfg = ap_get_module_config(c1->conn_config, mpm_module);
-        ap_set_module_config(c2->conn_config, mpm_module, cfg);
-    }
-
-    ap_log_cerror(APLOG_MARK, APLOG_TRACE3, 0, c2,
-                  "h2_c2(%s): created", c2->log_id);
-    return c2;
 }
 
 void h2_c2_destroy(conn_rec *c2)
@@ -394,9 +339,18 @@ static apr_status_t beam_out(conn_rec *c2, h2_conn_ctx_t *conn_ctx, apr_bucket_b
         for (b = APR_BRIGADE_FIRST(bb);
              b != APR_BRIGADE_SENTINEL(bb);
              b = APR_BUCKET_NEXT(b)) {
+#if AP_HAS_RESPONSE_BUCKETS
+            if (AP_BUCKET_IS_RESPONSE(b)) {
+                header_len += (apr_off_t)response_length_estimate(b->data);
+            }
+            if (AP_BUCKET_IS_HEADERS(b)) {
+                header_len += (apr_off_t)headers_length_estimate(b->data);
+            }
+#else
             if (H2_BUCKET_IS_HEADERS(b)) {
                 header_len += (apr_off_t)h2_bucket_headers_headers_length(b);
             }
+#endif /* AP_HAS_RESPONSE_BUCKETS */
         }
     }
 
@@ -417,6 +371,27 @@ static apr_status_t h2_c2_filter_out(ap_filter_t* f, apr_bucket_brigade* bb)
     apr_status_t rv;
 
     ap_assert(conn_ctx);
+#if AP_HAS_RESPONSE_BUCKETS
+    if (!conn_ctx->has_final_response) {
+        apr_bucket *e;
+
+        for (e = APR_BRIGADE_FIRST(bb);
+             e != APR_BRIGADE_SENTINEL(bb);
+             e = APR_BUCKET_NEXT(e))
+        {
+            if (AP_BUCKET_IS_RESPONSE(e)) {
+                ap_bucket_response *resp = e->data;
+                if (resp->status >= 200) {
+                    conn_ctx->has_final_response = 1;
+                    break;
+                }
+            }
+            if (APR_BUCKET_IS_EOS(e)) {
+                break;
+            }
+        }
+    }
+#endif /* AP_HAS_RESPONSE_BUCKETS */
     rv = beam_out(f->c, conn_ctx, bb);
 
     ap_log_cerror(APLOG_MARK, APLOG_TRACE2, rv, f->c,
@@ -427,6 +402,162 @@ static apr_status_t h2_c2_filter_out(ap_filter_t* f, apr_bucket_brigade* bb)
     }
     return rv;
 }
+
+static void check_push(request_rec *r, const char *tag)
+{
+    apr_array_header_t *push_list = h2_config_push_list(r);
+
+    if (!r->expecting_100 && push_list && push_list->nelts > 0) {
+        int i, old_status;
+        const char *old_line;
+
+        ap_log_rerror(APLOG_MARK, APLOG_TRACE1, 0, r,
+                      "%s, early announcing %d resources for push",
+                      tag, push_list->nelts);
+        for (i = 0; i < push_list->nelts; ++i) {
+            h2_push_res *push = &APR_ARRAY_IDX(push_list, i, h2_push_res);
+            apr_table_add(r->headers_out, "Link",
+                           apr_psprintf(r->pool, "<%s>; rel=preload%s",
+                                        push->uri_ref, push->critical? "; critical" : ""));
+        }
+        old_status = r->status;
+        old_line = r->status_line;
+        r->status = 103;
+        r->status_line = "103 Early Hints";
+        ap_send_interim_response(r, 1);
+        r->status = old_status;
+        r->status_line = old_line;
+    }
+}
+
+static int c2_hook_fixups(request_rec *r)
+{
+    conn_rec *c2 = r->connection;
+    h2_conn_ctx_t *conn_ctx;
+
+    if (!c2->master || !(conn_ctx = h2_conn_ctx_get(c2)) || !conn_ctx->stream_id) {
+        return DECLINED;
+    }
+
+    check_push(r, "late_fixup");
+
+    return DECLINED;
+}
+
+#if AP_HAS_RESPONSE_BUCKETS
+
+static void c2_pre_read_request(request_rec *r, conn_rec *c2)
+{
+    h2_conn_ctx_t *conn_ctx;
+
+    if (!c2->master || !(conn_ctx = h2_conn_ctx_get(c2)) || !conn_ctx->stream_id) {
+        return;
+    }
+    ap_log_rerror(APLOG_MARK, APLOG_TRACE3, 0, r,
+                  "h2_c2(%s-%d): adding request filters",
+                  conn_ctx->id, conn_ctx->stream_id);
+    ap_add_input_filter_handle(c2_request_in_filter_handle, NULL, r, r->connection);
+    ap_add_output_filter_handle(c2_notes_out_filter_handle, NULL, r, r->connection);
+}
+
+static int c2_post_read_request(request_rec *r)
+{
+    h2_conn_ctx_t *conn_ctx;
+    conn_rec *c2 = r->connection;
+
+    if (!c2->master || !(conn_ctx = h2_conn_ctx_get(c2)) || !conn_ctx->stream_id) {
+        return DECLINED;
+    }
+    /* Now that the request_rec is fully initialized, set relevant params */
+    conn_ctx->server = r->server;
+    h2_conn_ctx_set_timeout(conn_ctx, r->server->timeout);
+    /* We only handle this one request on the connection and tell everyone
+     * that there is no need to keep it "clean" if something fails. Also,
+     * this prevents mod_reqtimeout from doing funny business with monitoring
+     * keepalive timeouts.
+     */
+    r->connection->keepalive = AP_CONN_CLOSE;
+
+    if (conn_ctx->beam_in && !apr_table_get(r->headers_in, "Content-Length")) {
+        r->body_indeterminate = 1;
+    }
+
+    if (h2_config_sgeti(conn_ctx->server, H2_CONF_COPY_FILES)) {
+        ap_log_rerror(APLOG_MARK, APLOG_TRACE1, 0, r,
+                      "h2_mplx(%s-%d): copy_files in output",
+                      conn_ctx->id, conn_ctx->stream_id);
+        h2_beam_set_copy_files(conn_ctx->beam_out, 1);
+    }
+
+    /* Add the raw bytes of the request (e.g. header frame lengths to
+     * the logio for this request. */
+    if (conn_ctx->request->raw_bytes && h2_c_logio_add_bytes_in) {
+        h2_c_logio_add_bytes_in(c2, conn_ctx->request->raw_bytes);
+    }
+    return OK;
+}
+
+static int c2_hook_pre_connection(conn_rec *c2, void *csd)
+{
+    h2_conn_ctx_t *conn_ctx;
+
+    if (!c2->master || !(conn_ctx = h2_conn_ctx_get(c2)) || !conn_ctx->stream_id) {
+        return DECLINED;
+    }
+
+    ap_log_cerror(APLOG_MARK, APLOG_TRACE2, 0, c2,
+                  "h2_c2(%s-%d), adding filters",
+                  conn_ctx->id, conn_ctx->stream_id);
+    ap_add_input_filter_handle(c2_net_in_filter_handle, NULL, NULL, c2);
+    ap_add_output_filter_handle(c2_net_out_filter_handle, NULL, NULL, c2);
+    if (c2->keepalives == 0) {
+        /* Simulate that we had already a request on this connection. Some
+         * hooks trigger special behaviour when keepalives is 0.
+         * (Not necessarily in pre_connection, but later. Set it here, so it
+         * is in place.) */
+        c2->keepalives = 1;
+        /* We signal that this connection will be closed after the request.
+         * Which is true in that sense that we throw away all traffic data
+         * on this c2 connection after each requests. Although we might
+         * reuse internal structures like memory pools.
+         * The wanted effect of this is that httpd does not try to clean up
+         * any dangling data on this connection when a request is done. Which
+         * is unnecessary on a h2 stream.
+         */
+        c2->keepalive = AP_CONN_CLOSE;
+    }
+    return OK;
+}
+
+void h2_c2_register_hooks(void)
+{
+    /* When the connection processing actually starts, we might
+     * take over, if the connection is for a h2 stream.
+     */
+    ap_hook_pre_connection(c2_hook_pre_connection,
+                           NULL, NULL, APR_HOOK_MIDDLE);
+
+    /* We need to manipulate the standard HTTP/1.1 protocol filters and
+     * install our own. This needs to be done very early. */
+    ap_hook_pre_read_request(c2_pre_read_request, NULL, NULL, APR_HOOK_MIDDLE);
+    ap_hook_post_read_request(c2_post_read_request, NULL, NULL, APR_HOOK_REALLY_FIRST);
+    ap_hook_fixups(c2_hook_fixups, NULL, NULL, APR_HOOK_LAST);
+
+    c2_net_in_filter_handle =
+        ap_register_input_filter("H2_C2_NET_IN", h2_c2_filter_in,
+                                 NULL, AP_FTYPE_NETWORK);
+    c2_net_out_filter_handle =
+        ap_register_output_filter("H2_C2_NET_OUT", h2_c2_filter_out,
+                                  NULL, AP_FTYPE_NETWORK);
+    c2_request_in_filter_handle =
+        ap_register_input_filter("H2_C2_REQUEST_IN", h2_c2_filter_request_in,
+                                 NULL, AP_FTYPE_PROTOCOL);
+    c2_notes_out_filter_handle =
+        ap_register_output_filter("H2_C2_NOTES_OUT", h2_c2_filter_notes_out,
+                                  NULL, AP_FTYPE_PROTOCOL);
+}
+
+#else /* AP_HAS_RESPONSE_BUCKETS */
 
 static apr_status_t c2_run_pre_connection(conn_rec *c2, apr_socket_t *csd)
 {
@@ -504,10 +635,10 @@ apr_status_t h2_c2_process(conn_rec *c2, apr_thread_t *thread, int worker_id)
     ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, c2,
                   "h2_c2(%s-%d): process connection",
                   conn_ctx->id, conn_ctx->stream_id);
-                  
+
     c2->current_thread = thread;
     ap_run_process_connection(c2);
-    
+
     ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, c2,
                   "h2_c2(%s-%d): processing done",
                   conn_ctx->id, conn_ctx->stream_id);
@@ -582,53 +713,68 @@ cleanup:
     return APR_SUCCESS;
 }
 
-static int h2_c2_hook_process(conn_rec* c)
+conn_rec *h2_c2_create(conn_rec *c1, apr_pool_t *parent,
+                       apr_bucket_alloc_t *buckt_alloc)
 {
-    h2_conn_ctx_t *ctx;
-    
-    if (!c->master) {
-        return DECLINED;
-    }
-    
-    ctx = h2_conn_ctx_get(c);
-    if (ctx->stream_id) {
-        ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, c,
-                      "h2_h2, processing request directly");
-        c2_process(ctx, c);
-        return DONE;
-    }
-    else {
-        ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, c, 
-                      "secondary_conn(%ld): no h2 stream assing?", c->id);
-    }
-    return DECLINED;
-}
+    apr_pool_t *pool;
+    conn_rec *c2;
+    void *cfg;
 
-static void check_push(request_rec *r, const char *tag)
-{
-    apr_array_header_t *push_list = h2_config_push_list(r);
+    ap_assert(c1);
+    ap_log_cerror(APLOG_MARK, APLOG_TRACE3, 0, c1,
+                  "h2_c2: create for c1(%ld)", c1->id);
 
-    if (!r->expecting_100 && push_list && push_list->nelts > 0) {
-        int i, old_status;
-        const char *old_line;
+    /* We create a pool with its own allocator to be used for
+     * processing a request. This is the only way to have the processing
+     * independent of its parent pool in the sense that it can work in
+     * another thread.
+     */
+    apr_pool_create(&pool, parent);
+    apr_pool_tag(pool, "h2_c2_conn");
 
-        ap_log_rerror(APLOG_MARK, APLOG_TRACE1, 0, r,
-                      "%s, early announcing %d resources for push",
-                      tag, push_list->nelts);
-        for (i = 0; i < push_list->nelts; ++i) {
-            h2_push_res *push = &APR_ARRAY_IDX(push_list, i, h2_push_res);
-            apr_table_add(r->headers_out, "Link",
-                           apr_psprintf(r->pool, "<%s>; rel=preload%s",
-                                        push->uri_ref, push->critical? "; critical" : ""));
-        }
-        old_status = r->status;
-        old_line = r->status_line;
-        r->status = 103;
-        r->status_line = "103 Early Hints";
-        ap_send_interim_response(r, 1);
-        r->status = old_status;
-        r->status_line = old_line;
+    c2 = (conn_rec *) apr_palloc(pool, sizeof(conn_rec));
+    memcpy(c2, c1, sizeof(conn_rec));
+
+    c2->master                 = c1;
+    c2->pool                   = pool;
+    c2->conn_config            = ap_create_conn_config(pool);
+    c2->notes                  = apr_table_make(pool, 5);
+    c2->input_filters          = NULL;
+    c2->output_filters         = NULL;
+    c2->keepalives             = 0;
+#if AP_MODULE_MAGIC_AT_LEAST(20180903, 1)
+    c2->filter_conn_ctx        = NULL;
+#endif
+    c2->bucket_alloc           = apr_bucket_alloc_create(pool);
+#if !AP_MODULE_MAGIC_AT_LEAST(20180720, 1)
+    c2->data_in_input_filters  = 0;
+    c2->data_in_output_filters = 0;
+#endif
+    /* prevent mpm_event from making wrong assumptions about this connection,
+     * like e.g. using its socket for an async read check. */
+    c2->clogging_input_filters = 1;
+    c2->log                    = NULL;
+    c2->aborted                = 0;
+    /* We cannot install the master connection socket on the secondary, as
+     * modules mess with timeouts/blocking of the socket, with
+     * unwanted side effects to the master connection processing.
+     * Fortunately, since we never use the secondary socket, we can just install
+     * a single, process-wide dummy and everyone is happy.
+     */
+    ap_set_module_config(c2->conn_config, &core_module, dummy_socket);
+    /* TODO: these should be unique to this thread */
+    c2->sbh = NULL; /*c1->sbh;*/
+    /* TODO: not all mpm modules have learned about secondary connections yet.
+     * copy their config from master to secondary.
+     */
+    if (mpm_module) {
+        cfg = ap_get_module_config(c1->conn_config, mpm_module);
+        ap_set_module_config(c2->conn_config, mpm_module, cfg);
     }
+
+    ap_log_cerror(APLOG_MARK, APLOG_TRACE3, 0, c2,
+                  "h2_c2(%s): created", c2->log_id);
+    return c2;
 }
 
 static int h2_c2_hook_post_read_request(request_rec *r)
@@ -654,17 +800,25 @@ static int h2_c2_hook_post_read_request(request_rec *r)
     return DECLINED;
 }
 
-static int h2_c2_hook_fixups(request_rec *r)
+static int h2_c2_hook_process(conn_rec* c)
 {
-    conn_rec *c2 = r->connection;
-    h2_conn_ctx_t *conn_ctx;
+    h2_conn_ctx_t *ctx;
 
-    if (!c2->master || !(conn_ctx = h2_conn_ctx_get(c2)) || !conn_ctx->stream_id) {
+    if (!c->master) {
         return DECLINED;
     }
 
-    check_push(r, "late_fixup");
-
+    ctx = h2_conn_ctx_get(c);
+    if (ctx->stream_id) {
+        ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, c,
+                      "h2_h2, processing request directly");
+        c2_process(ctx, c);
+        return DONE;
+    }
+    else {
+        ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, c,
+                      "secondary_conn(%ld): no h2 stream assing?", c->id);
+    }
     return DECLINED;
 }
 
@@ -678,7 +832,7 @@ void h2_c2_register_hooks(void)
     /* We need to manipulate the standard HTTP/1.1 protocol filters and
      * install our own. This needs to be done very early. */
     ap_hook_post_read_request(h2_c2_hook_post_read_request, NULL, NULL, APR_HOOK_REALLY_FIRST);
-    ap_hook_fixups(h2_c2_hook_fixups, NULL, NULL, APR_HOOK_LAST);
+    ap_hook_fixups(c2_hook_fixups, NULL, NULL, APR_HOOK_LAST);
 
     ap_register_input_filter("H2_C2_NET_IN", h2_c2_filter_in,
                              NULL, AP_FTYPE_NETWORK);
@@ -695,3 +849,4 @@ void h2_c2_register_hooks(void)
                               NULL, AP_FTYPE_PROTOCOL);
 }
 
+#endif /* else AP_HAS_RESPONSE_BUCKETS */

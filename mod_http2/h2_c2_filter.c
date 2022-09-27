@@ -42,6 +42,94 @@
 #include "h2_util.h"
 
 
+#if AP_HAS_RESPONSE_BUCKETS
+
+apr_status_t h2_c2_filter_notes_out(ap_filter_t *f, apr_bucket_brigade *bb)
+{
+    apr_bucket *b;
+    request_rec *r_prev;
+    ap_bucket_response *resp;
+    const char *err;
+
+    if (!f->r) {
+        goto pass;
+    }
+
+    for (b = APR_BRIGADE_FIRST(bb);
+         b != APR_BRIGADE_SENTINEL(bb);
+         b = APR_BUCKET_NEXT(b))
+    {
+        if (AP_BUCKET_IS_RESPONSE(b)) {
+            resp = b->data;
+            if (resp->status >= 400 && f->r->prev) {
+                /* Error responses are commonly handled via internal
+                 * redirects to error documents. That creates a new
+                 * request_rec with 'prev' set to the original.
+                 * Each of these has its onw 'notes'.
+                 * We'd like to copy interesting ones into the current 'r->notes'
+                 * as we reset HTTP/2 stream with H2 specific error codes then.
+                 */
+                for (r_prev = f->r; r_prev != NULL; r_prev = r_prev->prev) {
+                    if ((err = apr_table_get(r_prev->notes, "ssl-renegotiate-forbidden"))) {
+                        if (r_prev != f->r) {
+                            apr_table_setn(resp->notes, "ssl-renegotiate-forbidden", err);
+                        }
+                        break;
+                    }
+                }
+            }
+            else if (h2_config_rgeti(f->r, H2_CONF_PUSH) == 0
+                     && h2_config_sgeti(f->r->server, H2_CONF_PUSH) != 0) {
+                /* location configuration turns off H2 PUSH handling */
+                ap_log_cerror(APLOG_MARK, APLOG_TRACE2, 0, f->c,
+                              "h2_c2_filter_notes_out, turning PUSH off");
+                apr_table_setn(resp->notes, H2_PUSH_MODE_NOTE, "0");
+            }
+        }
+    }
+pass:
+    return ap_pass_brigade(f->next, bb);
+}
+
+apr_status_t h2_c2_filter_request_in(ap_filter_t *f,
+                                     apr_bucket_brigade *bb,
+                                     ap_input_mode_t mode,
+                                     apr_read_type_e block,
+                                     apr_off_t readbytes)
+{
+    h2_conn_ctx_t *conn_ctx;
+    apr_bucket *b;
+
+    /* just get out of the way for things we don't want to handle. */
+    if (mode != AP_MODE_READBYTES && mode != AP_MODE_GETLINE) {
+        return ap_get_brigade(f->next, bb, mode, block, readbytes);
+    }
+
+    /* This filter is a one-time wonder */
+    ap_remove_input_filter(f);
+
+    if (f->c->master && (conn_ctx = h2_conn_ctx_get(f->c)) && conn_ctx->stream_id) {
+        if (conn_ctx->request->http_status != H2_HTTP_STATUS_UNSET) {
+            /* error was encountered preparing this request */
+            b = ap_bucket_error_create(conn_ctx->request->http_status, NULL, f->r->pool,
+                                       f->c->bucket_alloc);
+            APR_BRIGADE_INSERT_TAIL(bb, b);
+            return APR_SUCCESS;
+        }
+        b = h2_request_create_bucket(conn_ctx->request, f->r);
+        APR_BRIGADE_INSERT_TAIL(bb, b);
+        if (!conn_ctx->beam_in) {
+            b = apr_bucket_eos_create(f->c->bucket_alloc);
+            APR_BRIGADE_INSERT_TAIL(bb, b);
+        }
+        return APR_SUCCESS;
+    }
+
+    return ap_get_brigade(f->next, bb, mode, block, readbytes);
+}
+
+#else /* AP_HAS_RESPONSE_BUCKETS */
+
 #define H2_FILTER_LOG(name, c, level, rv, msg, bb) \
     do { \
         if (APLOG_C_IS_LEVEL((c),(level))) { \
@@ -68,15 +156,15 @@ static int uniq_field_values(void *d, const char *key, const char *val)
     char *e;
     char **strpp;
     int  i;
-    
+
     (void)key;
     values = (apr_array_header_t *)d;
-    
+
     e = apr_pstrdup(values->pool, val);
-    
+
     do {
         /* Find a non-empty fieldname */
-        
+
         while (*e == ',' || apr_isspace(*e)) {
             ++e;
         }
@@ -90,7 +178,7 @@ static int uniq_field_values(void *d, const char *key, const char *val)
         if (*e != '\0') {
             *e++ = '\0';
         }
-        
+
         /* Now add it to values if it isn't already represented.
          * Could be replaced by a ap_array_strcasecmp() if we had one.
          */
@@ -104,7 +192,7 @@ static int uniq_field_values(void *d, const char *key, const char *val)
             *(char **)apr_array_push(values) = start;
         }
     } while (*e != '\0');
-    
+
     return 1;
 }
 
@@ -116,17 +204,17 @@ static int uniq_field_values(void *d, const char *key, const char *val)
 static void fix_vary(request_rec *r)
 {
     apr_array_header_t *varies;
-    
+
     varies = apr_array_make(r->pool, 5, sizeof(char *));
-    
+
     /* Extract all Vary fields from the headers_out, separate each into
      * its comma-separated fieldname values, and then add them to varies
      * if not already present in the array.
      */
     apr_table_do(uniq_field_values, varies, r->headers_out, "Vary", NULL);
-    
+
     /* If we found any, replace old Vary fields with unique-ified value */
-    
+
     if (varies->nelts > 0) {
         apr_table_setn(r->headers_out, "Vary",
                        apr_array_pstrcat(r->pool, varies, ','));
@@ -148,7 +236,7 @@ static h2_headers *create_response(request_rec *r)
                                            r->headers_out);
         apr_table_clear(r->err_headers_out);
     }
-    
+
     /*
      * Remove the 'Vary' header field if the client can't handle it.
      * Since this will have nasty effects on HTTP/1.1 caches, force
@@ -162,7 +250,7 @@ static h2_headers *create_response(request_rec *r)
     else {
         fix_vary(r);
     }
-    
+
     /*
      * Now remove any ETag response header field if earlier processing
      * says so (such as a 'FileETag None' directive).
@@ -170,10 +258,10 @@ static h2_headers *create_response(request_rec *r)
     if (apr_table_get(r->notes, "no-etag") != NULL) {
         apr_table_unset(r->headers_out, "ETag");
     }
-    
+
     /* determine the protocol and whether we should use keepalives. */
     ap_set_keepalive(r);
-    
+
     if (AP_STATUS_IS_HEADER_ONLY(r->status)) {
         apr_table_unset(r->headers_out, "Transfer-Encoding");
         apr_table_unset(r->headers_out, "Content-Length");
@@ -190,18 +278,18 @@ static h2_headers *create_response(request_rec *r)
     if (ctype) {
         apr_table_setn(r->headers_out, "Content-Type", ctype);
     }
-    
+
     if (r->content_encoding) {
         apr_table_setn(r->headers_out, "Content-Encoding",
                        r->content_encoding);
     }
-    
+
     if (!apr_is_empty_array(r->content_languages)) {
         int i;
         char *token;
         char **languages = (char **)(r->content_languages->elts);
         const char *field = apr_table_get(r->headers_out, "Content-Language");
-        
+
         while (field && (token = ap_get_list_item(r->pool, &field)) != NULL) {
             for (i = 0; i < r->content_languages->nelts; ++i) {
                 if (!apr_strnatcasecmp(token, languages[i]))
@@ -211,11 +299,11 @@ static h2_headers *create_response(request_rec *r)
                 *((char **) apr_array_push(r->content_languages)) = token;
             }
         }
-        
+
         field = apr_array_pstrcat(r->pool, r->content_languages, ',');
         apr_table_setn(r->headers_out, "Content-Language", field);
     }
-    
+
     /*
      * Control cachability for non-cachable responses if not already set by
      * some other part of the server configuration.
@@ -225,7 +313,7 @@ static h2_headers *create_response(request_rec *r)
         ap_recent_rfc822_date(date, r->request_time);
         apr_table_add(r->headers_out, "Expires", date);
     }
-    
+
     /* This is a hack, but I can't find anyway around it.  The idea is that
      * we don't want to send out 0 Content-Lengths if it is a head request.
      * This happens when modules try to outsmart the server, and return
@@ -243,7 +331,7 @@ static h2_headers *create_response(request_rec *r)
         && !strcmp(clheader, "0")) {
         apr_table_unset(r->headers_out, "Content-Length");
     }
-    
+
     /*
      * keep the set-by-proxy server and date headers, otherwise
      * generate a new server header / date header
@@ -261,7 +349,7 @@ static h2_headers *create_response(request_rec *r)
             apr_table_setn(r->headers_out, "Server", us);
         }
     }
-    
+
     return h2_headers_rcreate(r, r->status, r->headers_out, r->pool);
 }
 
@@ -291,7 +379,7 @@ static apr_status_t parse_header(h2_response_parser *parser, char *line) {
         while (line[0] == ' ' || line[0] == '\t') {
             ++line;
         }
-        
+
         plast = apr_array_pop(parser->hlines);
         if (plast == NULL) {
             /* not well formed */
@@ -303,19 +391,19 @@ static apr_status_t parse_header(h2_response_parser *parser, char *line) {
         /* new header line */
         hline = apr_pstrdup(parser->pool, line);
     }
-    APR_ARRAY_PUSH(parser->hlines, const char*) = hline; 
+    APR_ARRAY_PUSH(parser->hlines, const char*) = hline;
     return APR_SUCCESS;
 }
 
-static apr_status_t get_line(h2_response_parser *parser, apr_bucket_brigade *bb, 
+static apr_status_t get_line(h2_response_parser *parser, apr_bucket_brigade *bb,
                              char *line, apr_size_t len)
 {
     apr_status_t status;
-    
+
     if (!parser->tmp) {
         parser->tmp = apr_brigade_create(parser->pool, parser->c->bucket_alloc);
     }
-    status = apr_brigade_split_line(parser->tmp, bb, APR_BLOCK_READ, 
+    status = apr_brigade_split_line(parser->tmp, bb, APR_BLOCK_READ,
                                     len);
     if (status == APR_SUCCESS) {
         --len;
@@ -391,7 +479,7 @@ static apr_table_t *make_table(h2_response_parser *parser)
     if (hlines) {
         apr_table_t *headers = apr_table_make(parser->pool, hlines->nelts);
         int i;
-        
+
         for (i = 0; i < hlines->nelts; ++i) {
             char *hline = ((char **)hlines->elts)[i];
             char *sep = ap_strchr(hline, ':');
@@ -406,7 +494,7 @@ static apr_table_t *make_table(h2_response_parser *parser)
             while (*sep == ' ' || *sep == '\t') {
                 ++sep;
             }
-            
+
             if (!h2_util_ignore_header(hline)) {
                 apr_table_merge(headers, hline, sep);
             }
@@ -423,18 +511,18 @@ static apr_status_t pass_response(h2_conn_ctx_t *conn_ctx, ap_filter_t *f,
 {
     apr_bucket *b;
     apr_status_t status;
-    
-    h2_headers *response = h2_headers_create(parser->http_status, 
+
+    h2_headers *response = h2_headers_create(parser->http_status,
                                              make_table(parser),
                                              NULL, 0, parser->pool);
     apr_brigade_cleanup(parser->tmp);
     b = h2_bucket_headers_create(parser->c->bucket_alloc, response);
     APR_BRIGADE_INSERT_TAIL(parser->tmp, b);
     b = apr_bucket_flush_create(parser->c->bucket_alloc);
-    APR_BRIGADE_INSERT_TAIL(parser->tmp, b);                      
+    APR_BRIGADE_INSERT_TAIL(parser->tmp, b);
     status = ap_pass_brigade(f->next, parser->tmp);
     apr_brigade_cleanup(parser->tmp);
-    
+
     /* reset parser for possible next response */
     parser->state = H2_RP_STATUS_LINE;
     apr_array_clear(parser->hlines);
@@ -459,12 +547,12 @@ static apr_status_t parse_status(h2_response_parser *parser, char *line)
         parser->http_status = atoi(&line[sindex]);
         line[k] = keepchar;
         parser->state = H2_RP_HEADER_LINE;
-        
+
         return APR_SUCCESS;
     }
     /* Seems like there is garbage on the connection. May be a leftover
-     * from a previous proxy request. 
-     * This should only happen if the H2_RESPONSE filter is not yet in 
+     * from a previous proxy request.
+     * This should only happen if the H2_RESPONSE filter is not yet in
      * place (post_read_request has not been reached and the handler wants
      * to write something. Probably just the interim response we are
      * waiting for. But if there is other data hanging around before
@@ -510,7 +598,7 @@ static apr_status_t parse_response(h2_response_parser *parser,
                     status = parse_header(parser, line);
                 }
                 break;
-                
+
             default:
                 return status;
         }
@@ -680,7 +768,7 @@ typedef struct h2_chunk_filter_t h2_chunk_filter_t;
 
 
 static void make_chunk(conn_rec *c, h2_chunk_filter_t *fctx, apr_bucket_brigade *bb,
-                       apr_bucket *first, apr_off_t chunk_len, 
+                       apr_bucket *first, apr_off_t chunk_len,
                        apr_bucket *tail)
 {
     /* Surround the buckets [first, tail[ with new buckets carrying the
@@ -689,8 +777,8 @@ static void make_chunk(conn_rec *c, h2_chunk_filter_t *fctx, apr_bucket_brigade 
     char buffer[128];
     apr_bucket *b;
     apr_size_t len;
-    
-    len = (apr_size_t)apr_snprintf(buffer, H2_ALEN(buffer), 
+
+    len = (apr_size_t)apr_snprintf(buffer, H2_ALEN(buffer),
                                    "%"APR_UINT64_T_HEX_FMT"\r\n", (apr_uint64_t)chunk_len);
     b = apr_bucket_heap_create(buffer, len, NULL, bb->bucket_alloc);
     APR_BUCKET_INSERT_BEFORE(first, b);
@@ -707,7 +795,7 @@ static void make_chunk(conn_rec *c, h2_chunk_filter_t *fctx, apr_bucket_brigade 
                   fctx->id, (long)chunk_len, (long)fctx->chunked_total);
 }
 
-static int ser_header(void *ctx, const char *name, const char *value) 
+static int ser_header(void *ctx, const char *name, const char *value)
 {
     apr_bucket_brigade *bb = ctx;
     apr_brigade_printf(bb, NULL, NULL, "%s: %s\r\n", name, value);
@@ -723,7 +811,7 @@ static apr_status_t read_and_chunk(ap_filter_t *f, h2_conn_ctx_t *conn_ctx,
     if (!fctx->bbchunk) {
         fctx->bbchunk = apr_brigade_create(r->pool, f->c->bucket_alloc);
     }
-    
+
     if (APR_BRIGADE_EMPTY(fctx->bbchunk)) {
         apr_bucket *b, *next, *first_data = NULL;
         apr_bucket_brigade *tmp;
@@ -746,10 +834,10 @@ static apr_status_t read_and_chunk(ap_filter_t *f, h2_conn_ctx_t *conn_ctx,
                     make_chunk(f->c, fctx, fctx->bbchunk, first_data, bblen, b);
                     first_data = NULL;
                 }
-                
+
                 if (H2_BUCKET_IS_HEADERS(b)) {
                     h2_headers *headers = h2_bucket_headers_get(b);
-                    
+
                     ap_assert(headers);
                     ap_log_rerror(APLOG_MARK, APLOG_TRACE2, 0, r,
                                   "h2_c2(%s-%d): receiving trailers",
@@ -786,19 +874,19 @@ static apr_status_t read_and_chunk(ap_filter_t *f, h2_conn_ctx_t *conn_ctx,
             else if (b->length == 0) {
                 APR_BUCKET_REMOVE(b);
                 apr_bucket_destroy(b);
-            } 
+            }
             else {
                 if (!first_data) {
                     first_data = b;
                     bblen = 0;
                 }
                 bblen += b->length;
-            }    
+            }
         }
-        
+
         if (first_data) {
             make_chunk(f->c, fctx, fctx->bbchunk, first_data, bblen, NULL);
-        }            
+        }
     }
     return status;
 }
@@ -833,7 +921,7 @@ apr_status_t h2_c2_filter_request_in(ap_filter_t* f,
     if (!conn_ctx->request->chunked) {
         status = ap_get_brigade(f->next, bb, mode, block, readbytes);
         /* pipe data through, just take care of trailers */
-        for (b = APR_BRIGADE_FIRST(bb); 
+        for (b = APR_BRIGADE_FIRST(bb);
              b != APR_BRIGADE_SENTINEL(bb); b = next) {
             next = APR_BUCKET_NEXT(b);
             if (H2_BUCKET_IS_HEADERS(b)) {
@@ -845,12 +933,12 @@ apr_status_t h2_c2_filter_request_in(ap_filter_t* f,
                 r->trailers_in = headers->headers;
                 if (conf && conf->merge_trailers == AP_MERGE_TRAILERS_ENABLE) {
                     r->headers_in = apr_table_overlay(r->pool, r->headers_in,
-                                                      r->trailers_in);                    
+                                                      r->trailers_in);
                 }
                 APR_BUCKET_REMOVE(b);
                 apr_bucket_destroy(b);
                 ap_remove_input_filter(f);
-                
+
                 if (headers->raw_bytes && h2_c_logio_add_bytes_in) {
                     h2_c_logio_add_bytes_in(f->c, headers->raw_bytes);
                 }
@@ -868,7 +956,7 @@ apr_status_t h2_c2_filter_request_in(ap_filter_t* f,
     if ((status = read_and_chunk(f, conn_ctx, block)) != APR_SUCCESS) {
         return status;
     }
-    
+
     if (mode == AP_MODE_EXHAUSTIVE) {
         /* return all we have */
         APR_BRIGADE_CONCAT(bb, fctx->bbchunk);
@@ -880,7 +968,7 @@ apr_status_t h2_c2_filter_request_in(ap_filter_t* f,
         status = h2_brigade_copy_length(bb, fctx->bbchunk, readbytes);
     }
     else if (mode == AP_MODE_GETLINE) {
-        /* we are reading a single LF line, e.g. the HTTP headers. 
+        /* we are reading a single LF line, e.g. the HTTP headers.
          * this has the nasty side effect to split the bucket, even
          * though it ends with CRLF and creates a 0 length bucket */
         status = apr_brigade_split_line(bb, fctx->bbchunk, block, HUGE_STRING_LEN);
@@ -898,11 +986,11 @@ apr_status_t h2_c2_filter_request_in(ap_filter_t* f,
         /* Hmm, well. There is mode AP_MODE_EATCRLF, but we chose not
          * to support it. Seems to work. */
         ap_log_cerror(APLOG_MARK, APLOG_ERR, APR_ENOTIMPL, f->c,
-                      APLOGNO(02942) 
+                      APLOGNO(02942)
                       "h2_c2, unsupported READ mode %d", mode);
         status = APR_ENOTIMPL;
     }
-    
+
     h2_util_bb_log(f->c, conn_ctx->stream_id, APLOG_TRACE2, "returning input", bb);
     return status;
 }
@@ -912,7 +1000,7 @@ apr_status_t h2_c2_filter_trailers_out(ap_filter_t *f, apr_bucket_brigade *bb)
     h2_conn_ctx_t *conn_ctx = h2_conn_ctx_get(f->c);
     request_rec *r = f->r;
     apr_bucket *b, *e;
- 
+
     if (conn_ctx && r) {
         /* Detect the EOS/EOR bucket and forward any trailers that may have
          * been set to our h2_headers.
@@ -925,7 +1013,7 @@ apr_status_t h2_c2_filter_trailers_out(ap_filter_t *f, apr_bucket_brigade *bb)
                 && r->trailers_out && !apr_is_empty_table(r->trailers_out)) {
                 h2_headers *headers;
                 apr_table_t *trailers;
-                
+
                 ap_log_cerror(APLOG_MARK, APLOG_DEBUG, 0, f->c, APLOGNO(03049)
                               "h2_c2(%s-%d): sending trailers",
                               conn_ctx->id, conn_ctx->stream_id);
@@ -937,9 +1025,10 @@ apr_status_t h2_c2_filter_trailers_out(ap_filter_t *f, apr_bucket_brigade *bb)
                 ap_remove_output_filter(f);
                 break;
             }
-        }     
+        }
     }
-     
+
     return ap_pass_brigade(f->next, bb);
 }
 
+#endif /* else #if AP_HAS_RESPONSE_BUCKETS */

@@ -20,6 +20,7 @@
 #include <http_protocol.h>
 
 #include "h2.h"
+#include "h2_headers.h"
 
 /**
  * A HTTP/2 stream, e.g. a client request+response in HTTP/1.1 terms.
@@ -28,8 +29,8 @@
  * connection to the client. The h2_session writes to the h2_stream,
  * adding HEADERS and DATA and finally an EOS. When headers are done,
  * h2_stream is scheduled for handling, which is expected to produce
- * a response h2_headers at least.
- * 
+ * h2_headers/RESPONSE buckets.
+ *
  * The h2_headers may be followed by more h2_headers (interim responses) and
  * by DATA frames read from the h2_stream until EOS is reached. Trailers
  * are send when a last h2_headers is received. This always closes the stream
@@ -39,10 +40,8 @@
 struct h2_mplx;
 struct h2_priority;
 struct h2_request;
-struct h2_headers;
 struct h2_session;
 struct h2_bucket_beam;
-struct h2_headers;
 
 typedef struct h2_stream h2_stream;
 
@@ -78,7 +77,11 @@ struct h2_stream {
     apr_table_t *trailers_in;   /* optional, incoming trailers */
     int request_headers_added;  /* number of request headers added */
 
+#if AP_HAS_RESPONSE_BUCKETS
+    ap_bucket_response *response; /* the final, non-interim response or NULL */
+#else
     struct h2_headers *response; /* the final, non-interim response or NULL */
+#endif
 
     struct h2_bucket_beam *input;
     apr_bucket_brigade *in_buffer;
@@ -271,14 +274,24 @@ apr_table_t *h2_stream_get_trailers(h2_stream *stream);
  *
  * @param stream the stream for which to submit
  */
+#if AP_HAS_RESPONSE_BUCKETS
+apr_status_t h2_stream_submit_pushes(h2_stream *stream,
+                                     ap_bucket_response *response);
+#else
 apr_status_t h2_stream_submit_pushes(h2_stream *stream,
                                      struct h2_headers *response);
+#endif
 
 /**
  * Get priority information set for this stream.
  */
-const struct h2_priority *h2_stream_get_priority(h2_stream *stream, 
+#if AP_HAS_RESPONSE_BUCKETS
+const struct h2_priority *h2_stream_get_priority(h2_stream *stream,
+                                                 ap_bucket_response *response);
+#else
+const struct h2_priority *h2_stream_get_priority(h2_stream *stream,
                                                  struct h2_headers *response);
+#endif
 
 /**
  * Return a textual representation of the stream state as in RFC 7540

@@ -33,6 +33,7 @@
 #include "h2_request.h"
 #include "h2_headers.h"
 
+#if !AP_HAS_RESPONSE_BUCKETS
 
 static int is_unsafe(server_rec *s) 
 {
@@ -203,3 +204,4 @@ int h2_headers_are_final_response(h2_headers *headers)
     return headers->status >= 200;
 }
 
+#endif /* !AP_HAS_RESPONSE_BUCKETS */

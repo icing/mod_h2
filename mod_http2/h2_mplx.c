@@ -847,7 +847,11 @@ static conn_rec *s_next_c2(h2_mplx *m)
     }
 
     transit = c2_transit_get(m);
+#if AP_HAS_RESPONSE_BUCKETS
+    c2 = ap_create_secondary_connection(transit->pool, m->c1, transit->bucket_alloc);
+#else
     c2 = h2_c2_create(m->c1, transit->pool, transit->bucket_alloc);
+#endif
     if (!c2) goto cleanup;
     ap_log_cerror(APLOG_MARK, APLOG_TRACE3, 0, m->c1,
                   H2_STRM_MSG(stream, "created new c2"));
@@ -1090,7 +1094,6 @@ static apr_status_t mplx_pollset_poll(h2_mplx *m, apr_interval_time_t timeout,
     h2_conn_ctx_t *conn_ctx;
     h2_stream *stream;
 
-    ap_assert(!m->aborted);
     /* Make sure we are not called recursively. */
     ap_assert(!m->polling);
     m->polling = 1;
