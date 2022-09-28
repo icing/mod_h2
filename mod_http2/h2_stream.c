@@ -903,6 +903,20 @@ static apr_bucket *get_first_response_bucket(apr_bucket_brigade *bb)
     return NULL;
 }
 
+static apr_size_t brigade_length(apr_bucket_brigade *bb, apr_size_t maxlen)
+{
+    apr_bucket *b;
+    apr_size_t i = 0;
+
+    for (b = APR_BRIGADE_FIRST(bb);
+         b != APR_BRIGADE_SENTINEL(bb) && i < maxlen;
+         b = APR_BUCKET_NEXT(b))
+    {
+        i += 1;
+    }
+    return i;
+}
+
 static apr_status_t buffer_output_receive(h2_stream *stream)
 {
     apr_status_t rv = APR_EAGAIN;
@@ -922,6 +936,17 @@ static apr_status_t buffer_output_receive(h2_stream *stream)
         /* if the brigade contains a file bucket, its normal report length
          * might be megabytes, but the memory used is tiny. For buffering,
          * we are only interested in the memory footprint. */
+
+        /* FIXME: we have ptrace reports that processes hang here. which means
+         * the brigade is corrupte d? Lets do some sanity checking.
+         */
+        if (100 == brigade_length(stream->out_buffer, 100)) {
+            /* this cannot not really be */
+            h2_util_bb_log(c1, stream->id, APLOG_CRIT, "buffered output broken",
+                           stream->out_buffer);
+            assert(0);
+        }
+
         buf_len = h2_brigade_mem_size(stream->out_buffer);
     }
 
