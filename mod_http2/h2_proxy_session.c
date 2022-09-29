@@ -854,13 +854,17 @@ static apr_status_t open_stream(h2_proxy_session *session, const char *url,
                       "authority=%s from uri.hostname=%s and uri.port=%d",
                       authority, puri.hostname, puri.port);
     }
-    
+    /* See #235, we use only :authority when available and remove Host:
+     * since differing values are not acceptable, see RFC 9113 ch. 8.3.1 */
+    if (authority && strlen(authority)) {
+        apr_table_unset(r->headers_in, "Host");
+    }
+
     /* we need this for mapping relative uris in headers ("Link") back
      * to local uris */
     stream->real_server_uri = apr_psprintf(stream->pool, "%s://%s", scheme, authority); 
     stream->p_server_uri = apr_psprintf(stream->pool, "%s://%s", puri.scheme, authority); 
     path = apr_uri_unparse(stream->pool, &puri, APR_URI_UNP_OMITSITEPART);
-
 
     h2_proxy_req_make(stream->req, stream->pool, r->method, scheme,
                 authority, path, r->headers_in);
@@ -890,7 +894,6 @@ static apr_status_t open_stream(h2_proxy_session *session, const char *url,
                              r->server->server_hostname);
         }
     }
-    apr_table_unset(r->headers_in, "Host");
 
     /* Tuck away all already existing cookies */
     stream->saves = apr_table_make(r->pool, 2);
