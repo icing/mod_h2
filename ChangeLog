@@ -1,3 +1,9 @@
+ * Delaying input setup of a stream just before processing starts. This allows
+   any EOS indicator arriving from the client before that to take effect.
+   Without knowing that a stream has no input, internal processing has to
+   simulate chunked encoding. This is not wrong, but somewhat more expensive
+   and mod_security has been reported to be allergic to seeing 'chunked'
+   on some requests. See <https://bz.apache.org/bugzilla/show_bug.cgi?id=66282>.
  * mod_proxy_http2: fixed #235 by no longer forwarding 'Host:' header when
    request ':authority' is known. Improved test case that did not catch that
    the previous 'fix' was incorrect.

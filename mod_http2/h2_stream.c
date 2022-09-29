@@ -196,17 +196,24 @@ static void H2_STREAM_OUT_LOG(int lvl, h2_stream *s, const char *tag)
     }
 }
 
-apr_status_t h2_stream_setup_input(h2_stream *stream)
+static void stream_setup_input(h2_stream *stream)
 {
-    /* already done? */
-    if (stream->input != NULL) goto cleanup;
-
+    if (stream->input != NULL) return;
+    ap_assert(!stream->input_closed);
     ap_log_cerror(APLOG_MARK, APLOG_TRACE2, 0, stream->session->c1,
                   H2_STRM_MSG(stream, "setup input beam"));
     h2_beam_create(&stream->input, stream->session->c1,
                    stream->pool, stream->id,
                    "input", 0, stream->session->s->timeout);
-cleanup:
+}
+
+apr_status_t h2_stream_prepare_processing(h2_stream *stream)
+{
+    /* Right before processing starts, last chance to decide if
+     * there is need to an input beam. */
+    if (!stream->input_closed) {
+        stream_setup_input(stream);
+    }
     return APR_SUCCESS;
 }
 
@@ -234,6 +241,7 @@ cleanup:
 static void input_append_bucket(h2_stream *stream, apr_bucket *b)
 {
     if (!stream->in_buffer) {
+        stream_setup_input(stream);
         stream->in_buffer = apr_brigade_create(
             stream->pool, stream->session->c1->bucket_alloc);
     }
@@ -243,6 +251,7 @@ static void input_append_bucket(h2_stream *stream, apr_bucket *b)
 static void input_append_data(h2_stream *stream, const char *data, apr_size_t len)
 {
     if (!stream->in_buffer) {
+        stream_setup_input(stream);
         stream->in_buffer = apr_brigade_create(
             stream->pool, stream->session->c1->bucket_alloc);
     }
@@ -278,9 +287,11 @@ static apr_status_t close_input(h2_stream *stream)
     }
 
     stream->input_closed = 1;
-    b = apr_bucket_eos_create(c->bucket_alloc);
-    input_append_bucket(stream, b);
-    input_flush(stream);
+    if (stream->input) {
+        b = apr_bucket_eos_create(c->bucket_alloc);
+        input_append_bucket(stream, b);
+        input_flush(stream);
+    }
     h2_stream_dispatch(stream, H2_SEV_IN_DATA_PENDING);
     ap_log_cerror(APLOG_MARK, APLOG_TRACE2, 0, stream->session->c1,
                   H2_STRM_MSG(stream, "input flush + EOS"));
@@ -546,7 +557,6 @@ h2_stream *h2_stream_create(int id, apr_pool_t *pool, h2_session *session,
                 stream->session->ngh2, stream->id);
     }
 #endif
-    h2_stream_setup_input(stream);
     ap_log_cerror(APLOG_MARK, APLOG_DEBUG, 0, session->c1,
                   H2_STRM_LOG(APLOGNO(03082), stream, "created"));
     on_state_enter(stream);
@@ -776,8 +786,10 @@ apr_status_t h2_stream_end_headers(h2_stream *stream, int eos, size_t raw_bytes)
     int is_http_or_https;
     h2_request *req = stream->rtmp;
 
-    status = h2_request_end_headers(req, stream->pool, eos, raw_bytes);
-    if (APR_SUCCESS != status || req->http_status != H2_HTTP_STATUS_UNSET) goto cleanup;
+    status = h2_request_end_headers(req, stream->pool, raw_bytes);
+    if (APR_SUCCESS != status || req->http_status != H2_HTTP_STATUS_UNSET) {
+        goto cleanup;
+    }
 
     /* keep on returning APR_SUCCESS for error responses, so that we
      * send it and do not RST the stream.

@@ -651,8 +651,9 @@ static apr_status_t c2_process(h2_conn_ctx_t *conn_ctx, conn_rec *c)
     const h2_request *req = conn_ctx->request;
     conn_state_t *cs = c->cs;
     request_rec *r;
+    const char *tenc;
 
-    r = h2_create_request_rec(conn_ctx->request, c);
+    r = h2_create_request_rec(conn_ctx->request, c, conn_ctx->beam_in == NULL);
     if (!r) {
         ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, c,
                       "h2_c2(%s-%d): create request_rec failed, r=NULL",
@@ -665,6 +666,9 @@ static apr_status_t c2_process(h2_conn_ctx_t *conn_ctx, conn_rec *c)
                       conn_ctx->id, conn_ctx->stream_id, r->status);
         goto cleanup;
     }
+
+    tenc = apr_table_get(r->headers_in, "Transfer-Encoding");
+    conn_ctx->input_chunked = tenc && ap_is_chunked(r->pool, tenc);
 
     ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, c,
                   "h2_c2(%s-%d): created request_rec for %s",
