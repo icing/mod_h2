@@ -1,3 +1,5 @@
+v2.0.8
+--------------------------------------------------------------------------------
  * Delaying input setup of a stream just before processing starts. This allows
    any EOS indicator arriving from the client before that to take effect.
    Without knowing that a stream has no input, internal processing has to
