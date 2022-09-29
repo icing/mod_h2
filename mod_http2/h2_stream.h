@@ -138,9 +138,9 @@ h2_stream *h2_stream_create(int id, apr_pool_t *pool,
 void h2_stream_destroy(h2_stream *stream);
 
 /**
- * Setup the input for the stream.
+ * Perform any late initialization before stream starts processing.
  */
-apr_status_t h2_stream_setup_input(h2_stream *stream);
+apr_status_t h2_stream_prepare_processing(h2_stream *stream);
 
 /*
  * Set a new monitor for this stream, replacing any existing one. Can
