@@ -23,7 +23,7 @@ class TestH2Proxy:
         assert r.response["json"]["ssl_protocol"] != ""
         assert r.response["json"]["h2"] == "on"
         assert r.response["json"]["h2push"] == "off"
-        assert r.response["json"]["x_host"] == f"cgi.{env.http_tld}:{env.https_port}"
+        assert r.response["json"]["host"] == f"cgi.{env.http_tld}:{env.https_port}"
 
     def test_h2_600_02(self, env):
         conf = H2Conf(env, extras={
@@ -42,7 +42,8 @@ class TestH2Proxy:
         assert r.response["json"]["protocol"] == "HTTP/2.0"
         assert r.response["json"]["https"] == ""
         # the proxied backend sees Host header as passed on front
-        assert r.response["json"]["x_host"] == f"cgi.{env.http_tld}:{env.https_port}"
+        assert r.response["json"]["host"] == f"cgi.{env.http_tld}:{env.https_port}"
+        assert r.response["json"]["h2_original_host"] == ""
 
     def test_h2_600_03(self, env):
         conf = H2Conf(env, extras={
@@ -61,4 +62,5 @@ class TestH2Proxy:
         assert r.response["json"]["protocol"] == "HTTP/2.0"
         assert r.response["json"]["https"] == ""
         # the proxied backend sees Host as using in connecting to it
-        assert r.response["json"]["x_host"] == f"127.0.0.1:{env.http_port}"
+        assert r.response["json"]["host"] == f"127.0.0.1:{env.http_port}"
+        assert r.response["json"]["h2_original_host"] == ""

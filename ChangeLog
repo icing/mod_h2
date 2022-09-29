@@ -1,3 +1,7 @@
+ * mod_proxy_http2: fixed #235 by no longer forwarding 'Host:' header when
+   request ':authority' is known. Improved test case that did not catch that
+   the previous 'fix' was incorrect.
+
 v2.0.7
 --------------------------------------------------------------------------------
  * fixed idle connection handling for non-async MPMs, like worker.

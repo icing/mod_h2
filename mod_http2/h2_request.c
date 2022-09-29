@@ -185,23 +185,21 @@ apr_status_t h2_request_add_header(h2_request *req, apr_pool_t *pool,
     return status;
 }
 
-apr_status_t h2_request_end_headers(h2_request *req, apr_pool_t *pool, int eos, size_t raw_bytes)
+apr_status_t h2_request_end_headers(h2_request *req, apr_pool_t *pool,
+                                    int eos, size_t raw_bytes)
 {
-    const char *s;
+    const char *s, *host;
 
-    /* rfc7540, ch. 8.1.2.3:
-     * - if we have :authority, it overrides any Host header
-     * - :authority MUST be omitted when converting h1->h2, so we
-     *   might get a stream without, but then Host needs to be there */
+    /* rfc7540, ch. 8.1.2.3: without :authority, Host: must be there */
+    if (req->authority && !strlen(req->authority)) {
+        req->authority = NULL;
+    }
     if (!req->authority) {
-        const char *host = apr_table_get(req->headers, "Host");
+        host = apr_table_get(req->headers, "Host");
         if (!host) {
             return APR_BADARG;
         }
         req->authority = host;
-    }
-    else {
-        apr_table_setn(req->headers, "Host", req->authority);
     }
 
 #if AP_HAS_RESPONSE_BUCKETS
@@ -333,6 +331,29 @@ apr_bucket *h2_request_create_bucket(const h2_request *req, request_rec *r)
 }
 #endif
 
+static void assign_headers(request_rec *r, const h2_request *req)
+{
+    r->headers_in = apr_table_copy(r->pool, req->headers);
+    if (req->authority) {
+        /* for internal handling, we have to simulate that :authority
+         * came in as Host:, RFC 9113 ch. says that mismatches between
+         * :authority and Host: SHOULD be rejected as malformed. However,
+         * we are more lenient and just replace any Host: if we have
+         * an :authority.
+         */
+        const char *orig_host = apr_table_get(req->headers, "Host");
+        if (orig_host && strcmp(req->authority, orig_host)) {
+            ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, APLOGNO()
+                          "overwriting 'Host: %s' with :authority: %s'",
+                          orig_host, req->authority);
+            apr_table_setn(r->subprocess_env, "H2_ORIGINAL_HOST", orig_host);
+        }
+        apr_table_setn(r->headers_in, "Host", req->authority);
+        ap_log_rerror(APLOG_MARK, APLOG_TRACE1, 0, r,
+                      "set 'Host: %s' from :authority", req->authority);
+    }
+}
+
 request_rec *h2_create_request_rec(const h2_request *req, conn_rec *c)
 {
     int access_status = HTTP_OK;
@@ -371,7 +392,7 @@ request_rec *h2_create_request_rec(const h2_request *req, conn_rec *c)
         r->the_request = apr_psprintf(r->pool, "%s / HTTP/2.0", req->method);
     }
 
-    r->headers_in = apr_table_copy(r->pool, req->headers);
+    assign_headers(r, req);
 
     /* Start with r->hostname = NULL, ap_check_request_header() will get it
      * form Host: header, otherwise we get complains about port numbers.
@@ -397,7 +418,7 @@ request_rec *h2_create_request_rec(const h2_request *req, conn_rec *c)
     {
         const char *s;
 
-        r->headers_in = apr_table_clone(r->pool, req->headers);
+        assign_headers(r, req);
         ap_run_pre_read_request(r, c);
 
         /* Time to populate r with the data we have. */
