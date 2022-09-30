@@ -915,20 +915,6 @@ static apr_bucket *get_first_response_bucket(apr_bucket_brigade *bb)
     return NULL;
 }
 
-static apr_size_t brigade_length(apr_bucket_brigade *bb, apr_size_t maxlen)
-{
-    apr_bucket *b;
-    apr_size_t i = 0;
-
-    for (b = APR_BRIGADE_FIRST(bb);
-         b != APR_BRIGADE_SENTINEL(bb) && i < maxlen;
-         b = APR_BUCKET_NEXT(b))
-    {
-        i += 1;
-    }
-    return i;
-}
-
 static apr_status_t buffer_output_receive(h2_stream *stream)
 {
     apr_status_t rv = APR_EAGAIN;
@@ -937,6 +923,10 @@ static apr_status_t buffer_output_receive(h2_stream *stream)
     apr_bucket *b, *e;
 
     if (!stream->output) {
+        goto cleanup;
+    }
+    if (stream->rst_error) {
+        rv = APR_ECONNRESET;
         goto cleanup;
     }
 
@@ -948,17 +938,6 @@ static apr_status_t buffer_output_receive(h2_stream *stream)
         /* if the brigade contains a file bucket, its normal report length
          * might be megabytes, but the memory used is tiny. For buffering,
          * we are only interested in the memory footprint. */
-
-        /* FIXME: we have ptrace reports that processes hang here. which means
-         * the brigade is corrupte d? Lets do some sanity checking.
-         */
-        if (100 == brigade_length(stream->out_buffer, 100)) {
-            /* this cannot not really be */
-            h2_util_bb_log(c1, stream->id, APLOG_CRIT, "buffered output broken",
-                           stream->out_buffer);
-            assert(0);
-        }
-
         buf_len = h2_brigade_mem_size(stream->out_buffer);
     }
 
@@ -1004,6 +983,23 @@ static apr_status_t buffer_output_receive(h2_stream *stream)
                 }
                 else if (APR_BUCKET_IS_EOS(b)) {
                     stream->output_eos = 1;
+                }
+                else if (AP_BUCKET_IS_ERROR(b)) {
+                    int err = ((ap_bucket_error *)(b->data))->status;
+                    ap_log_cerror(APLOG_MARK, APLOG_TRACE1, rv, c1,
+                                  H2_STRM_MSG(stream, "error bucket received, status=%d"),
+                                  err);
+                    if (err >= 500) {
+                        err = NGHTTP2_INTERNAL_ERROR;
+                    }
+                    else if (err >= 400) {
+                        err = NGHTTP2_STREAM_CLOSED;
+                    }
+                    else {
+                        err = NGHTTP2_PROTOCOL_ERROR;
+                    }
+                    h2_stream_rst(stream, err);
+                    break;
                 }
             }
             else if (b->length == 0) {  /* zero length data */
@@ -1476,7 +1472,7 @@ static ssize_t stream_data_cb(nghttp2_session *ng2s,
         return NGHTTP2_ERR_DEFERRED;
     }
     if (stream->rst_error) {
-        return NGHTTP2_ERR_CALLBACK_FAILURE;
+        return NGHTTP2_ERR_DEFERRED;
     }
     if (!stream->out_buffer) {
         ap_log_cerror(APLOG_MARK, APLOG_TRACE2, 0, c1,
@@ -1503,7 +1499,8 @@ static ssize_t stream_data_cb(nghttp2_session *ng2s,
     /* How much data do we have in our buffers that we can write? */
 check_and_receive:
     buf_len = output_data_buffered(stream, &eos, &header_blocked);
-    while (buf_len < (apr_off_t)length && !eos && !header_blocked) {
+    while (buf_len < (apr_off_t)length && !eos
+           && !header_blocked && !stream->rst_error) {
         /* read more? */
         ap_log_cerror(APLOG_MARK, APLOG_TRACE2, 0, c1,
                       H2_SSSN_STRM_MSG(session, stream_id,
@@ -1513,6 +1510,7 @@ check_and_receive:
         if (APR_EOF == rv) {
             eos = 1;
             rv = APR_SUCCESS;
+            goto cleanup;
         }
 
         if (APR_SUCCESS == rv) {
@@ -1528,6 +1526,10 @@ check_and_receive:
                           H2_STRM_LOG(APLOGNO(02938), stream, "data_cb, reading data"));
             return NGHTTP2_ERR_CALLBACK_FAILURE;
         }
+    }
+
+    if (stream->rst_error) {
+        return NGHTTP2_ERR_DEFERRED;
     }
 
     if (buf_len == 0 && header_blocked) {

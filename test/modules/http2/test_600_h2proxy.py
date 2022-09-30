@@ -64,3 +64,29 @@ class TestH2Proxy:
         # the proxied backend sees Host as using in connecting to it
         assert r.response["json"]["host"] == f"127.0.0.1:{env.http_port}"
         assert r.response["json"]["h2_original_host"] == ""
+
+    # lets do some error tests
+    def test_h2_600_30(self, env):
+        conf = H2Conf(env)
+        conf.add_vhost_cgi(h2proxy_self=True)
+        conf.install()
+        assert env.apache_restart() == 0
+        url = env.mkurl("https", "cgi", "/h2proxy/h2test/error?status=500")
+        r = env.curl_get(url)
+        assert r.exit_code == 0, r
+        assert r.response['status'] == 500
+        url = env.mkurl("https", "cgi", "/h2proxy/h2test/error?error=timeout")
+        r = env.curl_get(url)
+        assert r.exit_code == 0, r
+        assert r.response['status'] == 408
+
+    # produce an error during response body
+    def test_h2_600_31(self, env, repeat):
+        conf = H2Conf(env)
+        conf.add_vhost_cgi(h2proxy_self=True)
+        conf.install()
+        assert env.apache_restart() == 0
+        url = env.mkurl("https", "cgi", "/h2proxy/h2test/error?body_error=timeout")
+        r = env.curl_get(url)
+        assert r.exit_code == 0, r
+        assert r.response['status'] == 503
