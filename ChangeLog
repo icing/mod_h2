@@ -1,3 +1,5 @@
+v2.0.9
+--------------------------------------------------------------------------------
  * Fixed a bug where errors during reponse body handling did not lead to
    a proper RST_STREAM. Instead processing went into an infinite loop.
    Extended test cases to catch this condition.
