@@ -89,7 +89,7 @@ void h2_session_event(h2_session *session, h2_session_event_t ev,
 
 static int rst_unprocessed_stream(h2_stream *stream, void *ctx)
 {
-    int unprocessed = (!h2_stream_was_closed(stream)
+    int unprocessed = (!h2_stream_is_at_or_past(stream, H2_SS_CLOSED)
                        && (H2_STREAM_CLIENT_INITIATED(stream->id)? 
                            (!stream->session->local.accepting
                             && stream->id > stream->session->local.accepted_max)
@@ -1313,22 +1313,21 @@ static apr_status_t on_stream_input(void *ctx, h2_stream *stream)
     }
     else {
         ap_assert(stream->input);
-        if (stream->state == H2_SS_CLOSED_L
+        if (h2_stream_is_at_or_past(stream, H2_SS_CLOSED_R)) {
+            /* TODO: remove this stream from input polling */
+            ap_log_cerror(APLOG_MARK, APLOG_TRACE2, 0, session->c1,
+                          H2_STRM_MSG(stream, "should not longer be input polled"));
+        }
+        else if (h2_stream_is_at(stream, H2_SS_CLOSED_L)
             && !h2_mplx_c1_stream_is_running(session->mplx, stream)) {
             ap_log_cerror(APLOG_MARK, APLOG_DEBUG, 0, session->c1,
                           H2_STRM_LOG(APLOGNO(10026), stream, "remote close missing"));
-            nghttp2_submit_rst_stream(stream->session->ngh2, NGHTTP2_FLAG_NONE,
-                                      stream->id, NGHTTP2_NO_ERROR);
+            h2_stream_rst(stream, H2_ERR_NO_ERROR);
             update_child_status(session, SERVER_BUSY_WRITE, "reset", stream);
             goto cleanup;
         }
         update_child_status(session, SERVER_BUSY_READ, "read", stream);
         h2_beam_report_consumption(stream->input);
-        if (stream->state == H2_SS_CLOSED_R) {
-            /* TODO: remove this stream from input polling */
-            ap_log_cerror(APLOG_MARK, APLOG_TRACE2, 0, session->c1,
-                          H2_STRM_MSG(stream, "should not longer be input polled"));
-        }
     }
 cleanup:
     return rv;

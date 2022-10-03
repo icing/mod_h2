@@ -88,5 +88,20 @@ class TestH2Proxy:
         assert env.apache_restart() == 0
         url = env.mkurl("https", "cgi", "/h2proxy/h2test/error?body_error=timeout")
         r = env.curl_get(url)
-        assert r.exit_code == 0, r
-        assert r.response['status'] == 503
+        # depending on when the error is detect in proxying, if may RST the
+        # stream (exit_code != 0) or give a 503 response.
+        if r.exit_code == 0:
+            assert r.response['status'] == 503
+
+    # produce an error, fail to generate an error bucket
+    def test_h2_600_32(self, env, repeat):
+        conf = H2Conf(env)
+        conf.add_vhost_cgi(h2proxy_self=True)
+        conf.install()
+        assert env.apache_restart() == 0
+        url = env.mkurl("https", "cgi", "/h2proxy/h2test/error?body_error=timeout&error_bucket=0")
+        r = env.curl_get(url)
+        # depending on when the error is detect in proxying, if may RST the
+        # stream (exit_code != 0) or give a 503 response.
+        if r.exit_code == 0:
+            assert r.response['status'] == 503

@@ -156,6 +156,22 @@ void h2_stream_set_monitor(h2_stream *stream, h2_stream_monitor *monitor);
 void h2_stream_dispatch(h2_stream *stream, h2_stream_event_t ev);
 
 /**
+ * Determine if stream is at given state.
+ * @param stream the stream to check
+ * @param state the state to look for
+ * @return != 0 iff stream is at given state.
+ */
+int h2_stream_is_at(const h2_stream *stream, h2_stream_state_t state);
+
+/**
+ * Determine if stream is reached given state or is past this state.
+ * @param stream the stream to check
+ * @param state the state to look for
+ * @return != 0 iff stream is at or past given state.
+ */
+int h2_stream_is_at_or_past(const h2_stream *stream, h2_stream_state_t state);
+
+/**
  * Cleanup references into requst processing.
  *
  * @param stream the stream to cleanup
@@ -226,16 +242,6 @@ apr_status_t h2_stream_recv_DATA(h2_stream *stream, uint8_t flags,
  * @param error_code the HTTP/2 error code
  */
 void h2_stream_rst(h2_stream *stream, int error_code);
-
-/**
- * Determine if stream was closed already. This is true for
- * states H2_SS_CLOSED, H2_SS_CLEANUP. But not true
- * for H2_SS_CLOSED_L and H2_SS_CLOSED_R.
- *
- * @param stream the stream to check on
- * @return != 0 iff stream has been closed
- */
-int h2_stream_was_closed(const h2_stream *stream);
 
 /**
  * Inspect the c2 output for response(s) and data.

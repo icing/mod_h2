@@ -1,3 +1,10 @@
+ * Adding more negative tests for handling of errored responses to cover
+   edge cases.
+ * mod_http2: fixed handling of response where neiter an EOS nor an ERROR was
+   received as a cause to reset the stream.
+ * mod_proxy_http2: generating error buckets for fault response bodies, to
+   signal failure to fron when response header were already sent.
+
 v2.0.9
 --------------------------------------------------------------------------------
  * Fixed a bug where errors during reponse body handling did not lead to

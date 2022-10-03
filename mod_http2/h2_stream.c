@@ -217,19 +217,24 @@ apr_status_t h2_stream_prepare_processing(h2_stream *stream)
     return APR_SUCCESS;
 }
 
+static int input_buffer_is_empty(h2_stream *stream)
+{
+    return !stream->in_buffer || APR_BRIGADE_EMPTY(stream->in_buffer);
+}
+
 static apr_status_t input_flush(h2_stream *stream)
 {
     apr_status_t status = APR_SUCCESS;
     apr_off_t written;
 
-    if (!stream->in_buffer) goto cleanup;
+    if (input_buffer_is_empty(stream)) goto cleanup;
 
     ap_log_cerror(APLOG_MARK, APLOG_TRACE2, 0, stream->session->c1,
                   H2_STRM_MSG(stream, "flush input"));
     status = h2_beam_send(stream->input, stream->session->c1,
                           stream->in_buffer, APR_BLOCK_READ, &written);
     stream->in_last_write = apr_time_now();
-    if (APR_SUCCESS != status && stream->state == H2_SS_CLOSED_L) {
+    if (APR_SUCCESS != status && h2_stream_is_at(stream, H2_SS_CLOSED_L)) {
         ap_log_cerror(APLOG_MARK, APLOG_TRACE2, status, stream->session->c1,
                       H2_STRM_MSG(stream, "send input error"));
         h2_stream_dispatch(stream, H2_SEV_IN_ERROR);
@@ -291,10 +296,10 @@ static apr_status_t close_input(h2_stream *stream)
         b = apr_bucket_eos_create(c->bucket_alloc);
         input_append_bucket(stream, b);
         input_flush(stream);
+        h2_stream_dispatch(stream, H2_SEV_IN_DATA_PENDING);
+        ap_log_cerror(APLOG_MARK, APLOG_TRACE2, 0, stream->session->c1,
+                      H2_STRM_MSG(stream, "input flush + EOS"));
     }
-    h2_stream_dispatch(stream, H2_SEV_IN_DATA_PENDING);
-    ap_log_cerror(APLOG_MARK, APLOG_TRACE2, 0, stream->session->c1,
-                  H2_STRM_MSG(stream, "input flush + EOS"));
 
 cleanup:
     return rv;
@@ -478,7 +483,7 @@ apr_status_t h2_stream_recv_frame(h2_stream *stream, int ftype, int flags, size_
             
         case NGHTTP2_HEADERS:
             eos = (flags & NGHTTP2_FLAG_END_STREAM);
-            if (stream->state == H2_SS_OPEN) {
+            if (h2_stream_is_at_or_past(stream, H2_SS_OPEN)) {
                 /* trailer HEADER */
                 if (!eos) {
                     h2_stream_rst(stream, H2_ERR_PROTOCOL_ERROR);
@@ -1323,12 +1328,26 @@ int h2_stream_is_ready(h2_stream *stream)
     return 0;
 }
 
-int h2_stream_was_closed(const h2_stream *stream)
+int h2_stream_is_at(const h2_stream *stream, h2_stream_state_t state)
 {
-    switch (stream->state) {
+    return stream->state == state;
+}
+
+int h2_stream_is_at_or_past(const h2_stream *stream, h2_stream_state_t state)
+{
+    switch (state) {
+        case H2_SS_IDLE:
+            return 1; /* by definition */
+        case H2_SS_RSVD_R: /*fall through*/
+        case H2_SS_RSVD_L: /*fall through*/
+        case H2_SS_OPEN:
+            return stream->state == state || stream->state >= H2_SS_OPEN;
+        case H2_SS_CLOSED_R: /*fall through*/
+        case H2_SS_CLOSED_L: /*fall through*/
         case H2_SS_CLOSED:
+            return stream->state == state || stream->state >= H2_SS_CLOSED;
         case H2_SS_CLEANUP:
-            return 1;
+            return stream->state == state;
         default:
             return 0;
     }
@@ -1508,6 +1527,16 @@ check_and_receive:
                       (long)length, (long)buf_len);
         rv = buffer_output_receive(stream);
         if (APR_EOF == rv) {
+            if (!stream->output_eos) {
+                /* Seeing APR_EOF without an EOS bucket received before indicates
+                 * that stream output is incomplete. Commonly, we expect to see
+                 * an ERROR bucket to have been generated. But faulty handlers
+                 * may not have generated one.
+                 * We need to RST the stream bc otherwise the client thinks
+                 * it is all fine. */
+                 h2_stream_rst(stream, H2_ERR_INTERNAL_ERROR);
+                 return NGHTTP2_ERR_DEFERRED;
+            }
             eos = 1;
             rv = APR_SUCCESS;
             goto cleanup;
@@ -1598,27 +1627,25 @@ apr_status_t h2_stream_read_output(h2_stream *stream)
         rv = APR_EAGAIN;
         goto cleanup;
     }
-    ap_log_cerror(APLOG_MARK, APLOG_TRACE2, 0, c1,
-                  H2_STRM_MSG(stream, "read_output"));
-
-    if (h2_stream_was_closed(stream)) {
+    else if (h2_stream_is_at_or_past(stream, H2_SS_CLOSED)) {
         ap_log_cerror(APLOG_MARK, APLOG_DEBUG, rv, c1,
                       H2_STRM_LOG(APLOGNO(10301), stream, "already closed"));
         rv = APR_EOF;
         goto cleanup;
     }
-    else if (stream->state == H2_SS_CLOSED_L) {
+    else if (h2_stream_is_at(stream, H2_SS_CLOSED_L)) {
         /* We have delivered a response to a stream that was not closed
          * by the client. This could be a POST with body that we negate
          * and we need to RST_STREAM to end if. */
         ap_log_cerror(APLOG_MARK, APLOG_DEBUG, 0, c1,
                       H2_STRM_LOG(APLOGNO(10313), stream, "remote close missing"));
-        nghttp2_submit_rst_stream(stream->session->ngh2, NGHTTP2_FLAG_NONE,
-                                  stream->id, NGHTTP2_NO_ERROR);
+        h2_stream_rst(stream, H2_ERR_NO_ERROR);
         rv = APR_EOF;
         goto cleanup;
     }
 
+    ap_log_cerror(APLOG_MARK, APLOG_TRACE2, 0, c1,
+                  H2_STRM_MSG(stream, "read_output"));
     rv = buffer_output_receive(stream);
     if (APR_SUCCESS != rv && APR_EAGAIN != rv) goto cleanup;
 

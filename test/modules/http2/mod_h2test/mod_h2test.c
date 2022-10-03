@@ -359,7 +359,7 @@ static int h2test_error_handler(request_rec *r)
     apr_bucket *b;
     apr_status_t rv;
     char buffer[8192];
-    int i, chunks = 3;
+    int i, chunks = 3, error_bucket = 1;
     long l;
     apr_time_t delay = 0, body_delay = 0;
     apr_array_header_t *args = NULL;
@@ -389,6 +389,12 @@ static int h2test_error_handler(request_rec *r)
                 }
                 else if (!strcmp("error", arg)) {
                     if (status_from_str(val, &error)) {
+                        continue;
+                    }
+                }
+                else if (!strcmp("error_bucket", arg)) {
+                    error_bucket = (int)apr_atoi64(val);
+                    if (val >= 0) {
                         continue;
                     }
                 }
@@ -472,10 +478,12 @@ cleanup:
     if (rv == APR_SUCCESS) {
         return OK;
     }
-    http_status = ap_map_http_request_error(rv, HTTP_BAD_REQUEST);
-    b = ap_bucket_error_create(http_status, NULL, r->pool, c->bucket_alloc);
-    APR_BRIGADE_INSERT_TAIL(bb, b);
-    ap_pass_brigade(r->output_filters, bb);
+    if (error_bucket) {
+        http_status = ap_map_http_request_error(rv, HTTP_BAD_REQUEST);
+        b = ap_bucket_error_create(http_status, NULL, r->pool, c->bucket_alloc);
+        APR_BRIGADE_INSERT_TAIL(bb, b);
+        ap_pass_brigade(r->output_filters, bb);
+    }
     return AP_FILTER_ERROR;
 }
 
