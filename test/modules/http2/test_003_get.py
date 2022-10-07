@@ -262,4 +262,4 @@ content-type: text/html
     def test_h2_003_72(self, env, repeat):
         url = env.mkurl("https", "cgi", "/h2test/error?body_error=timeout&error_bucket=0")
         r = env.curl_get(url)
-        assert r.exit_code != 0, r
+        assert r.exit_code != 0, f"{r}"

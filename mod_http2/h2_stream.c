@@ -920,6 +920,23 @@ static apr_bucket *get_first_response_bucket(apr_bucket_brigade *bb)
     return NULL;
 }
 
+static void stream_do_error_bucket(h2_stream *stream, apr_bucket *b)
+{
+    int err = ((ap_bucket_error *)(b->data))->status;
+    ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, stream->session->c1,
+                  H2_STRM_MSG(stream, "error bucket received, err=%d"), err);
+    if (err >= 500) {
+        err = NGHTTP2_INTERNAL_ERROR;
+    }
+    else if (err >= 400) {
+        err = NGHTTP2_STREAM_CLOSED;
+    }
+    else {
+        err = NGHTTP2_PROTOCOL_ERROR;
+    }
+    h2_stream_rst(stream, err);
+}
+
 static apr_status_t buffer_output_receive(h2_stream *stream)
 {
     apr_status_t rv = APR_EAGAIN;
@@ -972,7 +989,6 @@ static apr_status_t buffer_output_receive(h2_stream *stream)
                 ap_log_cerror(APLOG_MARK, APLOG_TRACE1, rv, c1,
                               H2_STRM_MSG(stream, "out_buffer, receive unsuccessful"));
             }
-            goto cleanup;
         }
     }
 
@@ -990,20 +1006,7 @@ static apr_status_t buffer_output_receive(h2_stream *stream)
                     stream->output_eos = 1;
                 }
                 else if (AP_BUCKET_IS_ERROR(b)) {
-                    int err = ((ap_bucket_error *)(b->data))->status;
-                    ap_log_cerror(APLOG_MARK, APLOG_TRACE1, rv, c1,
-                                  H2_STRM_MSG(stream, "error bucket received, status=%d"),
-                                  err);
-                    if (err >= 500) {
-                        err = NGHTTP2_INTERNAL_ERROR;
-                    }
-                    else if (err >= 400) {
-                        err = NGHTTP2_STREAM_CLOSED;
-                    }
-                    else {
-                        err = NGHTTP2_PROTOCOL_ERROR;
-                    }
-                    h2_stream_rst(stream, err);
+                    stream_do_error_bucket(stream, b);
                     break;
                 }
             }
@@ -1046,215 +1049,66 @@ apr_status_t h2_stream_read_to(h2_stream *stream, apr_bucket_brigade *bb,
     return rv;
 }
 
-static apr_status_t buffer_output_process_headers(h2_stream *stream)
+static apr_status_t stream_do_trailers(h2_stream *stream)
 {
     conn_rec *c1 = stream->session->c1;
-    apr_status_t rv = APR_EAGAIN;
-    int ngrv = 0, is_empty;
+    int ngrv;
     h2_ngheader *nh = NULL;
     apr_bucket *b, *e;
 #if AP_HAS_RESPONSE_BUCKETS
-    ap_bucket_response *resp = NULL;
     ap_bucket_headers *headers = NULL;
 #else
-    h2_headers *headers = NULL, *resp = NULL;
+    h2_headers *headers = NULL;
 #endif
+    apr_status_t rv;
 
-    if (!stream->out_buffer) goto cleanup;
+    ap_assert(stream->response);
+    ap_assert(stream->out_buffer);
 
     b = APR_BRIGADE_FIRST(stream->out_buffer);
     while (b != APR_BRIGADE_SENTINEL(stream->out_buffer)) {
         e = APR_BUCKET_NEXT(b);
         if (APR_BUCKET_IS_METADATA(b)) {
 #if AP_HAS_RESPONSE_BUCKETS
-            if (AP_BUCKET_IS_RESPONSE(b)) {
-                resp = b->data;
-                APR_BUCKET_REMOVE(b);
-                apr_bucket_destroy(b);
-                ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, c1,
-                              H2_STRM_MSG(stream, "process response %d"),
-                              resp->status);
-                b = e;
-                break;
-            }
-            else if (AP_BUCKET_IS_HEADERS(b)) {
+            if (AP_BUCKET_IS_HEADERS(b)) {
                 headers = b->data;
-                APR_BUCKET_REMOVE(b);
-                apr_bucket_destroy(b);
-                ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, c1,
-                              H2_STRM_MSG(stream, "process headers"));
-                b = e;
-                break;
-            }
 #else /* AP_HAS_RESPONSE_BUCKETS */
             if (H2_BUCKET_IS_HEADERS(b)) {
                 headers = h2_bucket_headers_get(b);
+#endif /* else AP_HAS_RESPONSE_BUCKETS */
                 APR_BUCKET_REMOVE(b);
                 apr_bucket_destroy(b);
                 ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, c1,
-                              H2_STRM_MSG(stream, "process headers, response %d"),
-                              headers->status);
-                if (!stream->response) {
-                    resp = headers;
-                    headers = NULL;
-                }
-                b = e;
+                              H2_STRM_MSG(stream, "process trailers"));
                 break;
             }
-#endif /* else AP_HAS_RESPONSE_BUCKETS */
+            else if (APR_BUCKET_IS_EOS(b)) {
+                break;
+            }
         }
         else {
-            if (!stream->response) {
-                /* data buckets before response headers, an error */
-                rv = APR_EINVAL;
-            }
-            /* data bucket, need to send those before processing
-             * any subsequent headers (trailers) */
-            goto cleanup;
+            break;
         }
         b = e;
     }
 
-    if (resp) {
-        nghttp2_data_provider provider, *pprovider = NULL;
-
-        if (resp->status < 100) {
-            h2_stream_rst(stream, resp->status);
-            goto cleanup;
-        }
-
-        if (resp->status == HTTP_FORBIDDEN && resp->notes) {
-            const char *cause = apr_table_get(resp->notes, "ssl-renegotiate-forbidden");
-            if (cause) {
-                /* This request triggered a TLS renegotiation that is not allowed
-                 * in HTTP/2. Tell the client that it should use HTTP/1.1 for this.
-                 */
-                ap_log_cerror(APLOG_MARK, APLOG_DEBUG, resp->status, c1,
-                              H2_STRM_LOG(APLOGNO(03061), stream,
-                              "renegotiate forbidden, cause: %s"), cause);
-                h2_stream_rst(stream, H2_ERR_HTTP_1_1_REQUIRED);
-                goto cleanup;
-            }
-        }
-
-        ap_log_cerror(APLOG_MARK, APLOG_DEBUG, 0, c1,
-                      H2_STRM_LOG(APLOGNO(03073), stream,
-                      "submit response %d"), resp->status);
-
-        /* If this stream is not a pushed one itself,
-         * and HTTP/2 server push is enabled here,
-         * and the response HTTP status is not sth >= 400,
-         * and the remote side has pushing enabled,
-         * -> find and perform any pushes on this stream
-         *    *before* we submit the stream response itself.
-         *    This helps clients avoid opening new streams on Link
-         *    resp that get pushed right afterwards.
-         *
-         * *) the response code is relevant, as we do not want to
-         *    make pushes on 401 or 403 codes and friends.
-         *    And if we see a 304, we do not push either
-         *    as the client, having this resource in its cache, might
-         *    also have the pushed ones as well.
-         */
-        if (!stream->initiated_on
-            && !stream->response
-            && stream->request && stream->request->method
-            && !strcmp("GET", stream->request->method)
-            && (resp->status < 400)
-            && (resp->status != 304)
-            && h2_session_push_enabled(stream->session)) {
-            /* PUSH is possible and enabled on server, unless the request
-             * denies it, submit resources to push */
-            const char *s = apr_table_get(resp->notes, H2_PUSH_MODE_NOTE);
-            if (!s || strcmp(s, "0")) {
-                h2_stream_submit_pushes(stream, resp);
-            }
-        }
-
-        if (!stream->pref_priority) {
-            stream->pref_priority = h2_stream_get_priority(stream, resp);
-        }
-        h2_session_set_prio(stream->session, stream, stream->pref_priority);
-
-        if (resp->status == 103
-            && !h2_config_sgeti(stream->session->s, H2_CONF_EARLY_HINTS)) {
-            /* suppress sending this to the client, it might have triggered
-             * pushes and served its purpose nevertheless */
-            rv = APR_SUCCESS;
-            goto cleanup;
-        }
-        if (resp->status >= 200) {
-            stream->response = resp;
-        }
-
-        /* Do we know if this stream has no response body? */
-        is_empty = 0;
-        while (b != APR_BRIGADE_SENTINEL(stream->out_buffer)) {
-            if (APR_BUCKET_IS_METADATA(b)) {
-#if AP_HAS_RESPONSE_BUCKETS
-                if (AP_BUCKET_IS_HEADERS(b)) {
-                    break;
-                }
-#else
-                if (H2_BUCKET_IS_HEADERS(b)) {
-                    break;
-                }
-#endif
-                else if (APR_BUCKET_IS_EOS(b)) {
-                    is_empty = 1;
-                    break;
-                }
-            }
-            else {  /* data, not empty */
-                break;
-            }
-            b = APR_BUCKET_NEXT(b);
-        }
-
-        if (!is_empty) {
-            memset(&provider, 0, sizeof(provider));
-            provider.source.fd = stream->id;
-            provider.read_callback = stream_data_cb;
-            pprovider = &provider;
-        }
-
-        rv = h2_res_create_ngheader(&nh, stream->pool, resp);
-        if (APR_SUCCESS != rv) {
-            ap_log_cerror(APLOG_MARK, APLOG_DEBUG, rv, c1,
-                          H2_STRM_LOG(APLOGNO(10025), stream, "invalid response"));
-            h2_stream_rst(stream, NGHTTP2_PROTOCOL_ERROR);
-            goto cleanup;
-        }
-        ngrv = nghttp2_submit_response(stream->session->ngh2, stream->id,
-                                       nh->nv, nh->nvlen, pprovider);
-        if (stream->initiated_on) {
-            ++stream->session->pushes_submitted;
-        }
-        else {
-            ++stream->session->responses_submitted;
-        }
+    if (!headers) {
+        rv = APR_EAGAIN;
+        goto cleanup;
     }
-    else if (headers) {
-        if (!stream->response) {
-            h2_stream_rst(stream, HTTP_INTERNAL_SERVER_ERROR);
-            goto cleanup;
-        }
-        rv = h2_res_create_ngtrailer(&nh, stream->pool, headers);
+
+    rv = h2_res_create_ngtrailer(&nh, stream->pool, headers);
+    ap_log_cerror(APLOG_MARK, APLOG_DEBUG, rv, c1,
+                  H2_STRM_LOG(APLOGNO(03072), stream, "submit %d trailers"),
+                  (int)nh->nvlen);
+    if (APR_SUCCESS != rv) {
         ap_log_cerror(APLOG_MARK, APLOG_DEBUG, rv, c1,
-                      H2_STRM_LOG(APLOGNO(03072), stream, "submit %d trailers"),
-                      (int)nh->nvlen);
-        if (APR_SUCCESS != rv) {
-            ap_log_cerror(APLOG_MARK, APLOG_DEBUG, rv, c1,
-                          H2_STRM_LOG(APLOGNO(10024), stream, "invalid trailers"));
-            h2_stream_rst(stream, NGHTTP2_PROTOCOL_ERROR);
-            goto cleanup;
-        }
-
-        ngrv = nghttp2_submit_trailer(stream->session->ngh2, stream->id, nh->nv, nh->nvlen);
-        stream->sent_trailers = 1;
+                      H2_STRM_LOG(APLOGNO(10024), stream, "invalid trailers"));
+        h2_stream_rst(stream, NGHTTP2_PROTOCOL_ERROR);
+        goto cleanup;
     }
 
-cleanup:
+    ngrv = nghttp2_submit_trailer(stream->session->ngh2, stream->id, nh->nv, nh->nvlen);
     if (nghttp2_is_fatal(ngrv)) {
         rv = APR_EGENERAL;
         h2_session_dispatch_event(stream->session,
@@ -1263,6 +1117,9 @@ cleanup:
                       APLOGNO(02940) "submit_response: %s",
                       nghttp2_strerror(rv));
     }
+    stream->sent_trailers = 1;
+
+cleanup:
     return rv;
 }
 
@@ -1467,35 +1324,25 @@ static ssize_t stream_data_cb(nghttp2_session *ng2s,
     apr_status_t rv;
     h2_stream *stream;
 
-    /* nghttp2 wants to send more DATA for the stream. We need
-     * to find out how much of the requested length we can send without
-     * blocking.
-     * Indicate EOS when we encounter it or DEFERRED if the stream
-     * should be suspended. Beware of trailers.
-     */
+    /* nghttp2 wants to send more DATA for the stream.
+     * we should have submitted the final response at this time
+     * after receiving output via stream_do_responses() */
     ap_assert(session);
     (void)ng2s;
     (void)buf;
     (void)source;
     stream = nghttp2_session_get_stream_user_data(session->ngh2, stream_id);
-    if (!stream || !stream->output) {
+
+    if (!stream) {
         ap_log_cerror(APLOG_MARK, APLOG_ERR, 0, c1,
                       APLOGNO(02937)
                       H2_SSSN_STRM_MSG(session, stream_id, "data_cb, stream not found"));
         return NGHTTP2_ERR_CALLBACK_FAILURE;
     }
-    if (!stream->response) {
-        ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, c1,
-                      APLOGNO(10299)
-                      H2_SSSN_STRM_MSG(session, stream_id, "data_cb, no response seen yet"));
+    if (!stream->output || !stream->response || !stream->out_buffer) {
         return NGHTTP2_ERR_DEFERRED;
     }
     if (stream->rst_error) {
-        return NGHTTP2_ERR_DEFERRED;
-    }
-    if (!stream->out_buffer) {
-        ap_log_cerror(APLOG_MARK, APLOG_TRACE2, 0, c1,
-                      H2_SSSN_STRM_MSG(session, stream_id, "suspending"));
         return NGHTTP2_ERR_DEFERRED;
     }
     if (h2_c1_io_needs_flush(&session->io)) {
@@ -1515,10 +1362,10 @@ static ssize_t stream_data_cb(nghttp2_session *ng2s,
         }
     }
 
-    /* How much data do we have in our buffers that we can write? */
-check_and_receive:
+    /* How much data do we have in our buffers that we can write?
+     * if not enough, receive more. */
     buf_len = output_data_buffered(stream, &eos, &header_blocked);
-    while (buf_len < (apr_off_t)length && !eos
+    if (buf_len < (apr_off_t)length && !eos
            && !header_blocked && !stream->rst_error) {
         /* read more? */
         ap_log_cerror(APLOG_MARK, APLOG_TRACE2, 0, c1,
@@ -1526,7 +1373,17 @@ check_and_receive:
                       "need more (read len=%ld, %ld in buffer)"),
                       (long)length, (long)buf_len);
         rv = buffer_output_receive(stream);
-        if (APR_EOF == rv) {
+        ap_log_cerror(APLOG_MARK, APLOG_TRACE1, rv, c1,
+                      H2_SSSN_STRM_MSG(session, stream_id,
+                      "buffer_output_received"));
+        if (APR_STATUS_IS_EAGAIN(rv)) {
+            /* currently, no more is available */
+        }
+        else if (APR_SUCCESS == rv) {
+            /* got some, re-assess */
+            buf_len = output_data_buffered(stream, &eos, &header_blocked);
+        }
+        else if (APR_EOF == rv) {
             if (!stream->output_eos) {
                 /* Seeing APR_EOF without an EOS bucket received before indicates
                  * that stream output is incomplete. Commonly, we expect to see
@@ -1534,23 +1391,19 @@ check_and_receive:
                  * may not have generated one.
                  * We need to RST the stream bc otherwise the client thinks
                  * it is all fine. */
+                 ap_log_cerror(APLOG_MARK, APLOG_TRACE1, rv, c1,
+                               H2_SSSN_STRM_MSG(session, stream_id, "rst stream"));
                  h2_stream_rst(stream, H2_ERR_INTERNAL_ERROR);
-                 return NGHTTP2_ERR_DEFERRED;
+                 return NGHTTP2_ERR_CALLBACK_FAILURE;
             }
+            ap_log_cerror(APLOG_MARK, APLOG_TRACE1, rv, c1,
+                          H2_SSSN_STRM_MSG(session, stream_id,
+                          "eof on receive (read len=%ld, %ld in buffer)"),
+                          (long)length, (long)buf_len);
             eos = 1;
             rv = APR_SUCCESS;
-            goto cleanup;
         }
-
-        if (APR_SUCCESS == rv) {
-            /* re-assess */
-            buf_len = output_data_buffered(stream, &eos, &header_blocked);
-        }
-        else if (APR_STATUS_IS_EAGAIN(rv)) {
-            /* currently, no more is available */
-            break;
-        }
-        else if (APR_SUCCESS != rv) {
+        else {
             ap_log_cerror(APLOG_MARK, APLOG_ERR, rv, c1,
                           H2_STRM_LOG(APLOGNO(02938), stream, "data_cb, reading data"));
             return NGHTTP2_ERR_CALLBACK_FAILURE;
@@ -1562,35 +1415,21 @@ check_and_receive:
     }
 
     if (buf_len == 0 && header_blocked) {
-        /* we are blocked from having data to send by a HEADER bucket sitting
-         * at buffer start. Send it and check again what DATA we can send. */
-        rv = buffer_output_process_headers(stream);
-        if (APR_SUCCESS == rv) {
-            goto check_and_receive;
-        }
-        else if (APR_STATUS_IS_EAGAIN(rv)) {
-            /* unable to send the HEADER at this time. */
-            eos = 0;
-            goto cleanup;
-        }
-        else {
+        rv = stream_do_trailers(stream);
+        if (APR_SUCCESS != rv && !APR_STATUS_IS_EAGAIN(rv)) {
             ap_log_cerror(APLOG_MARK, APLOG_ERR, rv, c1,
                           H2_STRM_LOG(APLOGNO(10300), stream,
-                          "data_cb, error processing headers"));
+                          "data_cb, error processing trailers"));
             return NGHTTP2_ERR_CALLBACK_FAILURE;
         }
+        length = 0;
+        eos = 0;
     }
-
-    if (buf_len > (apr_off_t)length) {
+    else if (buf_len > (apr_off_t)length) {
         eos = 0;  /* Any EOS we have in the buffer does not apply yet */
     }
     else {
         length = (size_t)buf_len;
-    }
-
-    if (stream->sent_trailers) {
-        /* We already sent trailers and will/can not send more DATA. */
-        eos = 0;
     }
 
     if (length) {
@@ -1606,14 +1445,208 @@ check_and_receive:
         return NGHTTP2_ERR_DEFERRED;
     }
 
-cleanup:
     if (eos) {
         *data_flags |= NGHTTP2_DATA_FLAG_EOF;
     }
     return length;
 }
 
-apr_status_t h2_stream_read_output(h2_stream *stream)
+static apr_status_t stream_do_response(h2_stream *stream)
+{
+    conn_rec *c1 = stream->session->c1;
+    apr_status_t rv = APR_EAGAIN;
+    int ngrv, is_empty = 0;
+    h2_ngheader *nh = NULL;
+    apr_bucket *b, *e;
+#if AP_HAS_RESPONSE_BUCKETS
+    ap_bucket_response *resp = NULL;
+#else
+    h2_headers *resp = NULL;
+#endif
+    nghttp2_data_provider provider, *pprovider = NULL;
+
+    ap_assert(!stream->response);
+    ap_assert(stream->out_buffer);
+
+    b = APR_BRIGADE_FIRST(stream->out_buffer);
+    while (b != APR_BRIGADE_SENTINEL(stream->out_buffer)) {
+        e = APR_BUCKET_NEXT(b);
+        if (APR_BUCKET_IS_METADATA(b)) {
+#if AP_HAS_RESPONSE_BUCKETS
+            if (AP_BUCKET_IS_RESPONSE(b)) {
+                resp = b->data;
+#else /* AP_HAS_RESPONSE_BUCKETS */
+            if (H2_BUCKET_IS_HEADERS(b)) {
+                resp = h2_bucket_headers_get(b);
+#endif /* else AP_HAS_RESPONSE_BUCKETS */
+                APR_BUCKET_REMOVE(b);
+                apr_bucket_destroy(b);
+                ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, c1,
+                              H2_STRM_MSG(stream, "process response %d"),
+                              resp->status);
+                is_empty = (e != APR_BRIGADE_SENTINEL(stream->out_buffer)
+                            && APR_BUCKET_IS_EOS(e));
+                break;
+            }
+            else if (APR_BUCKET_IS_EOS(b)) {
+                h2_stream_rst(stream, H2_ERR_INTERNAL_ERROR);
+                rv = APR_EINVAL;
+                goto cleanup;
+            }
+            else if (AP_BUCKET_IS_ERROR(b)) {
+                stream_do_error_bucket(stream, b);
+                rv = APR_EINVAL;
+                goto cleanup;
+            }
+        }
+        else {
+            /* data buckets before response headers, an error */
+            h2_stream_rst(stream, H2_ERR_INTERNAL_ERROR);
+            rv = APR_EINVAL;
+            goto cleanup;
+        }
+        b = e;
+    }
+
+    if (!resp) {
+        rv = APR_EAGAIN;
+        goto cleanup;
+    }
+
+    if (resp->status < 100) {
+        h2_stream_rst(stream, resp->status);
+        goto cleanup;
+    }
+
+    if (resp->status == HTTP_FORBIDDEN && resp->notes) {
+        const char *cause = apr_table_get(resp->notes, "ssl-renegotiate-forbidden");
+        if (cause) {
+            /* This request triggered a TLS renegotiation that is not allowed
+             * in HTTP/2. Tell the client that it should use HTTP/1.1 for this.
+             */
+            ap_log_cerror(APLOG_MARK, APLOG_DEBUG, resp->status, c1,
+                          H2_STRM_LOG(APLOGNO(03061), stream,
+                          "renegotiate forbidden, cause: %s"), cause);
+            h2_stream_rst(stream, H2_ERR_HTTP_1_1_REQUIRED);
+            goto cleanup;
+        }
+    }
+
+    ap_log_cerror(APLOG_MARK, APLOG_DEBUG, 0, c1,
+                  H2_STRM_LOG(APLOGNO(03073), stream,
+                  "submit response %d"), resp->status);
+
+    /* If this stream is not a pushed one itself,
+     * and HTTP/2 server push is enabled here,
+     * and the response HTTP status is not sth >= 400,
+     * and the remote side has pushing enabled,
+     * -> find and perform any pushes on this stream
+     *    *before* we submit the stream response itself.
+     *    This helps clients avoid opening new streams on Link
+     *    resp that get pushed right afterwards.
+     *
+     * *) the response code is relevant, as we do not want to
+     *    make pushes on 401 or 403 codes and friends.
+     *    And if we see a 304, we do not push either
+     *    as the client, having this resource in its cache, might
+     *    also have the pushed ones as well.
+     */
+    if (!stream->initiated_on
+        && !stream->response
+        && stream->request && stream->request->method
+        && !strcmp("GET", stream->request->method)
+        && (resp->status < 400)
+        && (resp->status != 304)
+        && h2_session_push_enabled(stream->session)) {
+        /* PUSH is possible and enabled on server, unless the request
+         * denies it, submit resources to push */
+        const char *s = apr_table_get(resp->notes, H2_PUSH_MODE_NOTE);
+        if (!s || strcmp(s, "0")) {
+            h2_stream_submit_pushes(stream, resp);
+        }
+    }
+
+    if (!stream->pref_priority) {
+        stream->pref_priority = h2_stream_get_priority(stream, resp);
+    }
+    h2_session_set_prio(stream->session, stream, stream->pref_priority);
+
+    if (resp->status == 103
+        && !h2_config_sgeti(stream->session->s, H2_CONF_EARLY_HINTS)) {
+        /* suppress sending this to the client, it might have triggered
+         * pushes and served its purpose nevertheless */
+        rv = APR_SUCCESS;
+        goto cleanup;
+    }
+    if (resp->status >= 200) {
+        stream->response = resp;
+    }
+
+    if (!is_empty) {
+        memset(&provider, 0, sizeof(provider));
+        provider.source.fd = stream->id;
+        provider.read_callback = stream_data_cb;
+        pprovider = &provider;
+    }
+
+    rv = h2_res_create_ngheader(&nh, stream->pool, resp);
+    if (APR_SUCCESS != rv) {
+        ap_log_cerror(APLOG_MARK, APLOG_DEBUG, rv, c1,
+                      H2_STRM_LOG(APLOGNO(10025), stream, "invalid response"));
+        h2_stream_rst(stream, NGHTTP2_PROTOCOL_ERROR);
+        goto cleanup;
+    }
+
+    ngrv = nghttp2_submit_response(stream->session->ngh2, stream->id,
+                                   nh->nv, nh->nvlen, pprovider);
+    if (nghttp2_is_fatal(ngrv)) {
+        rv = APR_EGENERAL;
+        h2_session_dispatch_event(stream->session,
+                                 H2_SESSION_EV_PROTO_ERROR, ngrv, nghttp2_strerror(rv));
+        ap_log_cerror(APLOG_MARK, APLOG_ERR, rv, c1,
+                      APLOGNO(02940) "submit_response: %s",
+                      nghttp2_strerror(rv));
+        goto cleanup;
+    }
+
+    if (stream->initiated_on) {
+        ++stream->session->pushes_submitted;
+    }
+    else {
+        ++stream->session->responses_submitted;
+    }
+
+cleanup:
+    return rv;
+}
+
+static void stream_do_responses(h2_stream *stream)
+{
+    h2_session *session = stream->session;
+    conn_rec *c1 = session->c1;
+    apr_status_t rv;
+
+    ap_assert(!stream->response);
+    ap_log_cerror(APLOG_MARK, APLOG_TRACE2, 0, c1,
+                  H2_STRM_MSG(stream, "do_response"));
+    rv = buffer_output_receive(stream);
+    ap_log_cerror(APLOG_MARK, APLOG_TRACE1, rv, c1,
+                  H2_SSSN_STRM_MSG(session, stream->id,
+                  "buffer_output_received2"));
+    if (APR_SUCCESS != rv && APR_EAGAIN != rv) {
+        h2_stream_rst(stream, NGHTTP2_PROTOCOL_ERROR);
+    }
+    else {
+        /* process all headers sitting at the buffer head. */
+        do {
+            rv = stream_do_response(stream);
+        } while (APR_SUCCESS == rv
+                 && !stream->rst_error
+                 && !stream->response);
+    }
+}
+
+void h2_stream_on_output_change(h2_stream *stream)
 {
     conn_rec *c1 = stream->session->c1;
     apr_status_t rv = APR_EAGAIN;
@@ -1624,14 +1657,10 @@ apr_status_t h2_stream_read_output(h2_stream *stream)
         /* c2 has not assigned the output beam to the stream (yet). */
         ap_log_cerror(APLOG_MARK, APLOG_WARNING, 0, c1,
                       H2_STRM_MSG(stream, "read_output, no output beam registered"));
-        rv = APR_EAGAIN;
-        goto cleanup;
     }
     else if (h2_stream_is_at_or_past(stream, H2_SS_CLOSED)) {
         ap_log_cerror(APLOG_MARK, APLOG_DEBUG, rv, c1,
                       H2_STRM_LOG(APLOGNO(10301), stream, "already closed"));
-        rv = APR_EOF;
-        goto cleanup;
     }
     else if (h2_stream_is_at(stream, H2_SS_CLOSED_L)) {
         /* We have delivered a response to a stream that was not closed
@@ -1640,29 +1669,44 @@ apr_status_t h2_stream_read_output(h2_stream *stream)
         ap_log_cerror(APLOG_MARK, APLOG_DEBUG, 0, c1,
                       H2_STRM_LOG(APLOGNO(10313), stream, "remote close missing"));
         h2_stream_rst(stream, H2_ERR_NO_ERROR);
-        rv = APR_EOF;
-        goto cleanup;
     }
-
-    ap_log_cerror(APLOG_MARK, APLOG_TRACE2, 0, c1,
-                  H2_STRM_MSG(stream, "read_output"));
-    rv = buffer_output_receive(stream);
-    if (APR_SUCCESS != rv && APR_EAGAIN != rv) goto cleanup;
-
-    /* process all headers sitting at the buffer head. */
-    while (1) {
-        rv = buffer_output_process_headers(stream);
-        if (APR_EAGAIN == rv) {
-            rv = APR_SUCCESS;
-            break;
+    else {
+        /* stream is not closed, a change in output happened. There are
+         * two modes of operation here:
+         * 1) the final response has been submitted. nghttp2 is invoking
+         *    stream_data_cb() to progress the stream. This handles DATA,
+         *    trailers, EOS and ERRORs.
+         *    When stream_data_cb() runs out of things to send, it returns
+         *    NGHTTP2_ERR_DEFERRED and nghttp2 *suspends* further processing
+         *    until we tell it to resume.
+         * 2) We have not seen the *final* response yet. The stream can not
+         *    send any response DATA. The nghttp2 stream_data_cb() is not
+         *    invoked. We need to receive output, expecting not DATA but
+         *    RESPONSEs (intermediate may arrive) and submit those. On
+         *    the final response, nghttp2 will start calling stream_data_cb().
+         */
+        if (stream->response) {
+            nghttp2_session_resume_data(stream->session->ngh2, stream->id);
+            ap_log_cerror(APLOG_MARK, APLOG_TRACE2, 0, c1,
+                          H2_STRM_MSG(stream, "resumed"));
         }
-        if (APR_SUCCESS != rv) goto cleanup;
+        else {
+            stream_do_responses(stream);
+            if (!stream->rst_error) {
+                nghttp2_session_resume_data(stream->session->ngh2, stream->id);
+            }
+        }
     }
+}
 
-    nghttp2_session_resume_data(stream->session->ngh2, stream->id);
-    ap_log_cerror(APLOG_MARK, APLOG_TRACE2, 0, c1,
-                  H2_STRM_MSG(stream, "resumed"));
-
-cleanup:
-    return rv;
+void h2_stream_on_input_change(h2_stream *stream)
+{
+    ap_assert(stream->input);
+    h2_beam_report_consumption(stream->input);
+    if (h2_stream_is_at(stream, H2_SS_CLOSED_L)
+        && !h2_mplx_c1_stream_is_running(stream->session->mplx, stream)) {
+        ap_log_cerror(APLOG_MARK, APLOG_DEBUG, 0, stream->session->c1,
+                      H2_STRM_LOG(APLOGNO(10026), stream, "remote close missing"));
+        h2_stream_rst(stream, H2_ERR_NO_ERROR);
+    }
 }

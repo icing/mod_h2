@@ -244,10 +244,16 @@ apr_status_t h2_stream_recv_DATA(h2_stream *stream, uint8_t flags,
 void h2_stream_rst(h2_stream *stream, int error_code);
 
 /**
- * Inspect the c2 output for response(s) and data.
+ * Stream input signals change. Take necessary actions.
  * @param stream the stream to read output for
  */
-apr_status_t h2_stream_read_output(h2_stream *stream);
+void h2_stream_on_input_change(h2_stream *stream);
+
+/**
+ * Stream output signals change. Take necessary actions.
+ * @param stream the stream to read output for
+ */
+void h2_stream_on_output_change(h2_stream *stream);
 
 /**
  * Read a maximum number of bytes into the bucket brigade.

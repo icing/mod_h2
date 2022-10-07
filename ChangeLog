@@ -1,3 +1,5 @@
+ * refactored stream response handling to reflect the different phases
+   (response/data/trailers) more clearly and help resolving cpu busy loops.
  * Adding more negative tests for handling of errored responses to cover
    edge cases.
  * mod_http2: fixed handling of response where neiter an EOS nor an ERROR was
