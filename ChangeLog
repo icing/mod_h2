@@ -1,3 +1,7 @@
+v2.0.10
+--------------------------------------------------------------------------------
+ * Extensive testing in production done by Alessandro Bianchi (@alexskynet)
+   on the v2.0.x versions for stability. Many thanks!
  * refactored stream response handling to reflect the different phases
    (response/data/trailers) more clearly and help resolving cpu busy loops.
  * Adding more negative tests for handling of errored responses to cover

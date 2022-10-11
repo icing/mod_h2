@@ -12,7 +12,8 @@ This repository contains `mod_h[ttp]2` and `mod_proxy_h[ttp]2` from Apache httpd
 The following beautiful people have directly contributed to this project via commits over the years: 
 Julian Reschke, Lubos Uhliarik, Luca Toscano, MATSUMOTO Ryosuke,
  Michael Kaufmann, Michael Köller, Mike Frysinger, Nicholas Race,
- Nicolas Noble, Petri Koistinen, Sam Hurst, Tatsuhiro Tsujikawa.
+ Nicolas Noble, Petri Koistinen, Sam Hurst, Tatsuhiro Tsujikawa,
+ Alessandro Bianchi.
  
 ## Install
 
