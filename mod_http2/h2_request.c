@@ -199,6 +199,9 @@ apr_status_t h2_request_end_headers(h2_request *req, apr_pool_t *pool,
         }
         req->authority = host;
     }
+    else {
+        apr_table_setn(req->headers, "Host", req->authority);
+    }
     req->raw_bytes += raw_bytes;
 
     return APR_SUCCESS;
@@ -358,6 +361,7 @@ request_rec *h2_create_request_rec(const h2_request *req, conn_rec *c,
 #endif
 
 #if AP_MODULE_MAGIC_AT_LEAST(20120211, 107)
+    assign_headers(r, req, no_body);
     ap_run_pre_read_request(r, c);
 
     /* Time to populate r with the data we have. */
@@ -384,8 +388,6 @@ request_rec *h2_create_request_rec(const h2_request *req, conn_rec *c,
         AP_DEBUG_ASSERT(req->http_status != H2_HTTP_STATUS_UNSET);
         r->the_request = apr_psprintf(r->pool, "%s / HTTP/2.0", req->method);
     }
-
-    assign_headers(r, req, no_body);
 
     /* Start with r->hostname = NULL, ap_check_request_header() will get it
      * form Host: header, otherwise we get complains about port numbers.

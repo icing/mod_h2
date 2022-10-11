@@ -243,6 +243,21 @@ static int h2test_delay_handler(request_rec *r)
     ap_set_content_type(r, "application/octet-stream");
 
     bb = apr_brigade_create(r->pool, c->bucket_alloc);
+    /* copy any request body into the response */
+    if ((rv = ap_setup_client_block(r, REQUEST_CHUNKED_DECHUNK))) goto cleanup;
+    if (ap_should_client_block(r)) {
+        do {
+            l = ap_get_client_block(r, &buffer[0], sizeof(buffer));
+            if (l > 0) {
+                ap_log_rerror(APLOG_MARK, APLOG_TRACE1, 0, r,
+                              "delay_handler: reading %ld bytes from request body", l);
+            }
+        } while (l > 0);
+        if (l < 0) {
+            return AP_FILTER_ERROR;
+        }
+    }
+
     memset(buffer, 0, sizeof(buffer));
     l = sizeof(buffer);
     for (i = 0; i < chunks; ++i) {
