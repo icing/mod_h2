@@ -1,3 +1,12 @@
+ * WARNING: the directive "H2HeaderStrictness" from v2.0.4 has been
+   removed again. Leading/trailing whitespace in header values is now
+   being stripped both for requests and responses. The checks for this
+   in nghttp2 v1.50.0+ are now always disabled.
+   This means that clients that send leading/trailing ws continue to
+   work, but that whitespace makes no difference in processing a request.
+   This is the same behaviour as in http/1.1 where the Apache parser does
+   the stripping as well (since forever).
+
 v2.0.10
 --------------------------------------------------------------------------------
  * Extensive testing in production done by Alessandro Bianchi (@alexskynet)

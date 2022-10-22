@@ -97,6 +97,7 @@ class H2TestEnv(HttpdTestEnv):
             'AH10373',  # SSL errors on uncompleted handshakes, see test_h2_105
             'AH01247',  # mod_cgid sometimes freaks out on load tests
             'AH01110',  # error by proxy reading response
+            'AH10400',  # warning that 'enablereuse' has not effect in certain configs test_h2_600
         ])
         self.httpd_error_log.add_ignored_patterns([
             re.compile(r'.*malformed header from script \'hecho.py\': Bad header: x.*'),
