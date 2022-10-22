@@ -1,3 +1,5 @@
+v2.0.11
+--------------------------------------------------------------------------------
  * WARNING: the directive "H2HeaderStrictness" from v2.0.4 has been
    removed again. Leading/trailing whitespace in header values is now
    being stripped both for requests and responses. The checks for this
