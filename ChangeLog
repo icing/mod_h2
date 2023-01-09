@@ -641,7 +641,7 @@ v1.9.1
 v1.9.0
 --------------------------------------------------------------------------------
   * not counting file buckets again stream max buffer limits. 
-    Effectively transfering static files in one step from slave to master 
+    Effectively transferring static files in one step from slave to master 
     connection.    
   * mod_http2: comforting ap_check_pipeline() on slave connections
     to facilitate reuse (see https://github.com/icing/mod_h2/issues/128).
