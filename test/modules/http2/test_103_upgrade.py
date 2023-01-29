@@ -109,6 +109,10 @@ class TestUpgrade:
         url = env.mkurl("http", "test1b", "/index.html")
         r = env.nghttp().get(url, options=["-u"])
         assert not r.response
+        r = env.curl_get(url, options=["--http2"])
+        assert 0 == r.exit_code
+        assert r.response
+        assert r.response["protocol"] == "HTTP/1.1"
 
     # ugrade to h2c on a host where h2c is preferred, but Upgrade is disabled on the server,
     # but allowed for a specific location
@@ -116,3 +120,7 @@ class TestUpgrade:
         url = env.mkurl("http", "test1b", "/006.html")
         r = env.nghttp().get(url, options=["-u"])
         assert r.response["status"] == 200
+        r = env.curl_get(url, options=["--http2", "-v", "--trace-time"])
+        assert 0 == r.exit_code
+        assert r.response
+        assert r.response["protocol"] == "HTTP/2", f'{r}'
