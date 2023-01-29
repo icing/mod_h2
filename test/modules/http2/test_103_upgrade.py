@@ -120,7 +120,21 @@ class TestUpgrade:
         url = env.mkurl("http", "test1b", "/006.html")
         r = env.nghttp().get(url, options=["-u"])
         assert r.response["status"] == 200
-        r = env.curl_get(url, options=["--http2", "-v", "--trace-time"])
+        r = env.curl_get(url, options=["--http2"])
         assert 0 == r.exit_code
         assert r.response
         assert r.response["protocol"] == "HTTP/2", f'{r}'
+
+    # try ugrade to h2c with a request body, should be denied
+    def test_h2_103_25(self, env):
+        url = env.mkurl("http", "test1b", "/006.html")
+        r = env.curl_get(url, options=["--http2", "--data-binary", "0123456789"])
+        assert 0 == r.exit_code
+        assert r.response
+        assert r.response["protocol"] == "HTTP/1.1", f'{r}'
+        r = env.curl_get(url, options=[
+                "--http2", "--data-binary", "0123456789", "-H", "Transfer-Encoding: chunked"
+            ])
+        assert 0 == r.exit_code
+        assert r.response
+        assert r.response["protocol"] == "HTTP/1.1", f'{r}'
