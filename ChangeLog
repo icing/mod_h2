@@ -1,3 +1,12 @@
+v2.0.12
+--------------------------------------------------------------------------------
+ * client resets of HTTP/2 streams led to unwanted 500 errors
+   reported in access logs and error documents. The processing of the
+   reset was correct, only unneccesary reporting was caused.
+ * Upgrade requests from HTTP/1.1 to HTTP/2 via the "Upgrade" header were
+   always ignored for a request with a body. The check for this was incomplete
+   and missed bodies announced via "Transfer-Encoding". Fixed. Refs #243
+
 v2.0.11
 --------------------------------------------------------------------------------
  * WARNING: the directive "H2HeaderStrictness" from v2.0.4 has been
