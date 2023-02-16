@@ -1,3 +1,5 @@
+v2.0.13
+--------------------------------------------------------------------------------
  * New directive 'H2MaxDataFrameLen n' to limit the maximum amount of response
    body bytes put into a single HTTP/2 DATA frame. Setting this to 0 places
    no limit (but the max size allowed by the protocol is observed).
