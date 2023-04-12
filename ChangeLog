@@ -1,3 +1,8 @@
+v2.0.14
+--------------------------------------------------------------------------------
+ * fixed a crash during connection termination. See Apache PR 66539.
+ * fixed a memory leak in calc_sha256_hash().
+
 v2.0.13
 --------------------------------------------------------------------------------
  * New directive 'H2MaxDataFrameLen n' to limit the maximum amount of response
