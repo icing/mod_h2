@@ -17,7 +17,7 @@ Julian Reschke, Lubos Uhliarik, Luca Toscano, MATSUMOTO Ryosuke,
  
 ## Install
 
-You need a built Apache httpd 2.4.34 or newer, including apxs and headers to compile and 
+You need a built Apache httpd 2.4.48 or newer, including apxs and headers to compile and 
 run this module. Additionally, you need an installed libnghttp2, at least in version
 1.7.0. And additionally, you want an installed OpenSSL 1.0.2 or later.
 
