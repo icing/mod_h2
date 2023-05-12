@@ -1,3 +1,8 @@
+ * Fixed #253 where requests were not logged and accounted in a timely
+   fashion when the connection return to "keepalive" handling, e.g. when
+   the request served was the last outstanding one.
+   This led to late appearance in access logs with wrong duration times
+   reported.
  * New directive 'H2EarlyHint name value' to add headers to a response,
    picked up already when a "103 Early Hints" response is sent. 'name' and
    'value' must comply to the HTTP field restrictions.
