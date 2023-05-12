@@ -59,10 +59,11 @@ class TestPost:
         self.curl_upload_and_verify(env, "data-1k", ["-v", "--http1.1", "-H", "Expect: 100-continue"])
         self.curl_upload_and_verify(env, "data-1k", ["-v", "--http2", "-H", "Expect: 100-continue"])
 
-    @pytest.mark.skipif(True, reason="python3 regresses in chunked inputs to cgi")
     def test_h2_004_06(self, env):
-        self.curl_upload_and_verify(env, "data-1k", ["--http1.1", "-H", "Content-Length: "])
-        self.curl_upload_and_verify(env, "data-1k", ["--http2", "-H", "Content-Length: "])
+        self.curl_upload_and_verify(env, "data-1k", [
+            "--http1.1", "-H", "Content-Length:", "-H", "Transfer-Encoding: chunked"
+        ])
+        self.curl_upload_and_verify(env, "data-1k", ["--http2", "-H", "Content-Length:"])
 
     @pytest.mark.parametrize("name, value", [
         ("HTTP2", "on"),
