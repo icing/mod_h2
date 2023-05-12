@@ -589,6 +589,15 @@ static void c1_purge_streams(h2_mplx *m)
     apr_array_clear(m->spurge);
 }
 
+void h2_mplx_c1_going_keepalive(h2_mplx *m)
+{
+    H2_MPLX_ENTER_ALWAYS(m);
+    if (m->spurge->nelts) {
+        c1_purge_streams(m);
+    }
+    H2_MPLX_LEAVE(m);
+}
+
 apr_status_t h2_mplx_c1_poll(h2_mplx *m, apr_interval_time_t timeout,
                             stream_ev_callback *on_stream_input,
                             stream_ev_callback *on_stream_output,
