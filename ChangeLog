@@ -1,3 +1,5 @@
+v2.0.15
+--------------------------------------------------------------------------------
  * Fixed #253 where requests were not logged and accounted in a timely
    fashion when the connection return to "keepalive" handling, e.g. when
    the request served was the last outstanding one.
