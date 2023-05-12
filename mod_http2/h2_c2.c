@@ -390,30 +390,56 @@ static apr_status_t h2_c2_filter_out(ap_filter_t* f, apr_bucket_brigade* bb)
     return rv;
 }
 
-static void check_push(request_rec *r, const char *tag)
+static int addn_headers(void *udata, const char *name, const char *value)
+{
+    apr_table_t *dest = udata;
+    apr_table_addn(dest, name, value);
+    return 1;
+}
+
+static void check_early_hints(request_rec *r, const char *tag)
 {
     apr_array_header_t *push_list = h2_config_push_list(r);
+    apr_table_t *early_headers = h2_config_early_headers(r);
 
-    if (!r->expecting_100 && push_list && push_list->nelts > 0) {
-        int i, old_status;
-        const char *old_line;
+    if (!r->expecting_100 &&
+        ((push_list && push_list->nelts > 0) ||
+         (early_headers && !apr_is_empty_table(early_headers)))) {
+        int have_hints = 0, i;
 
-        ap_log_rerror(APLOG_MARK, APLOG_TRACE1, 0, r,
-                      "%s, early announcing %d resources for push",
-                      tag, push_list->nelts);
-        for (i = 0; i < push_list->nelts; ++i) {
-            h2_push_res *push = &APR_ARRAY_IDX(push_list, i, h2_push_res);
-            apr_table_add(r->headers_out, "Link",
-                           apr_psprintf(r->pool, "<%s>; rel=preload%s",
-                                        push->uri_ref, push->critical? "; critical" : ""));
+        if (push_list && push_list->nelts > 0) {
+            ap_log_rerror(APLOG_MARK, APLOG_TRACE1, 0, r,
+                          "%s, early announcing %d resources for push",
+                          tag, push_list->nelts);
+            for (i = 0; i < push_list->nelts; ++i) {
+                h2_push_res *push = &APR_ARRAY_IDX(push_list, i, h2_push_res);
+                apr_table_add(r->headers_out, "Link",
+                               apr_psprintf(r->pool, "<%s>; rel=preload%s",
+                                            push->uri_ref, push->critical? "; critical" : ""));
+            }
+            have_hints = 1;
         }
-        old_status = r->status;
-        old_line = r->status_line;
-        r->status = 103;
-        r->status_line = "103 Early Hints";
-        ap_send_interim_response(r, 1);
-        r->status = old_status;
-        r->status_line = old_line;
+        if (early_headers && !apr_is_empty_table(early_headers)) {
+            apr_table_do(addn_headers, r->headers_out, early_headers, NULL);
+            have_hints = 1;
+        }
+
+        if (have_hints) {
+          int old_status;
+          const char *old_line;
+
+          if (h2_config_rgeti(r, H2_CONF_PUSH) == 0 &&
+              h2_config_sgeti(r->server, H2_CONF_PUSH) != 0) {
+              apr_table_setn(r->connection->notes, H2_PUSH_MODE_NOTE, "0");
+          }
+          old_status = r->status;
+          old_line = r->status_line;
+          r->status = 103;
+          r->status_line = "103 Early Hints";
+          ap_send_interim_response(r, 1);
+          r->status = old_status;
+          r->status_line = old_line;
+        }
     }
 }
 
@@ -426,7 +452,7 @@ static int c2_hook_fixups(request_rec *r)
         return DECLINED;
     }
 
-    check_push(r, "late_fixup");
+    check_early_hints(r, "late_fixup");
 
     return DECLINED;
 }
