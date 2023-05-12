@@ -373,10 +373,11 @@ request_rec *h2_create_request_rec(const h2_request *req, conn_rec *c,
       r->the_request = apr_psprintf(r->pool, "%s %s HTTP/2.0",
                                     req->method, req->authority);
     }
-    else if (req->scheme && ap_cstr_casecmp(req->scheme, "http")
-             && ap_cstr_casecmp(req->scheme, "https")) {
+    else if (req->scheme &&
+             ap_cstr_casecmp(req->scheme, ap_ssl_conn_is_ssl(c->master? c->master : c)?
+                             "https" : "http")) {
         /* Client sent a ':scheme' pseudo header for something else
-         * than what we handle by default. Make an absolute URI. */
+         * than what we have on this connection. Make an absolute URI. */
         r->the_request = apr_psprintf(r->pool, "%s %s://%s%s HTTP/2.0",
                                       req->method, req->scheme, req->authority,
                                       req->path ? req->path : "");
