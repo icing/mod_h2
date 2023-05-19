@@ -1,3 +1,6 @@
+ * mod_proxy_http2: added checks for space/ctrls in nocanon path/urls
+   before forwarding. By @ylavic.
+
 v2.0.15
 --------------------------------------------------------------------------------
  * Fixed #253 where requests were not logged and accounted in a timely
