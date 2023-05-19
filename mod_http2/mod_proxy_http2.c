@@ -159,8 +159,14 @@ static int proxy_http2_canon(request_rec *r, char *url)
             search = r->args;
         }
         else {
-            path = ap_proxy_canonenc(r->pool, url, (int)strlen(url),
-                                     enc_path, 0, r->proxyreq);
+            core_dir_config *d = ap_get_core_module_config(r->per_dir_config);
+            int flags = d->allow_encoded_slashes && !d->decode_encoded_slashes ? PROXY_CANONENC_NOENCODEDSLASHENCODING : 0;
+
+            path = ap_proxy_canonenc_ex(r->pool, url, (int)strlen(url),
+                                        enc_path, flags, r->proxyreq);
+            if (!path) {
+                return HTTP_BAD_REQUEST;
+            }
             search = r->args;
         }
         break;
@@ -168,9 +174,21 @@ static int proxy_http2_canon(request_rec *r, char *url)
         path = url;
         break;
     }
-
-    if (path == NULL) {
-        return HTTP_BAD_REQUEST;
+    /*
+     * If we have a raw control character or a ' ' in nocanon path or
+     * r->args, correct encoding was missed.
+     */
+    if (path == url && *ap_scan_vchar_obstext(path)) {
+        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, APLOGNO(10420)
+                      "To be forwarded path contains control "
+                      "characters or spaces");
+        return HTTP_FORBIDDEN;
+    }
+    if (search && *ap_scan_vchar_obstext(search)) {
+        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, APLOGNO(10412)
+                      "To be forwarded query string contains control "
+                      "characters or spaces");
+        return HTTP_FORBIDDEN;
     }
 
     if (port != def_port) {
