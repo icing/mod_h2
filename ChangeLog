@@ -1,5 +1,9 @@
+ * Fixed a bug that applied request filters twice on redirects. This led to
+   double chunked-encoding internally on POST requests without content-length.
+   Fix by Yann Ylavic.
+   See <https://bz.apache.org/bugzilla/show_bug.cgi?id=66597>.
  * mod_proxy_http2: added checks for space/ctrls in nocanon path/urls
-   before forwarding. By @ylavic.
+   before forwarding. By Yann Ylavic.
 
 v2.0.15
 --------------------------------------------------------------------------------
