@@ -160,10 +160,15 @@ static int proxy_http2_canon(request_rec *r, char *url)
         }
         else {
             core_dir_config *d = ap_get_core_module_config(r->per_dir_config);
+ #ifdef PROXY_CANONENC_NOENCODEDSLASHENCODING
             int flags = d->allow_encoded_slashes && !d->decode_encoded_slashes ? PROXY_CANONENC_NOENCODEDSLASHENCODING : 0;
 
             path = ap_proxy_canonenc_ex(r->pool, url, (int)strlen(url),
                                         enc_path, flags, r->proxyreq);
+#else
+            path = ap_proxy_canonenc(r->pool, url, (int)strlen(url),
+                                     enc_path, 0, r->proxyreq);
+#endif
             if (!path) {
                 return HTTP_BAD_REQUEST;
             }
