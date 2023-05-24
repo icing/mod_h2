@@ -232,23 +232,24 @@ static apr_status_t add_request(h2_proxy_session *session, request_rec *r)
 }
 
 static void request_done(h2_proxy_ctx *ctx, request_rec *r,
-                         apr_status_t status, int touched)
+                         apr_status_t status, int touched, int error_code)
 {   
     if (r == ctx->r) {
         ap_log_cerror(APLOG_MARK, APLOG_TRACE1, status, r->connection, 
-                      "h2_proxy_session(%s): request done, touched=%d",
-                      ctx->id, touched);
+                      "h2_proxy_session(%s): request done, touched=%d, error=%d",
+                      ctx->id, touched, error_code);
         ctx->r_done = 1;
         if (touched) ctx->r_may_retry = 0;
-        ctx->r_status = ((status == APR_SUCCESS)? APR_SUCCESS
-                         : HTTP_SERVICE_UNAVAILABLE);
+        ctx->r_status = error_code? HTTP_BAD_GATEWAY :
+            ((status == APR_SUCCESS)? OK :
+             ap_map_http_request_error(status, HTTP_SERVICE_UNAVAILABLE));
     }
 }    
 
 static void session_req_done(h2_proxy_session *session, request_rec *r,
-                             apr_status_t status, int touched)
+                             apr_status_t status, int touched, int error_code)
 {
-    request_done(session->user_data, r, status, touched);
+    request_done(session->user_data, r, status, touched, error_code);
 }
 
 static apr_status_t ctx_run(h2_proxy_ctx *ctx) {

@@ -68,7 +68,8 @@ typedef enum {
 
 typedef struct h2_proxy_session h2_proxy_session;
 typedef void h2_proxy_request_done(h2_proxy_session *s, request_rec *r,
-                                   apr_status_t status, int touched);
+                                   apr_status_t status, int touched,
+                                   int error_code);
 
 struct h2_proxy_session {
     const char *id;

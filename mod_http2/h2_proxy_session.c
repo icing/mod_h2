@@ -1366,7 +1366,7 @@ static void ev_stream_done(h2_proxy_session *session, int stream_id,
         /* if the stream's connection is aborted, do not send anything
          * more on it. */
         apr_status_t status = (stream->error_code == 0)? APR_SUCCESS : APR_EINVAL;
-        int touched = (stream->data_sent ||
+        int touched = (stream->data_sent || stream->data_received ||
                        stream_id <= session->last_stream_id);
         if (!session->c->aborted) {
             ap_log_cerror(APLOG_MARK, APLOG_DEBUG, 0, session->c, APLOGNO(03364)
@@ -1375,9 +1375,21 @@ static void ev_stream_done(h2_proxy_session *session, int stream_id,
                           session->id, stream_id, touched, stream->error_code);
 
             if (status != APR_SUCCESS) {
-              /* stream failed, error reporting is done by caller
-               * of proxy_session, e.g. mod_proxy_http2 which also
-               * decides about retries. */
+              /* stream failed. If we have received (and forwarded) response
+               * data already, we need to append an error buckt to inform
+               * consumers.
+               * Otherwise, we have an early fail on the connection and may
+               * retry this request on a new one. In that case, keep the
+               * output virgin so that a new attempt can be made. */
+              if (stream->data_received) {
+                int http_status = ap_map_http_request_error(status, HTTP_BAD_REQUEST);
+                b = ap_bucket_error_create(http_status, NULL, stream->r->pool,
+                                           stream->r->connection->bucket_alloc);
+                APR_BRIGADE_INSERT_TAIL(stream->output, b);
+                b = apr_bucket_eos_create(stream->r->connection->bucket_alloc);
+                APR_BRIGADE_INSERT_TAIL(stream->output, b);
+                ap_pass_brigade(stream->r->output_filters, stream->output);
+              }
             }
             else if (!stream->data_received) {
                 /* if the response had no body, this is the time to flush
@@ -1396,7 +1408,7 @@ static void ev_stream_done(h2_proxy_session *session, int stream_id,
         h2_proxy_ihash_remove(session->streams, stream_id);
         h2_proxy_iq_remove(session->suspended, stream_id);
         if (session->done) {
-            session->done(session, stream->r, status, touched);
+            session->done(session, stream->r, status, touched, stream->error_code);
         }
     }
     
@@ -1666,9 +1678,9 @@ static int done_iter(void *udata, void *val)
 {
     cleanup_iter_ctx *ctx = udata;
     h2_proxy_stream *stream = val;
-    int touched = (stream->data_sent || 
+    int touched = (stream->data_sent || stream->data_received ||
                    stream->id <= ctx->session->last_stream_id);
-    ctx->done(ctx->session, stream->r, APR_ECONNABORTED, touched);
+    ctx->done(ctx->session, stream->r, APR_ECONNABORTED, touched, stream->error_code);
     return 1;
 }
 
