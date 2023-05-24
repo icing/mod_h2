@@ -1,3 +1,5 @@
+v2.0.17
+--------------------------------------------------------------------------------
  * mod_proxy_http2: fixed a bug in retry/response handling that could lead
    to wrong status codes or HTTP messages send at the end of response bodies
    exceeding the announced content-length.
