@@ -1,3 +1,6 @@
+ * mod_proxy_http2: fixed using the wrong "bucket_alloc" from the backend
+   connection when sending data on the frontend one. This caused crashes
+   or infinite loops in rare situations.
  * Fixed a bug that did cleanup of consumed and pending buckets in
    the wrong order when a bucket_beam was destroyed.
 
