@@ -478,18 +478,20 @@ static int h2test_error_handler(request_rec *r)
                     }
                 }
                 else if (!strcmp("delay", arg)) {
-                    rv = duration_parse(&delay, r->args, "s");
+                    rv = duration_parse(&delay, val, "s");
                     if (APR_SUCCESS == rv) {
                         continue;
                     }
                 }
                 else if (!strcmp("body_delay", arg)) {
-                    rv = duration_parse(&body_delay, r->args, "s");
+                    rv = duration_parse(&body_delay, val, "s");
                     if (APR_SUCCESS == rv) {
                         continue;
                     }
                 }
             }
+            ap_log_rerror(APLOG_MARK, APLOG_TRACE1, 0, r, "error_handler: "
+                  "did not understand '%s'", arg);
             ap_die(HTTP_BAD_REQUEST, r);
             return OK;
         }
