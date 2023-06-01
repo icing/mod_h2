@@ -690,7 +690,7 @@ class HttpdTestEnv:
         if force_resolve and u.hostname and u.hostname != 'localhost' \
                 and u.hostname != self._httpd_addr \
                 and not re.match(r'^(\d+|\[|:).*', u.hostname):
-            assert u.port, f"port not in url: {urls[0]}"
+            assert u.port, f"port not in url: {url}"
             args.extend(["--resolve", f"{u.hostname}:{u.port}:{self._httpd_addr}"])
         return args
 
