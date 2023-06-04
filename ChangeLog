@@ -1,3 +1,5 @@
+ * fixed error handling when flushing output on main connection.
+
 v2.0.18
 --------------------------------------------------------------------------------
  * mod_proxy_http2: fixed using the wrong "bucket_alloc" from the backend
