@@ -767,6 +767,9 @@ apr_status_t h2_stream_add_header(h2_stream *stream,
         status = h2_request_add_header(stream->rtmp, stream->pool,
                                        name, nlen, value, vlen,
                                        session->s->limit_req_fieldsize, &was_added);
+        ap_log_cerror(APLOG_MARK, APLOG_TRACE2, status, session->c1,
+                      H2_STRM_MSG(stream, "add_header: '%.*s: %.*s"),
+                      (int)nlen, name, (int)vlen, value);
         if (was_added) ++stream->request_headers_added;
     }
     else if (H2_SS_OPEN == stream->state) {

@@ -78,6 +78,7 @@ typedef struct h2_config {
     apr_interval_time_t stream_timeout;/* beam timeout */
     int max_data_frame_len;          /* max # bytes in a single h2 DATA frame */
     int proxy_requests;              /* act as forward proxy */
+    int h2_websockets;               /* if mod_h2 negotiating WebSockets */
 } h2_config;
 
 typedef struct h2_dir_config {
@@ -117,6 +118,7 @@ static h2_config defconf = {
     -1,                     /* beam timeout */
     0,                      /* max DATA frame len, 0 == no extra limit */
     0,                      /* forward proxy */
+    1,                      /* WebSockets negotiation, enabled */
 };
 
 static h2_dir_config defdconf = {
@@ -164,6 +166,7 @@ void *h2_config_create_svr(apr_pool_t *pool, server_rec *s)
     conf->stream_timeout       = DEF_VAL;
     conf->max_data_frame_len   = DEF_VAL;
     conf->proxy_requests       = DEF_VAL;
+    conf->h2_websockets        = DEF_VAL;
     return conf;
 }
 
@@ -214,6 +217,7 @@ static void *h2_config_merge(apr_pool_t *pool, void *basev, void *addv)
     n->stream_timeout       = H2_CONFIG_GET(add, base, stream_timeout);
     n->max_data_frame_len   = H2_CONFIG_GET(add, base, max_data_frame_len);
     n->proxy_requests       = H2_CONFIG_GET(add, base, proxy_requests);
+    n->h2_websockets        = H2_CONFIG_GET(add, base, h2_websockets);
     return n;
 }
 
@@ -307,6 +311,8 @@ static apr_int64_t h2_srv_config_geti64(const h2_config *conf, h2_config_var_t v
             return H2_CONFIG_GET(conf, &defconf, max_data_frame_len);
         case H2_CONF_PROXY_REQUESTS:
             return H2_CONFIG_GET(conf, &defconf, proxy_requests);
+        case H2_CONF_WEBSOCKETS:
+            return H2_CONFIG_GET(conf, &defconf, h2_websockets);
         default:
             return DEF_VAL;
     }
@@ -371,6 +377,8 @@ static void h2_srv_config_seti(h2_config *conf, h2_config_var_t var, int val)
             break;
         case H2_CONF_PROXY_REQUESTS:
             H2_CONFIG_SET(conf, proxy_requests, val);
+        case H2_CONF_WEBSOCKETS:
+            H2_CONFIG_SET(conf, h2_websockets, val);
             break;
         default:
             break;
@@ -685,6 +693,20 @@ static const char *h2_conf_set_push(cmd_parms *cmd, void *dirconf, const char *v
     }
     else if (!strcasecmp(value, "Off")) {
         CONFIG_CMD_SET(cmd, dirconf, H2_CONF_PUSH, 0);
+        return NULL;
+    }
+    return "value must be On or Off";
+}
+
+static const char *h2_conf_set_websockets(cmd_parms *cmd,
+                                          void *dirconf, const char *value)
+{
+    if (!strcasecmp(value, "On")) {
+        CONFIG_CMD_SET(cmd, dirconf, H2_CONF_WEBSOCKETS, 1);
+        return NULL;
+    }
+    else if (!strcasecmp(value, "Off")) {
+        CONFIG_CMD_SET(cmd, dirconf, H2_CONF_WEBSOCKETS, 0);
         return NULL;
     }
     return "value must be On or Off";
@@ -1046,7 +1068,8 @@ const command_rec h2_cmds[] = {
                    OR_FILEINFO|OR_AUTHCFG, "add a a 'Link:' header for a 103 Early Hints response."),
     AP_INIT_TAKE1("H2ProxyRequests", h2_conf_set_proxy_requests, NULL,
                   OR_FILEINFO, "Enables forward proxy requests via HTTP/2"),
-
+    AP_INIT_TAKE1("H2WebSockets", h2_conf_set_websockets, NULL,
+                  RSRC_CONF, "off to disable WebSockets over HTTP/2"),
     AP_END_CMD
 };
 

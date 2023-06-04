@@ -636,9 +636,11 @@ apr_status_t h2_c2_filter_catch_h1_out(ap_filter_t* f, apr_bucket_brigade* bb)
                 int result = ap_map_http_request_error(conn_ctx->last_err,
                                                        HTTP_INTERNAL_SERVER_ERROR);
                 request_rec *r = h2_create_request_rec(conn_ctx->request, f->c, 1);
-                ap_die((result >= 400)? result : HTTP_INTERNAL_SERVER_ERROR, r);
-                b = ap_bucket_eor_create(f->c->bucket_alloc, r);
-                APR_BRIGADE_INSERT_TAIL(bb, b);
+                if (r) {
+                    ap_die((result >= 400)? result : HTTP_INTERNAL_SERVER_ERROR, r);
+                    b = ap_bucket_eor_create(f->c->bucket_alloc, r);
+                    APR_BRIGADE_INSERT_TAIL(bb, b);
+                }
             }
         }
         /* There are cases where we need to parse a serialized http/1.1 response.

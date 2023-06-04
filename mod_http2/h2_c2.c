@@ -48,6 +48,7 @@
 #include "h2_headers.h"
 #include "h2_session.h"
 #include "h2_stream.h"
+#include "h2_ws.h"
 #include "h2_c2.h"
 #include "h2_util.h"
 
@@ -668,11 +669,18 @@ static apr_status_t c2_process(h2_conn_ctx_t *conn_ctx, conn_rec *c)
 {
     const h2_request *req = conn_ctx->request;
     conn_state_t *cs = c->cs;
-    request_rec *r;
+    request_rec *r = NULL;
     const char *tenc;
     apr_time_t timeout;
 
-    r = h2_create_request_rec(conn_ctx->request, c, conn_ctx->beam_in == NULL);
+    if(req->protocol && !strcmp("websocket", req->protocol)) {
+        r = h2_ws_create_request_rec(req, c, conn_ctx->beam_in == NULL);
+    }
+
+    if (!r) {
+        r = h2_create_request_rec(req, c, conn_ctx->beam_in == NULL);
+    }
+
     if (!r) {
         ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, c,
                       "h2_c2(%s-%d): create request_rec failed, r=NULL",

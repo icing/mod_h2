@@ -42,6 +42,7 @@ OBJECTS = \
     h2_switch.c \
     h2_util.c \
     h2_workers.c \
+    h2_ws.c \
     mod_http2.c
 
 HFILES = \
@@ -66,6 +67,7 @@ HFILES = \
     h2_util.h \
     h2_version.h \
     h2_workers.h \
+    h2_ws.h \
     mod_http2.h
 
 PROXY_HFILES = \
