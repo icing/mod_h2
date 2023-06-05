@@ -666,7 +666,9 @@ static apr_status_t c1_process_stream(h2_mplx *m,
     if (APLOGctrace1(m->c1)) {
         const h2_request *r = stream->request;
         ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, m->c1,
-                      H2_STRM_MSG(stream, "process %s %s%s%s%s"),
+                      H2_STRM_MSG(stream, "process %s%s%s %s%s%s%s"),
+                      r->protocol? r->protocol : "",
+                      r->protocol? " " : "",
                       r->method, r->scheme? r->scheme : "",
                       r->scheme? "://" : "",
                       r->authority, r->path? r->path: "");

@@ -11,16 +11,18 @@
 # limitations under the License.
 #
 
-.PHONY: test loadtest
+.PHONY: h2ws
 
-SUBDIRS = clients
+# http/2 websocket client
 
-test: all-recursive
-	pytest
+bin_PROGRAMS       = h2ws
 
-loadtest:
-	python3 load_test.py
+h2ws_CFLAGS  = -g -I../src -std=c99 -D_GNU_SOURCE @WERROR_CFLAGS@
+h2ws_LDFLAGS = @LDFLAGS@ -lnghttp2
 
-clean-local:
-	rm -rf *.pyc __pycache__
-	rm -rf $(GEN)
+H2WS_OBJECTS = \
+    h2ws.c
+
+H2WS_HFILES =
+
+h2ws_SOURCES = $(H2WS_HFILES) $(H2WS_OBJECTS)

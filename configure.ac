@@ -43,6 +43,7 @@ m4_ifdef([AM_SILENT_RULES], [AM_SILENT_RULES([yes])])
 AC_CONFIG_SRCDIR([mod_http2/h2_config.c])
 AC_CONFIG_HEADERS([mod_http2/config.h])
 
+
 AC_ARG_ENABLE([werror],
     [AS_HELP_STRING([--enable-werror],
                     [Turn on compile time warnings])],
@@ -129,6 +130,26 @@ AC_SUBST(LOAD_WATCHDOG)
 
 export BUILD_SUBDIRS="mod_http2"
 AC_SUBST(BUILD_SUBDIRS)
+
+
+AC_CHECK_HEADERS([ \
+  arpa/inet.h \
+  fcntl.h \
+  inttypes.h \
+  limits.h \
+  netdb.h \
+  netinet/in.h \
+  pwd.h \
+  stddef.h \
+  stdint.h \
+  stdlib.h \
+  string.h \
+  sys/socket.h \
+  sys/time.h \
+  syslog.h \
+  time.h \
+  unistd.h \
+])
 
 # We need nghttp2
 PKG_CHECK_MODULES([LIBNGHTTP2], [libnghttp2 >= 1.2.0],
@@ -338,6 +359,7 @@ AC_CONFIG_FILES([
     mod_http2/h2_version.h
     test/Makefile
     test/pyhttpd/config.ini
+    test/clients/Makefile
 ])
 
 AC_OUTPUT

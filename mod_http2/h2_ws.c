@@ -69,10 +69,14 @@ request_rec *h2_ws_create_request_rec(const h2_request *req, conn_rec *c2,
         goto leave;
     }
 
+    ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, c2,
+                  "h2_c2(%s-%d): websocket CONNECT for %s",
+                  conn_ctx->id, conn_ctx->stream_id, req->path);
     /* Transform the HTTP/2 extended CONNECT to an internal GET using
      * the HTTP/1.1 version of websocket connection setup. */
     wsreq = h2_request_clone(c2->pool, req);
     wsreq->method = "GET";
+    wsreq->protocol = NULL;
     apr_table_set(wsreq->headers, "Upgrade", "websocket");
     apr_table_merge(wsreq->headers, "Connection", "Upgrade");
     /* TODO: add Sec-WebSocket-Key header */

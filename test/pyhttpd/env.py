@@ -252,6 +252,7 @@ class HttpdTestEnv:
         self._proxy_port = int(self.config.get('test', 'proxy_port'))
         self._http_tld = self.config.get('test', 'http_tld')
         self._test_dir = self.config.get('test', 'test_dir')
+        self._clients_dir = os.path.join(os.path.dirname(self._test_dir), 'clients')
         self._gen_dir = self.config.get('test', 'gen_dir')
         self._server_dir = os.path.join(self._gen_dir, 'apache')
         self._server_conf_dir = os.path.join(self._server_dir, "conf")
@@ -389,6 +390,10 @@ class HttpdTestEnv:
     @property
     def test_dir(self) -> str:
         return self._test_dir
+
+    @property
+    def clients_dir(self) -> str:
+        return self._clients_dir
 
     @property
     def server_dir(self) -> str:
