@@ -128,18 +128,6 @@ static void log_debugf(const char *where, const char *msg, ...)
     }
 }
 
-static void usage(const char *msg)
-{
-    if(msg)
-        fprintf(stderr, "%s\n", msg);
-    fprintf(stderr,
-        "usage: [options] ws-uri\n"
-        "  make a websocket connection to host, options:\n"
-        "  -c host:port connect to host:port\n"
-        "  -v         increase verbosity\n"
-    );
-}
-
 static int parse_host_port(const char **phost, uint16_t *pport,
                            int *pipv6, size_t *pconsumed,
                            const char *s, size_t len, uint16_t def_port)
@@ -354,6 +342,7 @@ struct h2_stream {
     struct h2_stream *next;
     struct uri *uri;
     int32_t id;
+    int http_status;
     uint32_t error_code;
     int closed;
     h2_stream_closed_cb *on_close;
@@ -498,6 +487,7 @@ static int h2_session_on_frame_recv(nghttp2_session *ngh2,
     case NGHTTP2_RST_STREAM:
         log_infof("frame recv", "FRAME[RST, stream=%d]",
                   frame->hd.stream_id);
+        fprintf(stdout, "[%d] RST\n", frame->hd.stream_id);
         break;
     case NGHTTP2_GOAWAY:
         log_infof("frame recv", "FRAME[GOAWAY]");
@@ -512,11 +502,34 @@ static int h2_session_on_header(nghttp2_session *ngh2,
                                 const uint8_t *value, size_t valuelen,
                                 uint8_t flags, void *user_data)
 {
+    struct h2_session *session = user_data;
+    struct h2_stream *stream;
     (void)flags;
     (void)user_data;
     log_infof("frame recv", "stream=%d, HEADER   %.*s: %.*s",
               frame->hd.stream_id, (int)namelen, name,
               (int)valuelen, value);
+    stream = h2_session_stream_get(session, frame->hd.stream_id);
+    if (stream) {
+        if (namelen == 7 && !strncmp(":status", (const char *)name, namelen)) {
+            stream->http_status = 0;
+            if (valuelen < 10) {
+                char tmp[10], *endp;
+                memcpy(tmp, value, valuelen);
+                tmp[valuelen] = 0;
+                stream->http_status = (int)strtol(tmp, &endp, 10);
+            }
+            if (stream->http_status < 100 || stream->http_status >= 600) {
+                log_errf("on header recv", "stream=%d, invalid :status: %.*s",
+                          frame->hd.stream_id, (int)valuelen, value);
+                return NGHTTP2_ERR_CALLBACK_FAILURE;
+            }
+            else {
+                fprintf(stdout, "[%d] :status: %d\n", stream->id,
+                        stream->http_status);
+            }
+        }
+    }
     return 0;
 }
 
@@ -699,7 +712,6 @@ static void h2_session_close(struct h2_session *session)
 
 struct ws_stream {
   struct h2_stream s;
-  const char *protocol;
 };
 
 static void ws_stream_on_close(struct h2_stream *stream)
@@ -712,11 +724,10 @@ static void ws_stream_on_recv_data(struct h2_stream *stream,
 {
     log_infof("ws stream", "stream %d recv %lu data bytes",
               stream->id, (unsigned long)len);
-    fwrite(data, len, 1, stderr);
+    fwrite(data, len, 1, stdout);
 }
 
-static int ws_stream_create(struct ws_stream **pstream, struct uri *uri,
-                            const char *protocol)
+static int ws_stream_create(struct ws_stream **pstream, struct uri *uri)
 {
     struct ws_stream *stream;
 
@@ -730,27 +741,15 @@ static int ws_stream_create(struct ws_stream **pstream, struct uri *uri,
     stream->s.id = -1;
     stream->s.on_close = ws_stream_on_close;
     stream->s.on_recv_data = ws_stream_on_recv_data;
-    stream->protocol = protocol;
     *pstream = stream;
     return 0;
 }
 
-static int ws_stream_submit(struct ws_stream *stream,
-                            struct h2_session *session)
+static int ws_stream_submit_raw(struct ws_stream *stream,
+                                struct h2_session *session,
+                                const nghttp2_nv *nva, size_t nvalen)
 {
-    const char *scheme = session->is_ssl? "https" : "http";
-    const nghttp2_nv nva[] = {
-        MAKE_NV(":method", "CONNECT"),
-        MAKE_NV_CS(":path", stream->s.uri->path),
-        MAKE_NV_CS(":scheme", scheme),
-        MAKE_NV_CS(":authority", stream->s.uri->authority),
-        MAKE_NV_CS(":protocol", stream->protocol),
-        MAKE_NV("accept", "*/*"),
-        MAKE_NV("user-agent", "mod_h2/h2ws-test")
-    };
-
-    stream->s.id = nghttp2_submit_request(session->ngh2, NULL, nva,
-                                          sizeof(nva) / sizeof(nva[0]),
+    stream->s.id = nghttp2_submit_request(session->ngh2, NULL, nva, nvalen,
                                           NULL, NULL);
     if (stream->s.id < 0) {
         log_errf("ws stream submit", "nghttp2_submit_request: error %d",
@@ -764,9 +763,47 @@ static int ws_stream_submit(struct ws_stream *stream,
     return 0;
 }
 
+static int ws_stream_submit(struct ws_stream *stream,
+                            struct h2_session *session)
+{
+    const char *scheme = session->is_ssl? "https" : "http";
+    const nghttp2_nv nva[] = {
+        MAKE_NV(":method", "CONNECT"),
+        MAKE_NV_CS(":path", stream->s.uri->path),
+        MAKE_NV_CS(":scheme", scheme),
+        MAKE_NV_CS(":authority", stream->s.uri->authority),
+        MAKE_NV_CS(":protocol", "websocket"),
+        MAKE_NV("accept", "*/*"),
+        MAKE_NV("user-agent", "mod_h2/h2ws-test"),
+        MAKE_NV("sec-webSocket-version", "13"),
+        MAKE_NV("sec-webSocket-protocol", "chat"),
+    };
+    return ws_stream_submit_raw(stream, session,
+                                nva, sizeof(nva) / sizeof(nva[0]));
+}
+
+static void usage(const char *msg)
+{
+    if(msg)
+        fprintf(stderr, "%s\n", msg);
+    fprintf(stderr,
+        "usage: [options] ws-uri scenario\n"
+        "  run a websocket scenario to the ws-uri, options:\n"
+        "  -c host:port connect to host:port\n"
+        "  -v         increase verbosity\n"
+        "scenarios are:\n"
+        "  * fail-proto: CONNECT using wrong :protocol\n"
+        "  * miss-authority: CONNECT without :authority header\n"
+        "  * miss-path: CONNECT without :path header\n"
+        "  * miss-scheme: CONNECT without :scheme header\n"
+        "  * miss-version: CONNECT without sec-webSocket-version header\n"
+        "  * ws-empty: open valid websocket, do not send anything\n"
+    );
+}
+
 int main(int argc, char *argv[])
 {
-    const char *host = NULL;
+    const char *host = NULL, *scenario;
     uint16_t port = 80;
     struct uri uri;
     struct h2_session session;
@@ -802,12 +839,17 @@ int main(int argc, char *argv[])
         usage("need URL");
         return 1;
     }
+    if (argc < 2) {
+        usage("need scenario");
+        return 1;
+    }
     if (parse_uri(&uri, argv[0], strlen(argv[0]))) {
         log_errf(cmd, "could not parse uri '%s'", argv[0]);
         return 1;
     }
     log_debugf(cmd, "normalized uri: %s://%s:%u%s", uri.scheme, uri.host,
                uri.port, uri.path? uri.path : "");
+    scenario = argv[1];
 
     if (!host) {
         host = uri.host;
@@ -817,10 +859,93 @@ int main(int argc, char *argv[])
     if (h2_session_open(&session, uri.host, host, port))
         return 1;
 
-    if (ws_stream_create(&stream, &uri, "websocket"))
+    if (ws_stream_create(&stream, &uri))
         return 1;
-    if (ws_stream_submit(stream, &session))
+
+    if (!strcmp(scenario, "ws-empty")) {
+        if (ws_stream_submit(stream, &session))
+            return 1;
+    }
+    else if (!strcmp(scenario, "fail-proto")) {
+        const nghttp2_nv nva[] = {
+            MAKE_NV(":method", "CONNECT"),
+            MAKE_NV_CS(":path", stream->s.uri->path),
+            MAKE_NV_CS(":scheme", "http"),
+            MAKE_NV_CS(":authority", stream->s.uri->authority),
+            MAKE_NV_CS(":protocol", "websockets"),
+            MAKE_NV("accept", "*/*"),
+            MAKE_NV("user-agent", "mod_h2/h2ws-test"),
+            MAKE_NV("sec-webSocket-version", "13"),
+            MAKE_NV("sec-webSocket-protocol", "chat"),
+        };
+        if (ws_stream_submit_raw(stream, &session,
+                                    nva, sizeof(nva) / sizeof(nva[0])))
+            return 1;
+    }
+    else if (!strcmp(scenario, "miss-version")) {
+        const nghttp2_nv nva[] = {
+            MAKE_NV(":method", "CONNECT"),
+            MAKE_NV_CS(":path", stream->s.uri->path),
+            MAKE_NV_CS(":scheme", "http"),
+            MAKE_NV_CS(":authority", stream->s.uri->authority),
+            MAKE_NV_CS(":protocol", "websocket"),
+            MAKE_NV("accept", "*/*"),
+            MAKE_NV("user-agent", "mod_h2/h2ws-test"),
+            MAKE_NV("sec-webSocket-protocol", "chat"),
+        };
+        if (ws_stream_submit_raw(stream, &session,
+                                    nva, sizeof(nva) / sizeof(nva[0])))
+            return 1;
+    }
+    else if (!strcmp(scenario, "miss-path")) {
+        const nghttp2_nv nva[] = {
+            MAKE_NV(":method", "CONNECT"),
+            MAKE_NV_CS(":scheme", "http"),
+            MAKE_NV_CS(":authority", stream->s.uri->authority),
+            MAKE_NV_CS(":protocol", "websocket"),
+            MAKE_NV("accept", "*/*"),
+            MAKE_NV("user-agent", "mod_h2/h2ws-test"),
+            MAKE_NV("sec-webSocket-version", "13"),
+            MAKE_NV("sec-webSocket-protocol", "chat"),
+        };
+        if (ws_stream_submit_raw(stream, &session,
+                                    nva, sizeof(nva) / sizeof(nva[0])))
+            return 1;
+    }
+    else if (!strcmp(scenario, "miss-scheme")) {
+        const nghttp2_nv nva[] = {
+            MAKE_NV(":method", "CONNECT"),
+            MAKE_NV_CS(":path", stream->s.uri->path),
+            MAKE_NV_CS(":authority", stream->s.uri->authority),
+            MAKE_NV_CS(":protocol", "websocket"),
+            MAKE_NV("accept", "*/*"),
+            MAKE_NV("user-agent", "mod_h2/h2ws-test"),
+            MAKE_NV("sec-webSocket-version", "13"),
+            MAKE_NV("sec-webSocket-protocol", "chat"),
+        };
+        if (ws_stream_submit_raw(stream, &session,
+                                    nva, sizeof(nva) / sizeof(nva[0])))
+            return 1;
+    }
+    else if (!strcmp(scenario, "miss-authority")) {
+        const nghttp2_nv nva[] = {
+            MAKE_NV(":method", "CONNECT"),
+            MAKE_NV_CS(":path", stream->s.uri->path),
+            MAKE_NV_CS(":scheme", "http"),
+            MAKE_NV_CS(":protocol", "websocket"),
+            MAKE_NV("accept", "*/*"),
+            MAKE_NV("user-agent", "mod_h2/h2ws-test"),
+            MAKE_NV("sec-webSocket-version", "13"),
+            MAKE_NV("sec-webSocket-protocol", "chat"),
+        };
+        if (ws_stream_submit_raw(stream, &session,
+                                    nva, sizeof(nva) / sizeof(nva[0])))
+            return 1;
+    }
+    else {
+        log_errf(cmd, "unknown scenario: %s", scenario);
         return 1;
+    }
 
     h2_session_run(&session);
     h2_session_close(&session);

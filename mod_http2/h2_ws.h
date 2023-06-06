@@ -31,5 +31,6 @@
 request_rec *h2_ws_create_request_rec(const h2_request *req, conn_rec *conn,
                                       int no_body);
 
+void h2_ws_register_hooks(void);
 
 #endif /* defined(__mod_h2__h2_ws__) */
