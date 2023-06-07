@@ -331,7 +331,6 @@ struct h2_session {
     struct h2_stream *streams;
     int aborted;
     int want_io;
-    int is_ssl;
 };
 
 typedef void h2_stream_closed_cb(struct h2_stream *stream);
@@ -342,6 +341,7 @@ struct h2_stream {
     struct h2_stream *next;
     struct uri *uri;
     int32_t id;
+    FILE *input;
     int http_status;
     uint32_t error_code;
     int closed;
@@ -455,6 +455,11 @@ static int h2_session_on_frame_send(nghttp2_session *session,
         log_infof("frame send", "]");
       }
       break;
+    case NGHTTP2_DATA:
+        log_infof("frame send", "FRAME[DATA, stream=%d, length=%d, flags=%d]",
+                  frame->hd.stream_id, (int)frame->hd.length,
+                  (int)frame->hd.flags);
+        break;
     case NGHTTP2_RST_STREAM:
         log_infof("frame send", "FRAME[RST, stream=%d]",
                   frame->hd.stream_id);
@@ -745,12 +750,60 @@ static int ws_stream_create(struct ws_stream **pstream, struct uri *uri)
     return 0;
 }
 
-static int ws_stream_submit_raw(struct ws_stream *stream,
-                                struct h2_session *session,
-                                const nghttp2_nv *nva, size_t nvalen)
+static ssize_t ws_stream_read_req_body(nghttp2_session *ngh2,
+                                       int32_t stream_id,
+                                       uint8_t *buf, size_t buflen,
+                                       uint32_t *pflags,
+                                       nghttp2_data_source *source,
+                                       void *user_data)
 {
+    struct h2_session *session = user_data;
+    struct ws_stream *stream;
+    size_t nread = 0;
+    int eof = 0;
+
+    stream = (struct ws_stream *)h2_session_stream_get(session, stream_id);
+    if (!stream) {
+         log_errf("stream req body", "stream not known");
+        return NGHTTP2_ERR_CALLBACK_FAILURE;
+    }
+
+    (void)source;
+    assert(stream->s.input);
+    nread = fread(buf, 1, buflen, stream->s.input);
+    log_debugf("stream req body", "fread(len=%lu) -> %lu",
+               (unsigned long)buflen, (unsigned long)nread);
+
+    if (!nread && ferror(stream->s.input)) {
+       log_errf("stream req body", "error on input");
+        return NGHTTP2_ERR_CALLBACK_FAILURE;
+    }
+    eof = feof(stream->s.input);
+    eof = 0;
+
+    *pflags = eof? NGHTTP2_DATA_FLAG_EOF : 0;
+    if (nread == 0 && !eof) {
+      return NGHTTP2_ERR_DEFERRED;
+    }
+    return nread;
+}
+
+static int ws_stream_submit(struct ws_stream *stream,
+                            struct h2_session *session,
+                            const nghttp2_nv *nva, size_t nvalen,
+                            FILE *input)
+{
+    nghttp2_data_provider provider, *req_body = NULL;
+
+    if (input) {
+        stream->s.input = input;
+        provider.read_callback = ws_stream_read_req_body;
+        provider.source.ptr = NULL;
+        req_body = &provider;
+    }
+
     stream->s.id = nghttp2_submit_request(session->ngh2, NULL, nva, nvalen,
-                                          NULL, NULL);
+                                          req_body, stream);
     if (stream->s.id < 0) {
         log_errf("ws stream submit", "nghttp2_submit_request: error %d",
                  stream->s.id);
@@ -761,25 +814,6 @@ static int ws_stream_submit_raw(struct ws_stream *stream,
     log_infof("ws stream submit", "stream %d opened for %s%s",
               stream->s.id, stream->s.uri->authority, stream->s.uri->path);
     return 0;
-}
-
-static int ws_stream_submit(struct ws_stream *stream,
-                            struct h2_session *session)
-{
-    const char *scheme = session->is_ssl? "https" : "http";
-    const nghttp2_nv nva[] = {
-        MAKE_NV(":method", "CONNECT"),
-        MAKE_NV_CS(":path", stream->s.uri->path),
-        MAKE_NV_CS(":scheme", scheme),
-        MAKE_NV_CS(":authority", stream->s.uri->authority),
-        MAKE_NV_CS(":protocol", "websocket"),
-        MAKE_NV("accept", "*/*"),
-        MAKE_NV("user-agent", "mod_h2/h2ws-test"),
-        MAKE_NV("sec-webSocket-version", "13"),
-        MAKE_NV("sec-webSocket-protocol", "chat"),
-    };
-    return ws_stream_submit_raw(stream, session,
-                                nva, sizeof(nva) / sizeof(nva[0]));
 }
 
 static void usage(const char *msg)
@@ -863,7 +897,35 @@ int main(int argc, char *argv[])
         return 1;
 
     if (!strcmp(scenario, "ws-empty")) {
-        if (ws_stream_submit(stream, &session))
+        const nghttp2_nv nva[] = {
+            MAKE_NV(":method", "CONNECT"),
+            MAKE_NV_CS(":path", stream->s.uri->path),
+            MAKE_NV_CS(":scheme", "http"),
+            MAKE_NV_CS(":authority", stream->s.uri->authority),
+            MAKE_NV_CS(":protocol", "websocket"),
+            MAKE_NV("accept", "*/*"),
+            MAKE_NV("user-agent", "mod_h2/h2ws-test"),
+            MAKE_NV("sec-webSocket-version", "13"),
+            MAKE_NV("sec-webSocket-protocol", "chat"),
+        };
+        if (ws_stream_submit(stream, &session,
+                             nva, sizeof(nva) / sizeof(nva[0]), NULL))
+            return 1;
+    }
+    else if (!strcmp(scenario, "ws-stdin")) {
+        const nghttp2_nv nva[] = {
+            MAKE_NV(":method", "CONNECT"),
+            MAKE_NV_CS(":path", stream->s.uri->path),
+            MAKE_NV_CS(":scheme", "http"),
+            MAKE_NV_CS(":authority", stream->s.uri->authority),
+            MAKE_NV_CS(":protocol", "websocket"),
+            MAKE_NV("accept", "*/*"),
+            MAKE_NV("user-agent", "mod_h2/h2ws-test"),
+            MAKE_NV("sec-webSocket-version", "13"),
+            MAKE_NV("sec-webSocket-protocol", "chat"),
+        };
+        if (ws_stream_submit(stream, &session,
+                             nva, sizeof(nva) / sizeof(nva[0]), stdin))
             return 1;
     }
     else if (!strcmp(scenario, "fail-proto")) {
@@ -878,8 +940,8 @@ int main(int argc, char *argv[])
             MAKE_NV("sec-webSocket-version", "13"),
             MAKE_NV("sec-webSocket-protocol", "chat"),
         };
-        if (ws_stream_submit_raw(stream, &session,
-                                    nva, sizeof(nva) / sizeof(nva[0])))
+        if (ws_stream_submit(stream, &session,
+                             nva, sizeof(nva) / sizeof(nva[0]), NULL))
             return 1;
     }
     else if (!strcmp(scenario, "miss-version")) {
@@ -893,8 +955,8 @@ int main(int argc, char *argv[])
             MAKE_NV("user-agent", "mod_h2/h2ws-test"),
             MAKE_NV("sec-webSocket-protocol", "chat"),
         };
-        if (ws_stream_submit_raw(stream, &session,
-                                    nva, sizeof(nva) / sizeof(nva[0])))
+        if (ws_stream_submit(stream, &session,
+                             nva, sizeof(nva) / sizeof(nva[0]), NULL))
             return 1;
     }
     else if (!strcmp(scenario, "miss-path")) {
@@ -908,8 +970,8 @@ int main(int argc, char *argv[])
             MAKE_NV("sec-webSocket-version", "13"),
             MAKE_NV("sec-webSocket-protocol", "chat"),
         };
-        if (ws_stream_submit_raw(stream, &session,
-                                    nva, sizeof(nva) / sizeof(nva[0])))
+        if (ws_stream_submit(stream, &session,
+                             nva, sizeof(nva) / sizeof(nva[0]), NULL))
             return 1;
     }
     else if (!strcmp(scenario, "miss-scheme")) {
@@ -923,8 +985,8 @@ int main(int argc, char *argv[])
             MAKE_NV("sec-webSocket-version", "13"),
             MAKE_NV("sec-webSocket-protocol", "chat"),
         };
-        if (ws_stream_submit_raw(stream, &session,
-                                    nva, sizeof(nva) / sizeof(nva[0])))
+        if (ws_stream_submit(stream, &session,
+                             nva, sizeof(nva) / sizeof(nva[0]), NULL))
             return 1;
     }
     else if (!strcmp(scenario, "miss-authority")) {
@@ -938,8 +1000,8 @@ int main(int argc, char *argv[])
             MAKE_NV("sec-webSocket-version", "13"),
             MAKE_NV("sec-webSocket-protocol", "chat"),
         };
-        if (ws_stream_submit_raw(stream, &session,
-                                    nva, sizeof(nva) / sizeof(nva[0])))
+        if (ws_stream_submit(stream, &session,
+                             nva, sizeof(nva) / sizeof(nva[0]), NULL))
             return 1;
     }
     else {

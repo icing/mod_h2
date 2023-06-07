@@ -529,12 +529,14 @@ class HttpdTestEnv:
         if not os.path.exists(path):
             return os.makedirs(path)
 
-    def run(self, args, stdout_list=False, intext=None, debug_log=True):
+    def run(self, args, stdout_list=False, intext=None, inbytes=None, debug_log=True):
         if debug_log:
             log.debug(f"run: {args}")
         start = datetime.now()
+        if intext is not None:
+            inbytes = intext.encode()
         p = subprocess.run(args, stderr=subprocess.PIPE, stdout=subprocess.PIPE,
-                           input=intext.encode() if intext else None)
+                           input=inbytes)
         stdout_as_list = None
         if stdout_list:
             try:

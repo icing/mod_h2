@@ -21,6 +21,7 @@ class TestWebSockets:
               f'  ProxyPass /ws/echo/ http://127.0.0.1:{env.ws_port}/ upgrade=websocket \\',
               f'            timeout=1',
               f'  ProxyPassReverse /ws/echo/ http://cgi.tests.httpd.apache.org:{env.http_port}/',
+              f'LogLevel proxy:trace8',
             ]
         })
         conf.add_vhost_cgi(proxy_self=True, h2proxy_self=True).install()
@@ -127,7 +128,7 @@ class TestWebSockets:
             'ws-empty'
         ])
         assert r.exit_code == 0, f'{r}'
-        assert r.stdout == "[1] :status: 502\n[1] RST\n", f'{r}'
+        assert r.stdout == "[1] :status: 502\n", f'{r}'
 
     # a CONNECT missing the sec-webSocket-version header
     def test_h2_800_06_miss_version(self, env: H2TestEnv, ws_echo):
@@ -181,4 +182,19 @@ class TestWebSockets:
         assert r.exit_code == 0, f'{r}'
         assert r.stdout == "[1] RST\n", f'{r}'
 
+    # a correct websocket CONNECT, send from stdin
+    def test_h2_800_10_ws_stdin(self, env: H2TestEnv, ws_echo):
+        pytest.skip('WIP')
+        h2ws = os.path.join(env.clients_dir, 'h2ws')
+        if not os.path.exists(h2ws):
+            pytest.fail(f'test client not build: {h2ws}')
+        # a PING frame with 5 bytes of data
+        inbytes = bytes.fromhex('89 85 00 00 00 00 01 02 03 04 05')
+        r = env.run(args=[
+            h2ws, '-vv', '-c', f'localhost:{env.http_port}',
+            f'ws://cgi.{env.http_tld}:{env.http_port}/ws/echo/',
+            'ws-stdin'
+        ], inbytes=inbytes)
+        assert r.exit_code == 0, f'{r}'
+        assert "[1] :status: 200\n" == r.stdout, f'{r}'
 

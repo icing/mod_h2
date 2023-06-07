@@ -48,7 +48,7 @@ static ap_filter_rec_t *c2_ws_out_filter_handle;
 struct ws_filter_ctx {
     const char *ws_accept_base64;
     int has_final_response;
-    int discard_content;
+    int override_body;
 };
 
 /**
@@ -112,6 +112,7 @@ request_rec *h2_ws_create_request_rec(const h2_request *req, conn_rec *c2,
     wsreq->protocol = NULL;
     apr_table_set(wsreq->headers, "Upgrade", "websocket");
     apr_table_merge(wsreq->headers, "Connection", "Upgrade");
+    apr_table_set(wsreq->headers, "Content-Length", "0");
     /* add Sec-WebSocket-Key header */
     ap_random_insecure_bytes(key_raw, sizeof(key_raw));
     key_base64 = apr_pencode_base64_binary(c2->pool, key_raw, sizeof(key_raw),
@@ -187,109 +188,128 @@ static apr_bucket *make_invalid_resp(conn_rec *c2, int status,
 #endif
 }
 
-static apr_bucket *transform_resp(conn_rec *c2, h2_conn_ctx_t *conn_ctx,
-                                  struct ws_filter_ctx *ws_ctx,
-                                  int status, apr_table_t *headers,
-                                  apr_table_t *notes)
+static void ws_handle_resp(conn_rec *c2, h2_conn_ctx_t *conn_ctx,
+                           struct ws_filter_ctx *ws_ctx, apr_bucket *b)
 {
-    if (status == 101) {
-        const char *hd = apr_table_get(headers, "Sec-WebSocket-Accept");
+#if AP_HAS_RESPONSE_BUCKETS
+    ap_bucket_response *resp = b->data;
+#else /* AP_HAS_RESPONSE_BUCKETS */
+    h2_headers *resp = h2_bucket_headers_get(b);
+#endif /* !AP_HAS_RESPONSE_BUCKETS */
+    apr_bucket *b_override = NULL;
+    int is_final = 0;
+    int override_body = 0;
+
+    if (ws_ctx->has_final_response) {
+        /* already did, nop */
+        return;
+    }
+
+    ap_log_cerror(APLOG_MARK, APLOG_TRACE2, 0, c2,
+                  "h2_c2(%s-%d): H2_C2_WS_OUT inspecting response %d",
+                  conn_ctx->id, conn_ctx->stream_id, resp->status);
+    if (resp->status == 101) {
+        /* The resource agreed to switch protocol. But this is only valid
+         * if it send back the correct Sec-WebSocket-Accept header value */
+        const char *hd = apr_table_get(resp->headers, "Sec-WebSocket-Accept");
         if (hd && !strcmp(ws_ctx->ws_accept_base64, hd)) {
-            /* Success! */
             ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, c2,
                           "h2_c2(%s-%d): websocket CONNECT, valid 101 Upgrade"
                           ", converting to 200 response",
                           conn_ctx->id, conn_ctx->stream_id);
-            conn_ctx->has_final_response = 1;
-            return make_valid_resp(c2, HTTP_OK, headers, notes);
-        }
-        else if (!hd) {
-            ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, c2,
-                          "h2_c2(%s-%d): websocket CONNECT, 101 response "
-                          "without Sec-WebSocket-Accept header",
-                          conn_ctx->id, conn_ctx->stream_id);
+            b_override = make_valid_resp(c2, HTTP_OK, resp->headers, resp->notes);
+            is_final = 1;
         }
         else {
-            ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, c2,
-                          "h2_c2(%s-%d): websocket CONNECT, 101 response "
-                          "without 'Sec-WebSocket-Accept: %s' but expected %s",
-                          conn_ctx->id, conn_ctx->stream_id, hd,
-                          ws_ctx->ws_accept_base64);
+            if (!hd) {
+                /* This points to someone being confused */
+                ap_log_cerror(APLOG_MARK, APLOG_WARNING, 0, c2, APLOGNO()
+                              "h2_c2(%s-%d): websocket CONNECT, got 101 response "
+                              "without Sec-WebSocket-Accept header",
+                              conn_ctx->id, conn_ctx->stream_id);
+            }
+            else {
+                /* This points to a bug, either in our WebSockets negotiation
+                 * or in the request processings implementation of WebSockets */
+                ap_log_cerror(APLOG_MARK, APLOG_ERR, 0, c2, APLOGNO()
+                              "h2_c2(%s-%d): websocket CONNECT, 101 response "
+                              "without 'Sec-WebSocket-Accept: %s' but expected %s",
+                              conn_ctx->id, conn_ctx->stream_id, hd,
+                              ws_ctx->ws_accept_base64);
+            }
+            b_override = make_invalid_resp(c2, HTTP_BAD_GATEWAY, resp->notes);
+            override_body = is_final = 1;
         }
-        conn_ctx->has_final_response = 1;
-        ws_ctx->has_final_response = 1;
-        ws_ctx->discard_content = 1;
-        return make_invalid_resp(c2, HTTP_BAD_GATEWAY, notes);
     }
-    if (status < 300) {
+    else if (resp->status < 200) {
+        /* other intermediate response, pass through */
+    }
+    else if (resp->status < 300) {
         /* Failure, we might be talking to a plain http resource */
         ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, c2,
                       "h2_c2(%s-%d): websocket CONNECT, invalid response %d",
-                      conn_ctx->id, conn_ctx->stream_id, status);
-        ws_ctx->has_final_response = 1;
-        ws_ctx->discard_content = 1;
-        return make_invalid_resp(c2, HTTP_BAD_GATEWAY, notes);
+                      conn_ctx->id, conn_ctx->stream_id, resp->status);
+        b_override = make_invalid_resp(c2, HTTP_BAD_GATEWAY, resp->notes);
+        override_body = is_final = 1;
     }
-    /* leave unchanged */
-    ws_ctx->has_final_response = 1;
-    return NULL;
+    else {
+        /* error response, pass through. */
+        ws_ctx->has_final_response = 1;
+    }
+
+    if (b_override) {
+        APR_BUCKET_INSERT_BEFORE(b, b_override);
+        apr_bucket_delete(b);
+        b = b_override;
+    }
+    if (override_body) {
+        APR_BUCKET_INSERT_AFTER(b, apr_bucket_eos_create(c2->bucket_alloc));
+        ws_ctx->override_body = 1;
+    }
+    if (is_final) {
+        ws_ctx->has_final_response = 1;
+        conn_ctx->has_final_response = 1;
+    }
 }
 
 static apr_status_t h2_c2_ws_filter_out(ap_filter_t* f, apr_bucket_brigade* bb)
 {
     struct ws_filter_ctx *ws_ctx = f->ctx;
     h2_conn_ctx_t *conn_ctx = h2_conn_ctx_get(f->c);
-    apr_bucket *b, *b2, *bnext;
+    apr_bucket *b, *bnext;
 
     ap_assert(conn_ctx);
-    if (ws_ctx->discard_content) {
+    if (ws_ctx->override_body) {
+        /* We have overridden the original response and also its body.
+         * If this filter is called again, we signal a hard abort to
+         * allow processing to terminate at the earliest. */
         f->c->aborted = 1;
         return APR_ECONNABORTED;
     }
 
+    /* Inspect the brigade, looking for RESPONSE/HEADER buckets.
+     * Remember, this filter is only active for client websocket CONNECT
+     * requests that we translated to an internal GET with websocket
+     * headers.
+     * We inspect the repsone to see if the internal resource actually
+     * agrees to talk websocket or is "just" a normal HTTP resource that
+     * ignored the websocket request headers. */
     for (b = APR_BRIGADE_FIRST(bb);
          b != APR_BRIGADE_SENTINEL(bb);
          b = bnext)
     {
         bnext = APR_BUCKET_NEXT(b);
-        if (!ws_ctx->has_final_response) {
+        if (APR_BUCKET_IS_METADATA(b)) {
 #if AP_HAS_RESPONSE_BUCKETS
             if (AP_BUCKET_IS_RESPONSE(b)) {
-                ap_bucket_response *resp = b->data;
-                ap_log_cerror(APLOG_MARK, APLOG_TRACE2, 0, f->c,
-                              "h2_c2(%s-%d): H2_C2_WS_OUT response %d",
-                              conn_ctx->id, conn_ctx->stream_id, resp->status);
-                b2 = transform_resp(f->c, conn_ctx, ws_ctx,
-                                    resp->status, resp->headers, resp->notes);
-                if (b2) {
-                    APR_BUCKET_INSERT_BEFORE(b, b2);
-                    apr_bucket_delete(b);
-                    b = b2;
-                }
-                continue;
-            }
-#else /* AP_HAS_RESPONSE_BUCKETS */
+#else
             if (H2_BUCKET_IS_HEADERS(b)) {
-                h2_headers *resp = h2_bucket_headers_get(b);
-                ap_log_cerror(APLOG_MARK, APLOG_TRACE2, 0, f->c,
-                              "h2_c2(%s-%d): H2_C2_WS_OUT response %d",
-                              conn_ctx->id, conn_ctx->stream_id, resp->status);
-                b2 = transform_resp(f->c, conn_ctx, ws_ctx,
-                                    resp->status, resp->headers, resp->notes);
-                if (b2) {
-                    APR_BUCKET_INSERT_BEFORE(b, b2);
-                    apr_bucket_delete(b);
-                    b = b2;
-                }
+#endif /* !AP_HAS_RESPONSE_BUCKETS */
+                ws_handle_resp(f->c, conn_ctx, ws_ctx, b);
                 continue;
             }
-#endif /* !AP_HAS_RESPONSE_BUCKETS */
         }
-        if (APR_BUCKET_IS_EOS(b)) {
-            ws_ctx->discard_content = 0;
-            break;
-        }
-        else if (ws_ctx->discard_content) {
+        else if (ws_ctx->override_body) {
             apr_bucket_delete(b);
         }
     }
