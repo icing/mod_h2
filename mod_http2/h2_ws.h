@@ -20,16 +20,15 @@
 #include "h2.h"
 
 /**
- * Create a request_rec representing the websocket h2_request to be
- * processed on the given connection.
+ * Rewrite a websocket request.
  *
- * @param req the h2 request to process
+ * @param req the h2 request to rewrite
  * @param conn the connection to process the request on
  * @param no_body != 0 iff the request is known to have no body
- * @return the request_rec representing the request
+ * @return the websocket request for internal submit
  */
-request_rec *h2_ws_create_request_rec(const h2_request *req, conn_rec *conn,
-                                      int no_body);
+const h2_request *h2_ws_rewrite_request(const h2_request *req,
+                                        conn_rec *c2, int no_body);
 
 void h2_ws_register_hooks(void);
 

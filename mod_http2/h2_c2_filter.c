@@ -39,6 +39,7 @@
 #include "h2_c2.h"
 #include "h2_mplx.h"
 #include "h2_request.h"
+#include "h2_ws.h"
 #include "h2_util.h"
 
 
@@ -108,15 +109,24 @@ apr_status_t h2_c2_filter_request_in(ap_filter_t *f,
     /* This filter is a one-time wonder */
     ap_remove_input_filter(f);
 
-    if (f->c->master && (conn_ctx = h2_conn_ctx_get(f->c)) && conn_ctx->stream_id) {
-        if (conn_ctx->request->http_status != H2_HTTP_STATUS_UNSET) {
+    if (f->c->master && (conn_ctx = h2_conn_ctx_get(f->c)) &&
+        conn_ctx->stream_id) {
+        const h2_request *req = conn_ctx->request;
+
+        if (req->http_status == H2_HTTP_STATUS_UNSET &&
+            req->protocol && !strcmp("websocket", req->protocol)) {
+            req = h2_ws_rewrite_request(req, f->c, conn_ctx->beam_in == NULL);
+        }
+
+        if (req->http_status != H2_HTTP_STATUS_UNSET) {
             /* error was encountered preparing this request */
-            b = ap_bucket_error_create(conn_ctx->request->http_status, NULL, f->r->pool,
+            b = ap_bucket_error_create(req->http_status, NULL, f->r->pool,
                                        f->c->bucket_alloc);
             APR_BRIGADE_INSERT_TAIL(bb, b);
             return APR_SUCCESS;
         }
-        b = h2_request_create_bucket(conn_ctx->request, f->r);
+
+        b = h2_request_create_bucket(req, f->r);
         APR_BRIGADE_INSERT_TAIL(bb, b);
         if (!conn_ctx->beam_in) {
             b = apr_bucket_eos_create(f->c->bucket_alloc);

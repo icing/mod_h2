@@ -674,12 +674,10 @@ static apr_status_t c2_process(h2_conn_ctx_t *conn_ctx, conn_rec *c)
     apr_time_t timeout;
 
     if(req->protocol && !strcmp("websocket", req->protocol)) {
-        r = h2_ws_create_request_rec(req, c, conn_ctx->beam_in == NULL);
+        req = h2_ws_rewrite_request(req, c, conn_ctx->beam_in == NULL);
     }
 
-    if (!r) {
-        r = h2_create_request_rec(req, c, conn_ctx->beam_in == NULL);
-    }
+    r = h2_create_request_rec(req, c, conn_ctx->beam_in == NULL);
 
     if (!r) {
         ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, c,

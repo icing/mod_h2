@@ -55,7 +55,7 @@ struct ws_filter_ctx {
  * Generate the "Sec-WebSocket-Accept" header field for the given key
  * (base64 encoded) as defined in RFC 6455 ch. 4.2.2 step 5.3
  */
-static const char *gen_ws_accept(request_rec *r, const char *key_base64)
+static const char *gen_ws_accept(conn_rec *c, const char *key_base64)
 {
     apr_byte_t dgst[APR_SHA1_DIGESTSIZE];
     const char ws_guid[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
@@ -66,40 +66,39 @@ static const char *gen_ws_accept(request_rec *r, const char *key_base64)
     apr_sha1_update(&sha1_ctx, ws_guid, (unsigned int)strlen(ws_guid));
     apr_sha1_final(dgst, &sha1_ctx);
 
-    return apr_pencode_base64_binary(r->pool, dgst, sizeof(dgst),
+    return apr_pencode_base64_binary(c->pool, dgst, sizeof(dgst),
                                      APR_ENCODE_NONE, NULL);
 }
 
-request_rec *h2_ws_create_request_rec(const h2_request *req, conn_rec *c2,
-                                      int no_body)
+const h2_request *h2_ws_rewrite_request(const h2_request *req,
+                                        conn_rec *c2, int no_body)
 {
     h2_conn_ctx_t *conn_ctx = h2_conn_ctx_get(c2);
     h2_request *wsreq;
-    request_rec *r = NULL;
     unsigned char key_raw[16];
     const char *key_base64, *accept_base64;
     struct ws_filter_ctx *ws_ctx;
 
     if (!conn_ctx || !req->protocol || strcmp("websocket", req->protocol))
-        goto leave;
+        return req;
 
     if (apr_strnatcasecmp("CONNECT", req->method)) {
         ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, c2,
                       "h2_c2(%s-%d): websocket request with method %s",
                       conn_ctx->id, conn_ctx->stream_id, req->method);
-        goto leave;
+        return req;
     }
     if (!req->scheme) {
         ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, c2,
                       "h2_c2(%s-%d): websocket CONNECT without :scheme",
                       conn_ctx->id, conn_ctx->stream_id);
-        goto leave;
+        return req;
     }
     if (!req->path) {
         ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, c2,
                       "h2_c2(%s-%d): websocket CONNECT without :path",
                       conn_ctx->id, conn_ctx->stream_id);
-        goto leave;
+        return req;
     }
 
     ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, c2,
@@ -119,14 +118,11 @@ request_rec *h2_ws_create_request_rec(const h2_request *req, conn_rec *c2,
                                            APR_ENCODE_NONE, NULL);
     apr_table_set(wsreq->headers, "Sec-WebSocket-Key", key_base64);
     /* This is now the request to process internally */
-    r = h2_create_request_rec(wsreq, c2, no_body);
-    if (!r || r->status != HTTP_OK)
-      goto leave;
 
     /* When this request gets processed and delivers a 101 response,
      * we expect it to carry a "Sec-WebSocket-Accept" header with
      * exactly the following value, as per RFC 6455. */
-    accept_base64 = gen_ws_accept(r, key_base64);
+    accept_base64 = gen_ws_accept(c2, key_base64);
     /* Add an output filter that intercepts generated responses:
      * - if a valid WebSocket negotiation happens, transform the
      *   101 response to a 200
@@ -139,12 +135,11 @@ request_rec *h2_ws_create_request_rec(const h2_request *req, conn_rec *c2,
     ws_ctx = apr_pcalloc(c2->pool, sizeof(*ws_ctx));
     ws_ctx->ws_accept_base64 = accept_base64;
     /* insert our filter just before the C2 core filter */
-    ap_remove_output_filter_byhandle(r->output_filters, "H2_C2_NET_OUT");
-    ap_add_output_filter("H2_C2_WS_OUT", ws_ctx, r, c2);
-    ap_add_output_filter("H2_C2_NET_OUT", NULL, r, c2);
+    ap_remove_output_filter_byhandle(c2->output_filters, "H2_C2_NET_OUT");
+    ap_add_output_filter("H2_C2_WS_OUT", ws_ctx, NULL, c2);
+    ap_add_output_filter("H2_C2_NET_OUT", NULL, NULL, c2);
 
-leave:
-    return r;
+    return wsreq;
 }
 
 static apr_bucket *make_valid_resp(conn_rec *c2, int status,
