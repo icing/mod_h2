@@ -548,6 +548,31 @@ static int c2_hook_pre_connection(conn_rec *c2, void *csd)
     return OK;
 }
 
+static apr_status_t c2_get_conn_in_pollfd(conn_rec *c,
+                                          struct apr_pollfd_t *pfd,
+                                          apr_interval_time_t *ptimeout)
+{
+    if (c->master) {
+        h2_conn_ctx_t *ctx = h2_conn_ctx_get(c);
+        if (ctx) {
+            if (ctx->beam_in && ctx->pipe_in[H2_PIPE_OUT]) {
+                pfd->desc_type = APR_POLL_FILE;
+                pfd->desc.f = ctx->pipe_in[H2_PIPE_OUT];
+                if (ptimeout)
+                    *ptimeout = h2_beam_timeout_get(ctx->beam_in);
+            }
+            else {
+                /* no input */
+                pfd->desc_type = APR_NO_DESC;
+                if (ptimeout)
+                    *ptimeout = -1;
+            }
+            return APR_SUCCESS;
+        }
+    }
+    return DECLINED;
+}
+
 void h2_c2_register_hooks(void)
 {
     /* When the connection processing actually starts, we might
@@ -561,6 +586,10 @@ void h2_c2_register_hooks(void)
     ap_hook_pre_read_request(c2_pre_read_request, NULL, NULL, APR_HOOK_MIDDLE);
     ap_hook_post_read_request(c2_post_read_request, NULL, NULL, APR_HOOK_REALLY_FIRST);
     ap_hook_fixups(c2_hook_fixups, NULL, NULL, APR_HOOK_LAST);
+#if AP_MODULE_MAGIC_AT_LEAST(20211221, 15)
+    ap_hook_get_conn_in_pollfd(c2_get_conn_in_pollfd, NULL, NULL, APR_HOOK_MIDDLE);
+#endif
+
 
     c2_net_in_filter_handle =
         ap_register_input_filter("H2_C2_NET_IN", h2_c2_filter_in,

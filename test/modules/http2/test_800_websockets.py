@@ -74,7 +74,7 @@ class TestWebSockets:
             'ws-empty'
         ])
         assert r.exit_code == 0, f'{r}'
-        assert "[1] :status: 200\n" == r.stdout, f'{r}'
+        assert r.stdout == "[1] :status: 200\n", f'{r}'
 
     # a CONNECT using an invalid :protocol header
     def test_h2_800_02_fail_proto(self, env: H2TestEnv, ws_echo):
@@ -196,5 +196,5 @@ class TestWebSockets:
             'ws-stdin'
         ], inbytes=inbytes)
         assert r.exit_code == 0, f'{r}'
-        assert "[1] :status: 200\n" == r.stdout, f'{r}'
+        assert r.stdout == "[1] :status: 200\n", f'{r}'
 
