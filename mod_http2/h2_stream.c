@@ -1469,8 +1469,8 @@ static ssize_t stream_data_cb(nghttp2_session *ng2s,
                  * it is all fine. */
                  ap_log_cerror(APLOG_MARK, APLOG_TRACE1, rv, c1,
                                H2_SSSN_STRM_MSG(session, stream_id, "rst stream"));
-                 h2_stream_rst(stream, H2_ERR_INTERNAL_ERROR);
-                 return NGHTTP2_ERR_CALLBACK_FAILURE;
+                 h2_stream_rst(stream, H2_ERR_STREAM_CLOSED);
+                 return NGHTTP2_ERR_DEFERRED;
             }
             ap_log_cerror(APLOG_MARK, APLOG_TRACE1, rv, c1,
                           H2_SSSN_STRM_MSG(session, stream_id,
@@ -1479,10 +1479,17 @@ static ssize_t stream_data_cb(nghttp2_session *ng2s,
             eos = 1;
             rv = APR_SUCCESS;
         }
+        else if (APR_ECONNRESET == rv || APR_ECONNABORTED == rv) {
+            ap_log_cerror(APLOG_MARK, APLOG_DEBUG, rv, c1,
+                          H2_STRM_LOG(APLOGNO(), stream, "data_cb, reading data"));
+            h2_stream_rst(stream, H2_ERR_STREAM_CLOSED);
+            return NGHTTP2_ERR_DEFERRED;
+        }
         else {
             ap_log_cerror(APLOG_MARK, APLOG_ERR, rv, c1,
                           H2_STRM_LOG(APLOGNO(02938), stream, "data_cb, reading data"));
-            return NGHTTP2_ERR_CALLBACK_FAILURE;
+            h2_stream_rst(stream, H2_ERR_INTERNAL_ERROR);
+            return NGHTTP2_ERR_DEFERRED;
         }
     }
 

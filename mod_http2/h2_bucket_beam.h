@@ -246,4 +246,10 @@ apr_off_t h2_beam_get_buffered(h2_bucket_beam *beam);
  */
 apr_off_t h2_beam_get_mem_used(h2_bucket_beam *beam);
 
+/**
+ * @return != 0 iff beam has been closed or has an EOS bucket buffered
+ *                  waiting to be received.
+ */
+int h2_beam_is_complete(h2_bucket_beam *beam);
+
 #endif /* h2_bucket_beam_h */

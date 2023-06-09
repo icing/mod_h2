@@ -932,6 +932,15 @@ static void s_c2_done(h2_mplx *m, conn_rec *c2, h2_conn_ctx_t *conn_ctx)
                       "h2_c2(%s-%d): processing finished without final response",
                       conn_ctx->id, conn_ctx->stream_id);
         c2->aborted = 1;
+        if (conn_ctx->beam_out)
+          h2_beam_abort(conn_ctx->beam_out, c2);
+    }
+    else if (!conn_ctx->beam_out || !h2_beam_is_complete(conn_ctx->beam_out)) {
+        ap_log_cerror(APLOG_MARK, APLOG_TRACE1, conn_ctx->last_err, c2,
+                      "h2_c2(%s-%d): processing finished with incomplete output",
+                      conn_ctx->id, conn_ctx->stream_id);
+        c2->aborted = 1;
+        h2_beam_abort(conn_ctx->beam_out, c2);
     }
     else if (!c2->aborted) {
         s_mplx_be_happy(m, c2, conn_ctx);

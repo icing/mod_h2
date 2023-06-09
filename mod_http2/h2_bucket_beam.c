@@ -846,3 +846,25 @@ int h2_beam_report_consumption(h2_bucket_beam *beam)
     apr_thread_mutex_unlock(beam->lock);
     return rv;
 }
+
+int h2_beam_is_complete(h2_bucket_beam *beam)
+{
+    int rv = 0;
+
+    apr_thread_mutex_lock(beam->lock);
+    if (beam->closed)
+        rv = 1;
+    else {
+        apr_bucket *b;
+        for (b = H2_BLIST_FIRST(&beam->buckets_to_send);
+             b != H2_BLIST_SENTINEL(&beam->buckets_to_send);
+             b = APR_BUCKET_NEXT(b)) {
+            if (APR_BUCKET_IS_EOS(b)) {
+                rv = 1;
+                break;
+            }
+        }
+    }
+    apr_thread_mutex_unlock(beam->lock);
+    return rv;
+}
