@@ -1,4 +1,5 @@
 import inspect
+import logging
 import os
 import shutil
 import subprocess
@@ -19,7 +20,7 @@ class TestWebSockets:
         conf = H2Conf(env, extras={
             f'cgi.{env.http_tld}': [
               f'  ProxyPass /ws/echo/ http://127.0.0.1:{env.ws_port}/ upgrade=websocket \\',
-              f'            timeout=1',
+              f'            timeout=5',
               f'  ProxyPassReverse /ws/echo/ http://cgi.tests.httpd.apache.org:{env.http_port}/',
               f'LogLevel proxy:trace8',
             ]
@@ -183,8 +184,7 @@ class TestWebSockets:
         assert r.stdout == "[1] RST\n", f'{r}'
 
     # a correct websocket CONNECT with ping pong exchange
-    def test_h2_800_10_ws_ping_pong(self, env: H2TestEnv, ws_echo):
-        # pytest.skip('WIP')
+    def test_h2_800_10_ws_ping(self, env: H2TestEnv, ws_echo):
         h2ws = os.path.join(env.clients_dir, 'h2ws')
         if not os.path.exists(h2ws):
             pytest.fail(f'test client not build: {h2ws}')
@@ -199,3 +199,32 @@ class TestWebSockets:
         # expect a PONG answer with the same payload
         assert r.stdout == '[1] :status: 200\n8a 05 01 02 03 04 05\n[1] EOF\n', f'{r}'
 
+    def test_h2_800_11_ws_timed_pings(self, env: H2TestEnv, ws_echo):
+        h2ws = os.path.join(env.clients_dir, 'h2ws')
+        if not os.path.exists(h2ws):
+            pytest.fail(f'test client not build: {h2ws}')
+        # a PING frame with 5 bytes of data, 0 mask
+        ping_frame = bytes.fromhex('89 85 00 00 00 00 01 02 03 04 05')
+        frame_count = 5
+        proc = subprocess.Popen(args=[
+            h2ws, '-vv', '-c', f'localhost:{env.http_port}',
+            f'ws://cgi.{env.http_tld}:{env.http_port}/ws/echo/',
+            'ws-stdin'
+            ], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+               stderr=subprocess.PIPE
+        )
+        for _ in range(frame_count):
+            try:
+                proc.stdin.write(ping_frame)
+                proc.stdin.flush()
+                proc.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                pass
+        proc.stdin.close()
+        proc.wait(timeout=0.2)
+        pout = proc.stdout.read().decode()
+        perr = proc.stderr.read().decode()
+        assert proc.returncode == 0
+        pong_frame = "8a 05 01 02 03 04 05\n"
+        assert pout == f'[1] :status: 200\n{pong_frame * frame_count}[1] EOF\n', \
+            f'stdout={pout}\nstderr={perr}\n'

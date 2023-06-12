@@ -341,9 +341,10 @@ struct h2_stream {
     struct h2_stream *next;
     struct uri *uri;
     int32_t id;
-    FILE *input;
+    int fdin;
     int http_status;
     uint32_t error_code;
+    unsigned input_closed : 1;
     unsigned closed : 1;
     unsigned reset : 1;
     h2_stream_closed_cb *on_close;
@@ -671,42 +672,102 @@ static int h2_session_io(struct h2_session *session) {
     return 0;
 }
 
-static void h2_session_set_poll(struct h2_session *session,
-                                struct pollfd *pollfd)
+struct h2_poll_ctx;
+typedef int h2_poll_ev_cb(struct h2_poll_ctx *pctx, struct pollfd *pfd);
+
+struct h2_poll_ctx {
+    struct h2_session *session;
+    struct h2_stream *stream;
+    h2_poll_ev_cb *on_ev;
+};
+
+static int h2_session_ev(struct h2_poll_ctx *pctx, struct pollfd *pfd)
 {
-    pollfd->events = 0;
-    if (nghttp2_session_want_read(session->ngh2) ||
-        session->want_io == IO_WANT_READ) {
-        pollfd->events |= POLLIN;
+    if (pfd->revents & (POLLIN | POLLOUT)) {
+        h2_session_io(pctx->session);
     }
-    if (nghttp2_session_want_write(session->ngh2) ||
-        session->want_io == IO_WANT_WRITE) {
-        pollfd->events |= POLLOUT;
+    else if (pfd->revents & POLLHUP) {
+        log_errf("session run", "connection closed");
+        return -1;
     }
+    else if (pfd->revents & POLLERR) {
+        log_errf("session run", "connection error");
+        return -1;
+    }
+    return 0;
+}
+
+static int h2_stream_ev(struct h2_poll_ctx *pctx, struct pollfd *pfd)
+{
+    if (pfd->revents & (POLLIN | POLLHUP)) {
+        nghttp2_session_resume_data(pctx->session->ngh2, pctx->stream->id);
+    }
+    else if (pfd->revents & (POLLERR)) {
+        nghttp2_submit_rst_stream(pctx->session->ngh2, NGHTTP2_FLAG_NONE,
+                                  pctx->stream->id, NGHTTP2_STREAM_CLOSED);
+    }
+    return 0;
+}
+
+static nfds_t h2_session_set_poll(struct h2_session *session,
+                                  struct h2_poll_ctx *pollctxs,
+                                  struct pollfd *pfds)
+{
+    nfds_t n = 0;
+    int want_read, want_write;
+    struct h2_stream *stream;
+
+    want_read = (nghttp2_session_want_read(session->ngh2) ||
+                 session->want_io == IO_WANT_READ);
+    want_write = (nghttp2_session_want_write(session->ngh2) ||
+                  session->want_io == IO_WANT_WRITE);
+    if (want_read || want_write) {
+        pollctxs[n].session = session;
+        pollctxs[n].stream = NULL;
+        pollctxs[n].on_ev = h2_session_ev;
+        pfds[n].fd = session->fd;
+        pfds[n].events = pfds[n].revents = 0;
+        if (want_read)
+            pfds[n].events |= (POLLIN | POLLHUP);
+        if (want_write)
+            pfds[n].events |= (POLLOUT | POLLERR);
+        ++n;
+    }
+
+    for (stream = session->streams; stream; stream = stream->next) {
+        if (stream->fdin >= 0 && !stream->input_closed && !stream->closed) {
+            pollctxs[n].session = session;
+            pollctxs[n].stream = stream;
+            pollctxs[n].on_ev = h2_stream_ev;
+            pfds[n].fd = stream->fdin;
+            pfds[n].revents = 0;
+            pfds[n].events = (POLLIN | POLLHUP);
+            ++n;
+        }
+    }
+    return n;
 }
 
 static void h2_session_run(struct h2_session *session)
 {
-  struct pollfd pollfds[1];
-  nfds_t npollfds = 1;
+  struct h2_poll_ctx pollctxs[5];
+  struct pollfd pfds[5];
+  nfds_t npollfds, i;
 
-  pollfds[0].fd = session->fd;
-  h2_session_set_poll(session, pollfds);
-  while (nghttp2_session_want_read(session->ngh2) ||
-         nghttp2_session_want_write(session->ngh2)) {
-    int nfds = poll(pollfds, npollfds, -1);
-    if (nfds == -1) {
+  npollfds  = h2_session_set_poll(session, pollctxs, pfds);
+  while (npollfds) {
+    if (poll(pfds, npollfds, -1) == -1) {
         log_errf("session run", "poll error %d (%s)", errno, strerror(errno));
         break;
     }
-    if (pollfds[0].revents & (POLLIN | POLLOUT)) {
-        h2_session_io(session);
+    for (i = 0; i < npollfds; ++i) {
+        if (pfds[i].revents) {
+            if (pollctxs[i].on_ev(&pollctxs[i], &pfds[i])) {
+                break;
+            }
+        }
     }
-    if ((pollfds[0].revents & POLLHUP) || (pollfds[0].revents & POLLERR)) {
-        log_errf("session run", "connection error");
-        break;
-    }
-    h2_session_set_poll(session, pollfds);
+    npollfds = h2_session_set_poll(session, pollctxs, pfds);
   }
 }
 
@@ -770,7 +831,7 @@ static ssize_t ws_stream_read_req_body(nghttp2_session *ngh2,
 {
     struct h2_session *session = user_data;
     struct ws_stream *stream;
-    size_t nread = 0;
+    ssize_t nread = 0;
     int eof = 0;
 
     stream = (struct ws_stream *)h2_session_stream_get(session, stream_id);
@@ -780,18 +841,26 @@ static ssize_t ws_stream_read_req_body(nghttp2_session *ngh2,
     }
 
     (void)source;
-    assert(stream->s.input);
-    nread = fread(buf, 1, buflen, stream->s.input);
-    log_debugf("stream req body", "fread(len=%lu) -> %lu",
-               (unsigned long)buflen, (unsigned long)nread);
+    assert(stream->s.fdin >= 0);
+    nread = read(stream->s.fdin, buf, buflen);
+    log_debugf("stream req body", "fread(len=%lu) -> %ld",
+               (unsigned long)buflen, (long)nread);
 
-    if (!nread && ferror(stream->s.input)) {
-       log_errf("stream req body", "error on input");
-        return NGHTTP2_ERR_CALLBACK_FAILURE;
+    if (nread < 0) {
+        if (errno == EAGAIN) {
+            nread = 0;
+        }
+        else {
+            log_errf("stream req body", "error on input");
+            return NGHTTP2_ERR_CALLBACK_FAILURE;
+        }
     }
-    eof = feof(stream->s.input);
+    else if (nread == 0) {
+      eof = 1;
+      stream->s.input_closed = 1;
+    }
 
-    *pflags = eof? NGHTTP2_DATA_FLAG_EOF : 0;
+    *pflags = stream->s.input_closed? NGHTTP2_DATA_FLAG_EOF : 0;
     if (nread == 0 && !eof) {
       return NGHTTP2_ERR_DEFERRED;
     }
@@ -801,15 +870,19 @@ static ssize_t ws_stream_read_req_body(nghttp2_session *ngh2,
 static int ws_stream_submit(struct ws_stream *stream,
                             struct h2_session *session,
                             const nghttp2_nv *nva, size_t nvalen,
-                            FILE *input)
+                            int fdin)
 {
     nghttp2_data_provider provider, *req_body = NULL;
 
-    if (input) {
-        stream->s.input = input;
+    if (fdin >= 0) {
+        sock_nonblock_nodelay(fdin);
+        stream->s.fdin = fdin;
         provider.read_callback = ws_stream_read_req_body;
         provider.source.ptr = NULL;
         req_body = &provider;
+    }
+    else {
+        stream->s.input_closed = 1;
     }
 
     stream->s.id = nghttp2_submit_request(session->ngh2, NULL, nva, nvalen,
@@ -919,7 +992,7 @@ int main(int argc, char *argv[])
             MAKE_NV("sec-webSocket-protocol", "chat"),
         };
         if (ws_stream_submit(stream, &session,
-                             nva, sizeof(nva) / sizeof(nva[0]), NULL))
+                             nva, sizeof(nva) / sizeof(nva[0]), -1))
             return 1;
     }
     else if (!strcmp(scenario, "ws-stdin")) {
@@ -935,7 +1008,7 @@ int main(int argc, char *argv[])
             MAKE_NV("sec-webSocket-protocol", "chat"),
         };
         if (ws_stream_submit(stream, &session,
-                             nva, sizeof(nva) / sizeof(nva[0]), stdin))
+                             nva, sizeof(nva) / sizeof(nva[0]), 0))
             return 1;
     }
     else if (!strcmp(scenario, "fail-proto")) {
@@ -951,7 +1024,7 @@ int main(int argc, char *argv[])
             MAKE_NV("sec-webSocket-protocol", "chat"),
         };
         if (ws_stream_submit(stream, &session,
-                             nva, sizeof(nva) / sizeof(nva[0]), NULL))
+                             nva, sizeof(nva) / sizeof(nva[0]), -1))
             return 1;
     }
     else if (!strcmp(scenario, "miss-version")) {
@@ -966,7 +1039,7 @@ int main(int argc, char *argv[])
             MAKE_NV("sec-webSocket-protocol", "chat"),
         };
         if (ws_stream_submit(stream, &session,
-                             nva, sizeof(nva) / sizeof(nva[0]), NULL))
+                             nva, sizeof(nva) / sizeof(nva[0]), -1))
             return 1;
     }
     else if (!strcmp(scenario, "miss-path")) {
@@ -981,7 +1054,7 @@ int main(int argc, char *argv[])
             MAKE_NV("sec-webSocket-protocol", "chat"),
         };
         if (ws_stream_submit(stream, &session,
-                             nva, sizeof(nva) / sizeof(nva[0]), NULL))
+                             nva, sizeof(nva) / sizeof(nva[0]), -1))
             return 1;
     }
     else if (!strcmp(scenario, "miss-scheme")) {
@@ -996,7 +1069,7 @@ int main(int argc, char *argv[])
             MAKE_NV("sec-webSocket-protocol", "chat"),
         };
         if (ws_stream_submit(stream, &session,
-                             nva, sizeof(nva) / sizeof(nva[0]), NULL))
+                             nva, sizeof(nva) / sizeof(nva[0]), -1))
             return 1;
     }
     else if (!strcmp(scenario, "miss-authority")) {
@@ -1011,7 +1084,7 @@ int main(int argc, char *argv[])
             MAKE_NV("sec-webSocket-protocol", "chat"),
         };
         if (ws_stream_submit(stream, &session,
-                             nva, sizeof(nva) / sizeof(nva[0]), NULL))
+                             nva, sizeof(nva) / sizeof(nva[0]), -1))
             return 1;
     }
     else {
