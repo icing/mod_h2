@@ -74,7 +74,7 @@ class TestWebSockets:
             'ws-empty'
         ])
         assert r.exit_code == 0, f'{r}'
-        assert r.stdout == "[1] :status: 200\n", f'{r}'
+        assert r.stdout == "[1] :status: 200\n[1] EOF\n", f'{r}'
 
     # a CONNECT using an invalid :protocol header
     def test_h2_800_02_fail_proto(self, env: H2TestEnv, ws_echo):
@@ -114,7 +114,7 @@ class TestWebSockets:
             'ws-empty'
         ])
         assert r.exit_code == 0, f'{r}'
-        assert r.stdout == "[1] :status: 502\n", f'{r}'
+        assert r.stdout == "[1] :status: 502\n[1] EOF\n", f'{r}'
 
     # a valid CONNECT on a URL path that sends delay response body
     # we error sending the original response body, leading to a RST
@@ -128,7 +128,7 @@ class TestWebSockets:
             'ws-empty'
         ])
         assert r.exit_code == 0, f'{r}'
-        assert r.stdout == "[1] :status: 502\n", f'{r}'
+        assert r.stdout == "[1] :status: 502\n[1] EOF\n", f'{r}'
 
     # a CONNECT missing the sec-webSocket-version header
     def test_h2_800_06_miss_version(self, env: H2TestEnv, ws_echo):
@@ -182,13 +182,13 @@ class TestWebSockets:
         assert r.exit_code == 0, f'{r}'
         assert r.stdout == "[1] RST\n", f'{r}'
 
-    # a correct websocket CONNECT, send from stdin
-    def test_h2_800_10_ws_stdin(self, env: H2TestEnv, ws_echo):
-        pytest.skip('WIP')
+    # a correct websocket CONNECT with ping pong exchange
+    def test_h2_800_10_ws_ping_pong(self, env: H2TestEnv, ws_echo):
+        # pytest.skip('WIP')
         h2ws = os.path.join(env.clients_dir, 'h2ws')
         if not os.path.exists(h2ws):
             pytest.fail(f'test client not build: {h2ws}')
-        # a PING frame with 5 bytes of data
+        # a PING frame with 5 bytes of data, 0 mask
         inbytes = bytes.fromhex('89 85 00 00 00 00 01 02 03 04 05')
         r = env.run(args=[
             h2ws, '-vv', '-c', f'localhost:{env.http_port}',
@@ -196,5 +196,6 @@ class TestWebSockets:
             'ws-stdin'
         ], inbytes=inbytes)
         assert r.exit_code == 0, f'{r}'
-        assert r.stdout == "[1] :status: 200\n", f'{r}'
+        # expect a PONG answer with the same payload
+        assert r.stdout == '[1] :status: 200\n8a 05 01 02 03 04 05\n[1] EOF\n', f'{r}'
 

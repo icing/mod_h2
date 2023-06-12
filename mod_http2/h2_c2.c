@@ -174,6 +174,7 @@ void h2_c2_abort(conn_rec *c2, conn_rec *from)
 
 typedef struct {
     apr_bucket_brigade *bb;       /* c2: data in holding area */
+    unsigned did_upgrade_eos:1;   /* for Upgrade, we added an extra EOS */
 } h2_c2_fctx_in_t;
 
 static apr_status_t h2_c2_filter_in(ap_filter_t* f,
@@ -217,7 +218,17 @@ static apr_status_t h2_c2_filter_in(ap_filter_t* f,
             APR_BRIGADE_INSERT_TAIL(fctx->bb, b);
         }
     }
-    
+
+    /* If this is a HTTP Upgrade, it means the request we process
+     * has not Content, although the stream is not necessarily closed.
+     * On first read, we insert an EOS to signal processing that it
+     * has the complete body. */
+    if (conn_ctx->is_upgrade && !fctx->did_upgrade_eos) {
+        b = apr_bucket_eos_create(f->c->bucket_alloc);
+        APR_BRIGADE_INSERT_TAIL(fctx->bb, b);
+        fctx->did_upgrade_eos = 1;
+    }
+
     while (APR_BRIGADE_EMPTY(fctx->bb)) {
         /* Get more input data for our request. */
         if (APLOGctrace2(f->c)) {
@@ -232,7 +243,13 @@ receive:
                 status = h2_beam_receive(conn_ctx->beam_in, f->c, fctx->bb, APR_NONBLOCK_READ,
                                          conn_ctx->mplx->stream_max_mem);
                 if (APR_STATUS_IS_EAGAIN(status) && APR_BLOCK_READ == block) {
+                    ap_log_cerror(APLOG_MARK, APLOG_TRACE2, status, f->c,
+                                  "h2_c2_in(%s-%d): wait on pipe signal",
+                                  conn_ctx->id, conn_ctx->stream_id);
                     status = h2_util_wait_on_pipe(conn_ctx->pipe_in[H2_PIPE_OUT]);
+                    ap_log_cerror(APLOG_MARK, APLOG_TRACE2, status, f->c,
+                                  "h2_c2_in(%s-%d): pipe wait returned",
+                                  conn_ctx->id, conn_ctx->stream_id);
                     if (APR_SUCCESS == status) {
                         goto receive;
                     }

@@ -344,7 +344,8 @@ struct h2_stream {
     FILE *input;
     int http_status;
     uint32_t error_code;
-    int closed;
+    unsigned closed : 1;
+    unsigned reset : 1;
     h2_stream_closed_cb *on_close;
     h2_stream_recv_data *on_recv_data;
 };
@@ -549,6 +550,8 @@ static int h2_session_on_stream_close(nghttp2_session *ngh2, int32_t stream_id,
         /* closed known stream */
         stream->error_code = error_code;
         stream->closed = 1;
+        if (error_code)
+            stream->reset = 1;
         if (error_code) {
             log_errf("stream close", "stream %d closed with error %d",
                      stream_id, error_code);
@@ -722,14 +725,22 @@ struct ws_stream {
 static void ws_stream_on_close(struct h2_stream *stream)
 {
     log_infof("ws stream", "stream %d closed", stream->id);
+    if (!stream->reset)
+        fprintf(stdout, "[%d] EOF\n", stream->id);
 }
 
 static void ws_stream_on_recv_data(struct h2_stream *stream,
                             const uint8_t *data, size_t len)
 {
+    size_t i;
     log_infof("ws stream", "stream %d recv %lu data bytes",
               stream->id, (unsigned long)len);
-    fwrite(data, len, 1, stdout);
+    for (i = 0; i < len; ++i) {
+        fprintf(stdout, "%s%02x%s", i? " " : "", data[i],
+                (i && (i&0xf) == 0)? "\n" : "");
+    }
+    if ((i&0xf) != 0)
+        fprintf(stdout, "\n");
 }
 
 static int ws_stream_create(struct ws_stream **pstream, struct uri *uri)
@@ -779,7 +790,6 @@ static ssize_t ws_stream_read_req_body(nghttp2_session *ngh2,
         return NGHTTP2_ERR_CALLBACK_FAILURE;
     }
     eof = feof(stream->s.input);
-    eof = 0;
 
     *pflags = eof? NGHTTP2_DATA_FLAG_EOF : 0;
     if (nread == 0 && !eof) {

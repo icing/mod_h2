@@ -110,8 +110,6 @@ const h2_request *h2_ws_rewrite_request(const h2_request *req,
     wsreq->method = "GET";
     wsreq->protocol = NULL;
     apr_table_set(wsreq->headers, "Upgrade", "websocket");
-    apr_table_merge(wsreq->headers, "Connection", "Upgrade");
-    apr_table_set(wsreq->headers, "Content-Length", "0");
     /* add Sec-WebSocket-Key header */
     ap_random_insecure_bytes(key_raw, sizeof(key_raw));
     key_base64 = apr_pencode_base64_binary(c2->pool, key_raw, sizeof(key_raw),
@@ -138,6 +136,9 @@ const h2_request *h2_ws_rewrite_request(const h2_request *req,
     ap_remove_output_filter_byhandle(c2->output_filters, "H2_C2_NET_OUT");
     ap_add_output_filter("H2_C2_WS_OUT", ws_ctx, NULL, c2);
     ap_add_output_filter("H2_C2_NET_OUT", NULL, NULL, c2);
+    /* Mark the connection as being an Upgrade, with some special handling
+     * since the request needs an EOS, without the stream being closed  */
+    conn_ctx->is_upgrade = 1;
 
     return wsreq;
 }
