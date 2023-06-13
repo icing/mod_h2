@@ -48,6 +48,11 @@ AC_ARG_ENABLE([werror],
                     [Turn on compile time warnings])],
     [werror=$enableval], [werror=no])
 
+AC_ARG_ENABLE([debug],
+    [AS_HELP_STRING([--enable-debug],
+                    [Turn on debug checks])],
+    [debug=$enableval], [debug=no])
+
 AC_ARG_WITH([apxs], [AS_HELP_STRING([--with-apxs],
     [Use APXS executable [default=check]])],
     [request_apxs=$withval], [request_apxs=check])
@@ -186,6 +191,12 @@ AC_CHECK_HEADERS([ \
     assert.h \
     stddef.h \
 ])
+
+DEBUG_CFLAGS=""
+if test "x$debug" != "xno"; then
+    DEBUG_CFLAGS="-DAP_DEBUG"
+fi
+AC_SUBST(DEBUG_CFLAGS)
 
 WERROR_CFLAGS=""
 if test "x$werror" != "xno"; then
