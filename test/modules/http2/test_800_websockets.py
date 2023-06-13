@@ -217,7 +217,7 @@ class TestWebSockets:
             try:
                 proc.stdin.write(ping_frame)
                 proc.stdin.flush()
-                proc.wait(timeout=1)
+                proc.wait(timeout=0.2)
             except subprocess.TimeoutExpired:
                 pass
         proc.stdin.close()

@@ -242,22 +242,10 @@ static apr_status_t h2_c2_filter_in(ap_filter_t* f,
 receive:
                 status = h2_beam_receive(conn_ctx->beam_in, f->c, fctx->bb, APR_NONBLOCK_READ,
                                          conn_ctx->mplx->stream_max_mem);
-                if (APR_STATUS_IS_EAGAIN(status)) {
-                    if (APR_BLOCK_READ == block) {
-                        ap_log_cerror(APLOG_MARK, APLOG_TRACE2, status, f->c,
-                                      "h2_c2_in(%s-%d): wait on pipe signal",
-                                      conn_ctx->id, conn_ctx->stream_id);
-                        status = h2_util_wait_on_pipe(conn_ctx->pipe_in[H2_PIPE_OUT]);
-                        ap_log_cerror(APLOG_MARK, APLOG_TRACE2, status, f->c,
-                                      "h2_c2_in(%s-%d): pipe wait returned",
-                                      conn_ctx->id, conn_ctx->stream_id);
-                        if (APR_SUCCESS == status) {
-                            goto receive;
-                        }
-                    }
-                    else {
-                        /* consume a possibly buffered signal */
-                        h2_util_drain_pipe(conn_ctx->pipe_in[H2_PIPE_OUT]);
+                if (APR_STATUS_IS_EAGAIN(status) && APR_BLOCK_READ == block) {
+                    status = h2_util_wait_on_pipe(conn_ctx->pipe_in[H2_PIPE_OUT]);
+                    if (APR_SUCCESS == status) {
+                        goto receive;
                     }
                 }
             }

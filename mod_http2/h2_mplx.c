@@ -146,6 +146,7 @@ static void m_stream_cleanup(h2_mplx *m, h2_stream *stream)
         if (c2_ctx->beam_in) {
             h2_beam_on_send(c2_ctx->beam_in, NULL, NULL);
             h2_beam_on_received(c2_ctx->beam_in, NULL, NULL);
+            h2_beam_on_eagain(c2_ctx->beam_in, NULL, NULL);
             h2_beam_on_consumed(c2_ctx->beam_in, NULL, NULL);
         }
     }
@@ -782,6 +783,19 @@ static void c2_beam_input_read_notify(void *ctx, h2_bucket_beam *beam)
     }
 }
 
+static void c2_beam_input_read_eagain(void *ctx, h2_bucket_beam *beam)
+{
+    conn_rec *c = ctx;
+    h2_conn_ctx_t *conn_ctx = h2_conn_ctx_get(c);
+    /* installed in the input bucket beams when we use pipes.
+     * Drain the pipe just before the beam returns APR_EAGAIN.
+     * A clean state for allowing polling on the pipe to rest
+     * when the beam is empty */
+    if (conn_ctx && conn_ctx->pipe_in[H2_PIPE_OUT]) {
+        h2_util_drain_pipe(conn_ctx->pipe_in[H2_PIPE_OUT]);
+    }
+}
+
 static void c2_beam_output_write_notify(void *ctx, h2_bucket_beam *beam)
 {
     conn_rec *c = ctx;
@@ -826,6 +840,7 @@ static apr_status_t c2_setup_io(h2_mplx *m, conn_rec *c2, h2_stream *stream, h2_
                                         c2->pool, c2->pool);
         if (APR_SUCCESS != rv) goto cleanup;
 #endif
+        h2_beam_on_eagain(stream->input, c2_beam_input_read_eagain, c2);
     }
 
 cleanup:

@@ -67,6 +67,8 @@ struct h2_bucket_beam {
     void *recv_ctx;
     h2_beam_ev_callback *send_cb;      /* event: buckets were added in h2_beam_send() */
     void *send_ctx;
+    h2_beam_ev_callback *eagain_cb;    /* event: a receive results in ARP_EAGAIN */
+    void *eagain_ctx;
 
     apr_off_t recv_bytes;             /* amount of bytes transferred in h2_beam_receive() */
     apr_off_t recv_bytes_reported;    /* amount of bytes reported as received via callback */
@@ -204,6 +206,16 @@ void h2_beam_on_consumed(h2_bucket_beam *beam,
  */
 void h2_beam_on_received(h2_bucket_beam *beam,
                          h2_beam_ev_callback *recv_cb, void *ctx);
+
+/**
+ * Register a callback to be invoked on the receiver side whenever
+ * APR_EAGAIN is being returned in h2_beam_receive().
+ * @param beam the beam to set the callback on
+ * @param egain_cb the callback or NULL, called before APR_EAGAIN is returned
+ * @param ctx  the context to use in callback invocation
+ */
+void h2_beam_on_eagain(h2_bucket_beam *beam,
+                       h2_beam_ev_callback *eagain_cb, void *ctx);
 
 /**
  * Register a call back from the sender side to be invoked when send
