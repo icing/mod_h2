@@ -7,21 +7,52 @@ import time
 from datetime import timedelta, datetime
 
 import pytest
+from pyhttpd.result import ExecResult
 
 from .env import H2Conf, H2TestEnv
-from pyhttpd.curl import CurlPiper
+
+
+PING_FRAME = bytes.fromhex('89 85 00 00 00 00 01 02 03 04 05')
+# code 1000, which seems to be defined as "ok" (not in the spec, but hey)
+CLOSE_FRAME = bytes.fromhex('88 82 00 00 00 00 03 E8')
+
+HEX_CLOSE_NORMAL = '88 02 03 e8'
+
+def ws_run(env: H2TestEnv, path, do_input=None, inbytes=None, send_close=True):
+    h2ws = os.path.join(env.clients_dir, 'h2ws')
+    if not os.path.exists(h2ws):
+        pytest.fail(f'test client not build: {h2ws}')
+    args = [
+        h2ws, '-vv', '-c', f'localhost:{env.http_port}',
+        f'ws://cgi.{env.http_tld}:{env.http_port}{path}',
+        'ws-stdin'
+    ]
+    proc = subprocess.Popen(args=args, stdin=subprocess.PIPE,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if do_input is not None:
+        do_input(proc)
+    elif inbytes is not None:
+        proc.stdin.write(inbytes)
+        proc.stdin.flush()
+    if send_close:
+        proc.stdin.write(CLOSE_FRAME)
+    proc.stdin.close()
+    proc.wait(timeout=5)
+    return ExecResult(args=args, exit_code=proc.returncode,
+                      stdout=proc.stdout.read(), stderr=proc.stderr.read())
 
 
 @pytest.mark.skipif(condition=H2TestEnv.is_unsupported, reason="mod_http2 not supported here")
 class TestWebSockets:
 
+
     @pytest.fixture(autouse=True, scope='class')
     def _class_scope(self, env):
         conf = H2Conf(env, extras={
             f'cgi.{env.http_tld}': [
-              f'  ProxyPass /ws/echo/ http://127.0.0.1:{env.ws_port}/ upgrade=websocket \\',
-              f'            timeout=5',
-              f'  ProxyPassReverse /ws/echo/ http://cgi.tests.httpd.apache.org:{env.http_port}/',
+              f'  ProxyPass /ws/ http://127.0.0.1:{env.ws_port}/ upgrade=websocket \\',
+              f'            timeout=1',
+              f'  ProxyPassReverse /ws/ http://cgi.tests.httpd.apache.org:{env.http_port}/',
               f'LogLevel proxy:trace8',
             ]
         })
@@ -47,7 +78,7 @@ class TestWebSockets:
             return shutil.rmtree(path)
 
     @pytest.fixture(autouse=True, scope='class')
-    def ws_echo(self, env):
+    def ws_server(self, env):
         run_dir = os.path.join(env.gen_dir, 'ws-echo-server')
         err_file = os.path.join(run_dir, 'stderr')
         self._rmrf(run_dir)
@@ -65,7 +96,7 @@ class TestWebSockets:
             p.terminate()
 
     # a correct websocket CONNECT, not sending/receiving anything
-    def test_h2_800_01_ws_empty(self, env: H2TestEnv, ws_echo):
+    def test_h2_800_01_ws_empty(self, env: H2TestEnv, ws_server):
         h2ws = os.path.join(env.clients_dir, 'h2ws')
         if not os.path.exists(h2ws):
             pytest.fail(f'test client not build: {h2ws}')
@@ -78,7 +109,7 @@ class TestWebSockets:
         assert r.stdout == "[1] :status: 200\n[1] EOF\n", f'{r}'
 
     # a CONNECT using an invalid :protocol header
-    def test_h2_800_02_fail_proto(self, env: H2TestEnv, ws_echo):
+    def test_h2_800_02_fail_proto(self, env: H2TestEnv, ws_server):
         h2ws = os.path.join(env.clients_dir, 'h2ws')
         if not os.path.exists(h2ws):
             pytest.fail(f'test client not build: {h2ws}')
@@ -91,7 +122,7 @@ class TestWebSockets:
         assert r.stdout.startswith("[1] :status: 400\n"), f'{r}'
 
     # a valid CONNECT on a URL path that does not exist
-    def test_h2_800_03_not_found(self, env: H2TestEnv, ws_echo):
+    def test_h2_800_03_not_found(self, env: H2TestEnv, ws_server):
         h2ws = os.path.join(env.clients_dir, 'h2ws')
         if not os.path.exists(h2ws):
             pytest.fail(f'test client not build: {h2ws}')
@@ -105,7 +136,7 @@ class TestWebSockets:
 
     # a valid CONNECT on a URL path that is a normal HTTP resource
     # we do not want to see the original response body
-    def test_h2_800_04_non_ws_resource(self, env: H2TestEnv, ws_echo):
+    def test_h2_800_04_non_ws_resource(self, env: H2TestEnv, ws_server):
         h2ws = os.path.join(env.clients_dir, 'h2ws')
         if not os.path.exists(h2ws):
             pytest.fail(f'test client not build: {h2ws}')
@@ -119,7 +150,7 @@ class TestWebSockets:
 
     # a valid CONNECT on a URL path that sends delay response body
     # we error sending the original response body, leading to a RST
-    def test_h2_800_05_non_ws_delay_resource(self, env: H2TestEnv, ws_echo):
+    def test_h2_800_05_non_ws_delay_resource(self, env: H2TestEnv, ws_server):
         h2ws = os.path.join(env.clients_dir, 'h2ws')
         if not os.path.exists(h2ws):
             pytest.fail(f'test client not build: {h2ws}')
@@ -132,7 +163,7 @@ class TestWebSockets:
         assert r.stdout == "[1] :status: 502\n[1] EOF\n", f'{r}'
 
     # a CONNECT missing the sec-webSocket-version header
-    def test_h2_800_06_miss_version(self, env: H2TestEnv, ws_echo):
+    def test_h2_800_06_miss_version(self, env: H2TestEnv, ws_server):
         h2ws = os.path.join(env.clients_dir, 'h2ws')
         if not os.path.exists(h2ws):
             pytest.fail(f'test client not build: {h2ws}')
@@ -145,7 +176,7 @@ class TestWebSockets:
         assert r.stdout.startswith("[1] :status: 400\n"), f'{r}'
 
     # a CONNECT missing the :path header
-    def test_h2_800_07_miss_path(self, env: H2TestEnv, ws_echo):
+    def test_h2_800_07_miss_path(self, env: H2TestEnv, ws_server):
         h2ws = os.path.join(env.clients_dir, 'h2ws')
         if not os.path.exists(h2ws):
             pytest.fail(f'test client not build: {h2ws}')
@@ -158,7 +189,7 @@ class TestWebSockets:
         assert r.stdout == "[1] RST\n", f'{r}'
 
     # a CONNECT missing the :scheme header
-    def test_h2_800_08_miss_scheme(self, env: H2TestEnv, ws_echo):
+    def test_h2_800_08_miss_scheme(self, env: H2TestEnv, ws_server):
         h2ws = os.path.join(env.clients_dir, 'h2ws')
         if not os.path.exists(h2ws):
             pytest.fail(f'test client not build: {h2ws}')
@@ -171,7 +202,7 @@ class TestWebSockets:
         assert r.stdout == "[1] RST\n", f'{r}'
 
     # a CONNECT missing the :authority header
-    def test_h2_800_09_miss_authority(self, env: H2TestEnv, ws_echo):
+    def test_h2_800_09_miss_authority(self, env: H2TestEnv, ws_server):
         h2ws = os.path.join(env.clients_dir, 'h2ws')
         if not os.path.exists(h2ws):
             pytest.fail(f'test client not build: {h2ws}')
@@ -184,47 +215,39 @@ class TestWebSockets:
         assert r.stdout == "[1] RST\n", f'{r}'
 
     # a correct websocket CONNECT with ping pong exchange
-    def test_h2_800_10_ws_ping(self, env: H2TestEnv, ws_echo):
-        h2ws = os.path.join(env.clients_dir, 'h2ws')
-        if not os.path.exists(h2ws):
-            pytest.fail(f'test client not build: {h2ws}')
-        # a PING frame with 5 bytes of data, 0 mask
-        inbytes = bytes.fromhex('89 85 00 00 00 00 01 02 03 04 05')
-        r = env.run(args=[
-            h2ws, '-vv', '-c', f'localhost:{env.http_port}',
-            f'ws://cgi.{env.http_tld}:{env.http_port}/ws/echo/',
-            'ws-stdin'
-        ], inbytes=inbytes)
+    def test_h2_800_10_ws_ping(self, env: H2TestEnv, ws_server):
+        r = ws_run(env, path='/ws/echo/', inbytes=PING_FRAME)
         assert r.exit_code == 0, f'{r}'
         # expect a PONG answer with the same payload
-        assert r.stdout == '[1] :status: 200\n8a 05 01 02 03 04 05\n[1] EOF\n', f'{r}'
+        assert r.stdout == f'[1] :status: 200\n8a 05 01 02 03 04 05 {HEX_CLOSE_NORMAL}\n[1] EOF\n', f'{r}'
 
-    def test_h2_800_11_ws_timed_pings(self, env: H2TestEnv, ws_echo):
-        h2ws = os.path.join(env.clients_dir, 'h2ws')
-        if not os.path.exists(h2ws):
-            pytest.fail(f'test client not build: {h2ws}')
-        # a PING frame with 5 bytes of data, 0 mask
-        ping_frame = bytes.fromhex('89 85 00 00 00 00 01 02 03 04 05')
+    def test_h2_800_11_ws_timed_pings(self, env: H2TestEnv, ws_server):
         frame_count = 5
-        proc = subprocess.Popen(args=[
-            h2ws, '-vv', '-c', f'localhost:{env.http_port}',
-            f'ws://cgi.{env.http_tld}:{env.http_port}/ws/echo/',
-            'ws-stdin'
-            ], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-               stderr=subprocess.PIPE
-        )
-        for _ in range(frame_count):
-            try:
-                proc.stdin.write(ping_frame)
-                proc.stdin.flush()
-                proc.wait(timeout=0.2)
-            except subprocess.TimeoutExpired:
-                pass
-        proc.stdin.close()
-        proc.wait(timeout=0.2)
-        pout = proc.stdout.read().decode()
-        perr = proc.stderr.read().decode()
-        assert proc.returncode == 0
+        def do_send(proc):
+            for _ in range(frame_count):
+                try:
+                    proc.stdin.write(PING_FRAME)
+                    proc.stdin.flush()
+                    proc.wait(timeout=0.2)
+                except subprocess.TimeoutExpired:
+                    pass
+
+        r = ws_run(env, path='/ws/echo/', do_input=do_send)
+        assert r.exit_code == 0
         pong_frame = "8a 05 01 02 03 04 05\n"
-        assert pout == f'[1] :status: 200\n{pong_frame * frame_count}[1] EOF\n', \
-            f'stdout={pout}\nstderr={perr}\n'
+        assert r.stdout == f'[1] :status: 200\n{pong_frame * frame_count}{HEX_CLOSE_NORMAL}\n[1] EOF\n', \
+            f'stdout={r.stdout}\nstderr={r.stderr}\n'
+
+    # CONNECT to path that closes immediately
+    def test_h2_800_12_ws_unknown(self, env: H2TestEnv, ws_server):
+        r = ws_run(env, path='/ws/unknown', send_close=False)
+        assert r.exit_code == 0, f'{r}'
+        # expect a CLOSE with error code, as we did not send anything
+        assert r.stdout == '[1] :status: 200\n88 0e 13 87 70 61 74 68 20 75 6e 6b 6e 6f 77 6e\n[1] EOF\n', f'{r}'
+
+    # a correct websocket CONNECT with text answer
+    def test_h2_800_13_ws_text(self, env: H2TestEnv, ws_server):
+        r = ws_run(env, path='/ws/text/')
+        assert r.exit_code == 0, f'{r}'
+        assert r.stdout == f'[1] :status: 200\n81 06 68 65 6c 6c 6f 21 {HEX_CLOSE_NORMAL}\n[1] EOF\n', f'{r}'
+

@@ -794,14 +794,13 @@ static void ws_stream_on_recv_data(struct h2_stream *stream,
                             const uint8_t *data, size_t len)
 {
     size_t i;
+
     log_infof("ws stream", "stream %d recv %lu data bytes",
               stream->id, (unsigned long)len);
     for (i = 0; i < len; ++i) {
-        fprintf(stdout, "%s%02x%s", i? " " : "", data[i],
-                (i && (i&0xf) == 0)? "\n" : "");
+        fprintf(stdout, "%s%02x", (i&0xf)? " " : (i? "\n" : ""), data[i]);
     }
-    if ((i&0xf) != 0)
-        fprintf(stdout, "\n");
+    fprintf(stdout, "\n");
 }
 
 static int ws_stream_create(struct ws_stream **pstream, struct uri *uri)

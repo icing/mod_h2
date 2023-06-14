@@ -1,24 +1,54 @@
 #!/usr/bin/env python3
 import argparse
-import asyncio
 import logging
+import re
 import sys
 
-from websockets import server
+import websockets.sync.server as ws
 from websockets.exceptions import ConnectionClosedError
+
+log = logging.getLogger(__name__)
+
+logging.basicConfig(
+    format="[%(asctime)s] %(message)s",
+    level=logging.DEBUG,
+)
 
 
 async def echo(websocket):
     try:
         async for message in websocket:
+            try:
+                log.info(f'got request {message}')
+            except Exception as e:
+                log.error(f'error {e} getting path from {message}')
             await websocket.send(message)
     except ConnectionClosedError:
         pass
 
 
-async def run_server(port):
-    async with server.serve(echo, "localhost", port):
-        await asyncio.Future()  # run forever
+def on_conn(conn):
+    rpath = str(conn.request.path)
+    pcomps = rpath[1:].split('/')
+    if len(pcomps) == 0:
+        pcomps = ['echo']  # default handler
+    log.info(f'connection for {pcomps}')
+    if pcomps[0] == 'echo':
+        log.info(f'/echo endpoint')
+        for message in conn:
+            conn.send(message)
+    elif pcomps[0] == 'text':
+        conn.send('hello!')
+    else:
+        log.info(f'unknown endpoint: {rpath}')
+        conn.close(code=4999, reason='path unknown')
+    conn.close(code=1000, reason='')
+
+
+def run_server(port):
+    log.info(f'starting server on port {port}')
+    server = ws.serve(handler=on_conn, host="localhost", port=port)
+    server.serve_forever()
 
 
 def main():
@@ -37,7 +67,7 @@ def main():
         format="%(asctime)s %(message)s",
         level=logging.DEBUG,
     )
-    asyncio.run(run_server(args.port))
+    run_server(args.port)
 
 
 if __name__ == "__main__":
