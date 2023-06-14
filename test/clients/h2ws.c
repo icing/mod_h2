@@ -768,6 +768,8 @@ static void h2_session_run(struct h2_session *session)
         }
     }
     npollfds = h2_session_set_poll(session, pollctxs, pfds);
+    if (!session->streams)
+        break;
   }
 }
 
@@ -978,23 +980,7 @@ int main(int argc, char *argv[])
     if (ws_stream_create(&stream, &uri))
         return 1;
 
-    if (!strcmp(scenario, "ws-empty")) {
-        const nghttp2_nv nva[] = {
-            MAKE_NV(":method", "CONNECT"),
-            MAKE_NV_CS(":path", stream->s.uri->path),
-            MAKE_NV_CS(":scheme", "http"),
-            MAKE_NV_CS(":authority", stream->s.uri->authority),
-            MAKE_NV_CS(":protocol", "websocket"),
-            MAKE_NV("accept", "*/*"),
-            MAKE_NV("user-agent", "mod_h2/h2ws-test"),
-            MAKE_NV("sec-webSocket-version", "13"),
-            MAKE_NV("sec-webSocket-protocol", "chat"),
-        };
-        if (ws_stream_submit(stream, &session,
-                             nva, sizeof(nva) / sizeof(nva[0]), -1))
-            return 1;
-    }
-    else if (!strcmp(scenario, "ws-stdin")) {
+    if (!strcmp(scenario, "ws-stdin")) {
         const nghttp2_nv nva[] = {
             MAKE_NV(":method", "CONNECT"),
             MAKE_NV_CS(":path", stream->s.uri->path),

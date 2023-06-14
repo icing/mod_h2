@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import logging
+import os
 import re
 import sys
 
@@ -39,6 +40,20 @@ def on_conn(conn):
             conn.send(message)
     elif pcomps[0] == 'text':
         conn.send('hello!')
+    elif pcomps[0] == 'file':
+        if len(pcomps) != 2:
+            conn.close(code=4999, reason='unknown file')
+            return
+        fpath = os.path.join('../', pcomps[1])
+        if not os.path.exists(fpath):
+            conn.close(code=4999, reason='file not found')
+            return
+        with open(fpath, 'r+b') as fd:
+            while True:
+                buf = fd.read(8*1024)
+                if buf is None or len(buf) == 0:
+                    break
+                conn.send(buf)
     else:
         log.info(f'unknown endpoint: {rpath}')
         conn.close(code=4999, reason='path unknown')
