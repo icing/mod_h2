@@ -118,7 +118,7 @@ static h2_config defconf = {
     -1,                     /* beam timeout */
     0,                      /* max DATA frame len, 0 == no extra limit */
     0,                      /* forward proxy */
-    1,                      /* WebSockets negotiation, enabled */
+    0,                      /* WebSockets negotiation, enabled */
 };
 
 static h2_dir_config defdconf = {

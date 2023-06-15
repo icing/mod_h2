@@ -81,6 +81,7 @@ class TestWebSockets:
         # The WebSocket server is started in pytest fixture 'ws_server' below.
         conf = H2Conf(env, extras={
             f'cgi.{env.http_tld}': [
+              f'  H2WebSockets on',
               f'  ProxyPass /ws/ http://127.0.0.1:{env.ws_port}/ \\',
               f'           upgrade=websocket timeout=10',
               f'  ProxyPassReverse /ws/ \\'
