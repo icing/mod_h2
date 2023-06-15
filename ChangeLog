@@ -1,3 +1,5 @@
+ * Fixed a compiler warning about an uninitialized var used in logging.
+
 v2.0.19
 --------------------------------------------------------------------------------
  * Fixed a bug that could lead to a crash in main connection output handling.
