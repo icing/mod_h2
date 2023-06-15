@@ -26,6 +26,7 @@
 #  include <fcntl.h>
 #endif /* HAVE_FCNTL_H */
 #include <sys/types.h>
+#include <sys/time.h>
 #ifdef HAVE_SYS_SOCKET_H
 #  include <sys/socket.h>
 #endif /* HAVE_SYS_SOCKET_H */
@@ -62,7 +63,14 @@ static const char *cmd;
 
 static void log_out(const char *level, const char *where, const char *msg)
 {
-    fprintf(stderr, "[%s][%s] %s\n", level, where, msg);
+    struct timespec tp;
+    struct tm tm;
+    char timebuf[128];
+
+    clock_gettime(CLOCK_REALTIME, &tp);
+    localtime_r(&tp.tv_sec, &tm);
+    strftime(timebuf, sizeof(timebuf)-1, "%H:%M:%S", &tm);
+    fprintf(stderr, "[%s.%09lu][%s][%s] %s\n", timebuf, tp.tv_nsec, level, where, msg);
 }
 
 static void log_err(const char *where, const char *msg)
@@ -464,6 +472,10 @@ static int h2_session_on_frame_send(nghttp2_session *session,
         break;
     case NGHTTP2_RST_STREAM:
         log_infof("frame send", "FRAME[RST, stream=%d]",
+                  frame->hd.stream_id);
+        break;
+    case NGHTTP2_WINDOW_UPDATE:
+        log_infof("frame send", "FRAME[WINDOW_UPDATE, stream=%d]",
                   frame->hd.stream_id);
         break;
     case NGHTTP2_GOAWAY:

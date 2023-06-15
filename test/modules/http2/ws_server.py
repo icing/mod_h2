@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import sys
+import time
 
 import websockets.sync.server as ws
 from websockets.exceptions import ConnectionClosedError
@@ -41,19 +42,29 @@ def on_conn(conn):
     elif pcomps[0] == 'text':
         conn.send('hello!')
     elif pcomps[0] == 'file':
-        if len(pcomps) != 2:
+        if len(pcomps) < 2:
             conn.close(code=4999, reason='unknown file')
             return
         fpath = os.path.join('../', pcomps[1])
         if not os.path.exists(fpath):
             conn.close(code=4999, reason='file not found')
             return
+        bufsize = 0
+        if len(pcomps) > 2:
+            bufsize = int(pcomps[2])
+        if bufsize <= 0:
+            bufsize = 16*1024
+        delay_ms = 0
+        if len(pcomps) > 3:
+            delay_ms = int(pcomps[3])
         with open(fpath, 'r+b') as fd:
             while True:
-                buf = fd.read(8*1024)
+                buf = fd.read(bufsize)
                 if buf is None or len(buf) == 0:
                     break
                 conn.send(buf)
+                if delay_ms > 0:
+                    time.sleep(delay_ms/1000)
     else:
         log.info(f'unknown endpoint: {rpath}')
         conn.close(code=4999, reason='path unknown')
