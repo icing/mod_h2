@@ -1,3 +1,6 @@
+ * Fixed an inconsistency in main connection io state after the connection
+   write encountered an error. Related to PR 66649.
+
 v2.0.20
 --------------------------------------------------------------------------------
  * Fixed a compiler warning about an uninitialized var used in logging.
