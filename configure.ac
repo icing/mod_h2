@@ -228,7 +228,6 @@ if test "x$werror" != "xno"; then
     AX_CHECK_COMPILE_FLAG([-Wdiv-by-zero], [WERROR_CFLAGS="$WERROR_CFLAGS -Wdiv-by-zero"])
     AX_CHECK_COMPILE_FLAG([-Wshorten-64-to-32], [WERROR_CFLAGS="$WERROR_CFLAGS -Wshorten-64-to-32"])
     AX_CHECK_COMPILE_FLAG([-Wsign-compare], [WERROR_CFLAGS="$WERROR_CFLAGS -Wsign-compare"])
-    AX_CHECK_COMPILE_FLAG([-Wsign-promo], [WERROR_CFLAGS="$WERROR_CFLAGS -Wsign-promo"])
     AX_CHECK_COMPILE_FLAG([-Wno-unused-parameter], [WERROR_CFLAGS="$WERROR_CFLAGS -Wno-unused-parameter"])
     #AX_CHECK_COMPILE_FLAG([-Wno-shadow], [WERROR_CFLAGS="$WERROR_CFLAGS -Wno-shadow"])
     #AX_CHECK_COMPILE_FLAG([-Wno-undef], [WERROR_CFLAGS="$WERROR_CFLAGS -Wno-undef"])
