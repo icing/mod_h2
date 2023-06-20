@@ -385,14 +385,14 @@ request_rec *h2_create_request_rec(const h2_request *req, conn_rec *c,
     if (is_connect) {
       /* CONNECT MUST NOT have scheme or path */
       if (req->scheme) {
-        ap_log_cerror(APLOG_MARK, APLOG_DEBUG, 0, c, APLOGNO()
+        ap_log_cerror(APLOG_MARK, APLOG_DEBUG, 0, c, APLOGNO(10458)
                       "':scheme: %s' header present in CONNECT request",
                       req->scheme);
         access_status = HTTP_BAD_REQUEST;
         goto die;
       }
       if (req->path) {
-        ap_log_cerror(APLOG_MARK, APLOG_DEBUG, 0, c, APLOGNO()
+        ap_log_cerror(APLOG_MARK, APLOG_DEBUG, 0, c, APLOGNO(10459)
                       "':path: %s' header present in CONNECT request",
                       req->path);
         access_status = HTTP_BAD_REQUEST;
@@ -402,7 +402,7 @@ request_rec *h2_create_request_rec(const h2_request *req, conn_rec *c,
                                     req->method, req->authority);
     }
     else if (req->protocol) {
-      ap_log_cerror(APLOG_MARK, APLOG_DEBUG, 0, c, APLOGNO()
+      ap_log_cerror(APLOG_MARK, APLOG_DEBUG, 0, c, APLOGNO(10460)
                     "':protocol: %s' header present in %s request",
                     req->protocol, req->method);
       access_status = HTTP_BAD_REQUEST;

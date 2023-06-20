@@ -702,8 +702,12 @@ static const char *h2_conf_set_websockets(cmd_parms *cmd,
                                           void *dirconf, const char *value)
 {
     if (!strcasecmp(value, "On")) {
+#if H2_USE_PIPES
         CONFIG_CMD_SET(cmd, dirconf, H2_CONF_WEBSOCKETS, 1);
         return NULL;
+#else
+        return "HTTP/2 WebSockets are not supported on this platform";
+#endif
     }
     else if (!strcasecmp(value, "Off")) {
         CONFIG_CMD_SET(cmd, dirconf, H2_CONF_WEBSOCKETS, 0);

@@ -114,7 +114,7 @@ const h2_request *h2_ws_rewrite_request(const h2_request *req,
     /* add Sec-WebSocket-Key header */
     rv = apr_generate_random_bytes(key_raw, sizeof(key_raw));
     if (rv != APR_SUCCESS) {
-        ap_log_error(APLOG_MARK, APLOG_CRIT, rv, NULL, APLOGNO()
+        ap_log_error(APLOG_MARK, APLOG_CRIT, rv, NULL, APLOGNO(10461)
                      "error generating secret");
         return NULL;
     }
@@ -225,7 +225,7 @@ static void ws_handle_resp(conn_rec *c2, h2_conn_ctx_t *conn_ctx,
         else {
             if (!hd) {
                 /* This points to someone being confused */
-                ap_log_cerror(APLOG_MARK, APLOG_WARNING, 0, c2, APLOGNO()
+                ap_log_cerror(APLOG_MARK, APLOG_WARNING, 0, c2, APLOGNO(10462)
                               "h2_c2(%s-%d): websocket CONNECT, got 101 response "
                               "without Sec-WebSocket-Accept header",
                               conn_ctx->id, conn_ctx->stream_id);
@@ -233,7 +233,7 @@ static void ws_handle_resp(conn_rec *c2, h2_conn_ctx_t *conn_ctx,
             else {
                 /* This points to a bug, either in our WebSockets negotiation
                  * or in the request processings implementation of WebSockets */
-                ap_log_cerror(APLOG_MARK, APLOG_ERR, 0, c2, APLOGNO()
+                ap_log_cerror(APLOG_MARK, APLOG_ERR, 0, c2, APLOGNO(10463)
                               "h2_c2(%s-%d): websocket CONNECT, 101 response "
                               "without 'Sec-WebSocket-Accept: %s' but expected %s",
                               conn_ctx->id, conn_ctx->stream_id, hd,
