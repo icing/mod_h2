@@ -43,6 +43,8 @@
 #include "h2_request.h"
 #include "h2_ws.h"
 
+#if H2_USE_WEBSOCKETS
+
 static ap_filter_rec_t *c2_ws_out_filter_handle;
 
 struct ws_filter_ctx {
@@ -324,3 +326,21 @@ void h2_ws_register_hooks(void)
         ap_register_output_filter("H2_C2_WS_OUT", h2_c2_ws_filter_out,
                                   NULL, AP_FTYPE_NETWORK);
 }
+
+#else /* H2_USE_WEBSOCKETS */
+
+const h2_request *h2_ws_rewrite_request(const h2_request *req,
+                                        conn_rec *c2, int no_body)
+{
+    (void)c2;
+    (void)no_body;
+    /* no rewriting */
+    return req;
+}
+
+void h2_ws_register_hooks(void)
+{
+    /*  NOP */
+}
+
+#endif /* H2_USE_WEBSOCKETS (else part) */

@@ -72,6 +72,8 @@ def ws_run(env: H2TestEnv, path, do_input=None, inbytes=None, send_close=True,
 
 
 @pytest.mark.skipif(condition=H2TestEnv.is_unsupported, reason="mod_http2 not supported here")
+@pytest.mark.skipif(condition=not H2TestEnv().httpd_is_at_least("2.5.0"),
+                    reason=f'need at least httpd 2.5.0 for this')
 class TestWebSockets:
 
     @pytest.fixture(autouse=True, scope='class')
