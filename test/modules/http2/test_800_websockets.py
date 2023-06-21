@@ -90,16 +90,13 @@ class TestWebSockets:
               f'  H2WebSockets on',
               f'  ProxyPass /ws/ http://127.0.0.1:{env.ws_port}/ \\',
               f'           upgrade=websocket timeout=10',
-              f'  ProxyPassReverse /ws/ \\'
-              '            http://cgi.tests.httpd.apache.org:{env.http_port}/',
-              '   LogLevel http:trace8'
             ]
         })
         conf.add_vhost_cgi(proxy_self=True, h2proxy_self=True).install()
         conf.add_vhost_test1(proxy_self=True, h2proxy_self=True).install()
         assert env.apache_restart() == 0
 
-    def check_alive(self, env, timeout=5):
+    def ws_check_alive(self, env, timeout=5):
         url = f'http://localhost:{env.ws_port}/'
         end = datetime.now() + timedelta(seconds=timeout)
         while datetime.now() < end:
@@ -128,10 +125,13 @@ class TestWebSockets:
         with open(err_file, 'w') as cerr:
             cmd = os.path.join(os.path.dirname(inspect.getfile(TestWebSockets)),
                                'ws_server.py')
-            args = [cmd, '--port', str(env.ws_port)]
+            args = ['python3', cmd, '--port', str(env.ws_port)]
             p = subprocess.Popen(args=args, cwd=run_dir, stderr=cerr,
                                  stdout=cerr)
-            assert self.check_alive(env)
+            if not self.ws_check_alive(env):
+                p.kill()
+                p.wait()
+                pytest.fail(f'ws_server did not start. stderr={open(err_file).readlines()}')
             yield
             p.terminate()
 
