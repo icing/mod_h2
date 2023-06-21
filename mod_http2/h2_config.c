@@ -708,7 +708,7 @@ static const char *h2_conf_set_websockets(cmd_parms *cmd,
 #elif !H2_USE_PIPES
         return "HTTP/2 WebSockets are not supported on this platform";
 #else
-        return "HTTP/2 WebSockets are not in this server version";
+        return "HTTP/2 WebSockets are not supported in this server version";
 #endif
     }
     else if (!strcasecmp(value, "Off")) {
