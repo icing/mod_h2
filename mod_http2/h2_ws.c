@@ -320,8 +320,22 @@ static apr_status_t h2_c2_ws_filter_out(ap_filter_t* f, apr_bucket_brigade* bb)
     return ap_pass_brigade(f->next, bb);
 }
 
+static int ws_post_read(request_rec *r)
+{
+
+    if (r->connection->master) {
+        h2_conn_ctx_t *conn_ctx = h2_conn_ctx_get(r->connection);
+        if (conn_ctx && conn_ctx->is_upgrade &&
+            !h2_config_sgeti(r->server, H2_CONF_WEBSOCKETS)) {
+            return HTTP_NOT_IMPLEMENTED;
+        }
+    }
+    return DECLINED;
+}
+
 void h2_ws_register_hooks(void)
 {
+    ap_hook_post_read_request(ws_post_read, NULL, NULL, APR_HOOK_MIDDLE);
     c2_ws_out_filter_handle =
         ap_register_output_filter("H2_C2_WS_OUT", h2_c2_ws_filter_out,
                                   NULL, AP_FTYPE_NETWORK);
