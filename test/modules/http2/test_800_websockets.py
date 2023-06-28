@@ -5,8 +5,10 @@ import shutil
 import subprocess
 import time
 from datetime import timedelta, datetime
+import packaging.version
 
 import pytest
+import websockets
 from pyhttpd.result import ExecResult
 from pyhttpd.ws_util import WsFrameReader, WsFrame
 
@@ -14,6 +16,9 @@ from .env import H2Conf, H2TestEnv
 
 
 log = logging.getLogger(__name__)
+
+ws_version = packaging.version.parse(websockets.version.version)
+ws_version_min = packaging.version.Version('10.4')
 
 
 def ws_run(env: H2TestEnv, path, authority=None, do_input=None, inbytes=None,
@@ -80,6 +85,8 @@ def ws_run(env: H2TestEnv, path, authority=None, do_input=None, inbytes=None,
 @pytest.mark.skipif(condition=H2TestEnv.is_unsupported, reason="mod_http2 not supported here")
 @pytest.mark.skipif(condition=not H2TestEnv().httpd_is_at_least("2.5.0"),
                     reason=f'need at least httpd 2.5.0 for this')
+@pytest.mark.skipif(condition=ws_version < ws_version_min,
+                    reason=f'websockets is {ws_version}, need at least {ws_version_min}')
 class TestWebSockets:
 
     @pytest.fixture(autouse=True, scope='class')
@@ -138,19 +145,20 @@ class TestWebSockets:
             yield
             p.terminate()
 
+    # CONNECT with invalid :protocol header, must fail
+    def test_h2_800_01_fail_proto(self, env: H2TestEnv, ws_server):
+        r, infos, frames = ws_run(env, path='/ws/echo/', scenario='fail-proto')
+        assert r.exit_code == 0, f'{r}'
+        assert infos == ['[1] :status: 501', '[1] EOF'], f'{r}'
+        env.httpd_error_log.ignore_recent()
+
     # a correct CONNECT, send CLOSE, expect CLOSE, basic success
-    def test_h2_800_01_ws_empty(self, env: H2TestEnv, ws_server):
+    def test_h2_800_02_ws_empty(self, env: H2TestEnv, ws_server):
         r, infos, frames = ws_run(env, path='/ws/echo/')
         assert r.exit_code == 0, f'{r}'
         assert infos == ['[1] :status: 200', '[1] EOF'], f'{r}'
         assert len(frames) == 1, f'{frames}'
         assert frames[0].opcode == WsFrame.CLOSE, f'{frames}'
-
-    # CONNECT with invalid :protocol header, must fail
-    def test_h2_800_02_fail_proto(self, env: H2TestEnv, ws_server):
-        r, infos, frames = ws_run(env, path='/ws/echo/', scenario='fail-proto')
-        assert r.exit_code == 0, f'{r}'
-        assert infos == ['[1] :status: 501', '[1] EOF'], f'{r}'
 
     # CONNECT to a URL path that does not exist on the server
     def test_h2_800_03_not_found(self, env: H2TestEnv, ws_server):
