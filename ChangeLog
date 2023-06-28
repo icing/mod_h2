@@ -1,3 +1,6 @@
+ * New directive `H2ProxyRequests on|off` to enable handling of HTTP/2 requests
+   in a forward proxy configuration. In addition to `ProxyRequests` for
+   HTTP/1.1. Set both directives to `on` to allow both HTTP versions.
  * Fixed an inconsistency in main connection io state after the connection
    write encountered an error. Related to PR 66649.
 

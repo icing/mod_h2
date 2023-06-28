@@ -38,6 +38,7 @@
 
 #include "h2_private.h"
 #include "h2_config.h"
+#include "h2_conn_ctx.h"
 #include "h2_push.h"
 #include "h2_request.h"
 #include "h2_util.h"
@@ -283,12 +284,16 @@ apr_bucket *h2_request_create_bucket(const h2_request *req, request_rec *r)
     const char *uri = req->path;
 
     AP_DEBUG_ASSERT(req->authority);
-    if (req->scheme && (ap_cstr_casecmp(req->scheme,
-                        ap_ssl_conn_is_ssl(c->master? c->master : c)? "https" : "http")
-                        || !ap_cstr_casecmp("CONNECT", req->method))) {
+    if (h2_config_cgeti(c, H2_CONF_PROXY_REQUESTS)) {
+        /* Forward proxying: always absolute uris */
+        uri = apr_psprintf(r->pool, "%s://%s%s",
+                           req->scheme, req->authority,
+                           req->path ? req->path : "");
+    }
+    else if (req->scheme && ap_cstr_casecmp(req->scheme, "http")
+             && ap_cstr_casecmp(req->scheme, "https")) {
         /* Client sent a non-matching ':scheme' pseudo header or CONNECT.
-         * In this case, we use an absolute URI.
-         */
+         * In this case, we use an absolute URI. */
         uri = apr_psprintf(r->pool, "%s://%s%s",
                            req->scheme, req->authority, req->path ? req->path : "");
     }
@@ -373,9 +378,25 @@ request_rec *h2_create_request_rec(const h2_request *req, conn_rec *c,
       r->the_request = apr_psprintf(r->pool, "%s %s HTTP/2.0",
                                     req->method, req->authority);
     }
-    else if (req->scheme &&
-             ap_cstr_casecmp(req->scheme, ap_ssl_conn_is_ssl(c->master? c->master : c)?
-                             "https" : "http")) {
+    else if (h2_config_cgeti(c, H2_CONF_PROXY_REQUESTS)) {
+        if (!req->scheme) {
+            ap_log_cerror(APLOG_MARK, APLOG_DEBUG, 0, c, APLOGNO()
+                          "H2ProxyRequests on, but request misses :scheme");
+            access_status = HTTP_BAD_REQUEST;
+            goto die;
+        }
+        if (!req->authority) {
+            ap_log_cerror(APLOG_MARK, APLOG_DEBUG, 0, c, APLOGNO()
+                          "H2ProxyRequests on, but request misses :authority");
+            access_status = HTTP_BAD_REQUEST;
+            goto die;
+        }
+        r->the_request = apr_psprintf(r->pool, "%s %s://%s%s HTTP/2.0",
+                                      req->method, req->scheme, req->authority,
+                                      req->path ? req->path : "");
+    }
+    else if (req->scheme && ap_cstr_casecmp(req->scheme, "http")
+             && ap_cstr_casecmp(req->scheme, "https")) {
         /* Client sent a ':scheme' pseudo header for something else
          * than what we have on this connection. Make an absolute URI. */
         r->the_request = apr_psprintf(r->pool, "%s %s://%s%s HTTP/2.0",
