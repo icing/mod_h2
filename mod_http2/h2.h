@@ -33,7 +33,7 @@ struct h2_stream;
 #define H2_USE_PIPES            (APR_FILES_AS_SOCKETS && APR_VERSION_AT_LEAST(1,6,0))
 #endif
 
-#if AP_MODULE_MAGIC_AT_LEAST(20211221, 15)
+#if AP_MODULE_MAGIC_AT_LEAST(20120211, 128)
 #define H2_USE_POLLFD_FROM_CONN 1
 #else
 #define H2_USE_POLLFD_FROM_CONN 0
@@ -128,10 +128,10 @@ typedef struct h2_session_props {
     int completed_max;     /* the highest remote stream completed */
     int emitted_count;     /* the number of local streams sent */
     int emitted_max;       /* the highest local stream id sent */
-    unsigned int accepting : 1;     /* if the session is accepting new streams */
-    unsigned int shutdown : 1;      /* if the final GOAWAY has been sent */
     int error;             /* the last session error encountered */
     const char *error_msg; /* the short message given on the error */
+    unsigned int accepting : 1;     /* if the session is accepting new streams */
+    unsigned int shutdown : 1;      /* if the final GOAWAY has been sent */
 } h2_session_props;
 
 typedef enum h2_stream_state_t {
