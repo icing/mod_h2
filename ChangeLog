@@ -1,3 +1,5 @@
+v2.0.21
+--------------------------------------------------------------------------------
  * The reporting of `Total Accesses` in the server-status page was fixed. It
    counted HTTP/2 requests twice. Test case added for this. Fixes PR 66801.
  * New directive `H2ProxyRequests on|off` to enable handling of HTTP/2 requests
