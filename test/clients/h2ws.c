@@ -14,26 +14,26 @@
  * limitations under the License.
  */
 
-#include "../../mod_http2/config.h"
+#include <apr.h>
 
 #include <assert.h>
 #include <inttypes.h>
 #include <stdlib.h>
-#ifdef HAVE_UNISTD_H
+#ifdef APR_HAVE_UNISTD_H
 #  include <unistd.h>
 #endif /* HAVE_UNISTD_H */
-#ifdef HAVE_FCNTL_H
+#ifdef APR_HAVE_FCNTL_H
 #  include <fcntl.h>
 #endif /* HAVE_FCNTL_H */
 #include <sys/types.h>
 #include <sys/time.h>
-#ifdef HAVE_SYS_SOCKET_H
+#ifdef APR_HAVE_SYS_SOCKET_H
 #  include <sys/socket.h>
 #endif /* HAVE_SYS_SOCKET_H */
-#ifdef HAVE_NETDB_H
+#ifdef APR_HAVE_NETDB_H
 #  include <netdb.h>
 #endif /* HAVE_NETDB_H */
-#ifdef HAVE_NETINET_IN_H
+#ifdef APR_HAVE_NETINET_IN_H
 #  include <netinet/in.h>
 #endif /* HAVE_NETINET_IN_H */
 #include <netinet/tcp.h>
@@ -41,6 +41,7 @@
 #include <signal.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 #include <errno.h>
 
 #include <nghttp2/nghttp2.h>
@@ -604,6 +605,7 @@ static int h2_session_open(struct h2_session *session, const char *server_name,
                            const char *host, uint16_t port)
 {
     nghttp2_session_callbacks *cbs = NULL;
+    nghttp2_settings_entry settings[2];
     int rv = -1;
 
     memset(session, 0, sizeof(*session));
@@ -653,9 +655,22 @@ static int h2_session_open(struct h2_session *session, const char *server_name,
         goto leave;
     }
     /* submit initial settings */
-    rv = nghttp2_submit_settings(session->ngh2, NGHTTP2_FLAG_NONE, NULL, 0);
+    settings[0].settings_id = NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS;
+    settings[0].value = 100;
+    settings[1].settings_id = NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE;
+    settings[1].value = 10 * 1024 * 1024;
+
+    rv = nghttp2_submit_settings(session->ngh2, NGHTTP2_FLAG_NONE, settings, 2);
     if (rv) {
         log_errf("submit settings", "error_code=%d, msg=%s\n", rv,
+                 nghttp2_strerror(rv));
+        rv = -1;
+        goto leave;
+    }
+    rv = nghttp2_session_set_local_window_size(session->ngh2, NGHTTP2_FLAG_NONE,
+                                               0, 10 * 1024 * 1024);
+    if (rv) {
+        log_errf("set connection window size", "error_code=%d, msg=%s\n", rv,
                  nghttp2_strerror(rv));
         rv = -1;
         goto leave;
