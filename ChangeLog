@@ -1,3 +1,16 @@
+ * Added support for bootstrapping WebSockets via HTTP/2, as described in
+   RFC 8441.
+ * A new directive 'H2WebSockets on|off' has been added. The feature is
+   disabled by default for compatibility reasons.
+ * In Apache httpd development trunk (e.g. version 2.5.x) it is possible to use
+   this with the proxy module to reverse proxy to a backend WebSockets server.
+   This requires some new internal plumbing code in the server for getting I/O
+   events on the HTTP/2 stream serving the connection.
+   This "plumbing" is planned to be ported back into Apache 2.4.x.
+ * For implementors of Apache modules using WebSockets, mod_h2 offers an
+   optional function that provides an alternative to "older" Apache versions.
+   See http2_get_pollfd_from_conn, declared in mod_http2.h.
+
 v2.0.21
 --------------------------------------------------------------------------------
  * The reporting of `Total Accesses` in the server-status page was fixed. It
