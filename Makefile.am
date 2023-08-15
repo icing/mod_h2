@@ -19,6 +19,7 @@ EXTRA_DIST     = \
     test/unit \
     test/Makefile.in \
     test/Makefile.am \
+	test/h2ws \
 	test/modules \
 	test/pyhttpd
 
