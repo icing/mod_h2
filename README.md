@@ -58,9 +58,7 @@ The following HTTP/2 extensions are implemented in the module:
 
 1. Bootstrapping WebSockets, [RFC 8441](https://datatracker.ietf.org/doc/html/rfc8441) is implemented in v2.0.22. This requires an Apache httpd v2.4.58 or newer to work effectively. This extensions is also called "Extended Connect", as the underlying mechanism is used for other protocols besides WebSockets.
 
-### Early Hints
-
-HTTP Early Hints, defined in [RFC 8297](https://httpwg.org/specs/rfc8297.html), is a way to send information about additional resources to a client *before* the answer to a request has been started. This is implemented. See [How to Early Hint](#how-to-early-hint) for details.
+1. HTTP Early Hints, defined in [RFC 8297](https://httpwg.org/specs/rfc8297.html), is a way to send information about additional resources to a client *before* the answer to a request has been started. This is implemented. See [How to Early Hint](#how-to-early-hint) for details.
 
 ## HowTos
 
