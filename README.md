@@ -31,6 +31,9 @@ Julian Reschke, Lubos Uhliarik, Luca Toscano, MATSUMOTO Ryosuke,
 
 1. [Features](#features)
 1. [HowTos](#howtos)
+  * [How to Server Push](#how-to-server-push)
+  * [How to Early Hint](#how-to-early-hint)
+  * [How to WebSocket](#how-to-websocket)
 1. [Configuration](#configuration)
 1. [Installation](#install)
 2. [Tests](#tests)
