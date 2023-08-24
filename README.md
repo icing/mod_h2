@@ -60,7 +60,7 @@ The following HTTP/2 extensions are implemented in the module:
 
 ### Early Hints
 
-HTTP [Early Hints](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/103) is a way to send information about additional resources to a client *before* the answer to a request has been started. This is implemented. See [H2EarlyHints](#h2earlyhints) on how to use this.
+HTTP Early Hints, defined in [RFC 8297](https://httpwg.org/specs/rfc8297.html), is a way to send information about additional resources to a client *before* the answer to a request has been started. This is implemented. See [How to Early Hint](#how-to-early-hint) for details.
 
 ## HowTos
 
@@ -524,7 +524,7 @@ Default: H2WebSockets off
 Context: server config, virtual host
 ```
 
-Enable support for bootstrapping WebSockets over HTTP/2. This, in general, requires Apache httpd 2.4.58 or newer. See the section on "HowTo WebSocket" for more details.
+Enable support for bootstrapping WebSockets over HTTP/2. This, in general, requires Apache httpd 2.4.58 or newer. See [How to WebSocket](#how-to-websocket) for details.
 
 ### H2WindowSize
 ```
