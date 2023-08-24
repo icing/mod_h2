@@ -21,7 +21,7 @@ The following beautiful people have directly contributed to this project via com
 Julian Reschke, Lubos Uhliarik, Luca Toscano, MATSUMOTO Ryosuke,
  Michael Kaufmann, Michael Köller, Mike Frysinger, Nicholas Race,
  Nicolas Noble, Petri Koistinen, Sam Hurst, Tatsuhiro Tsujikawa,
- Alessandro Bianchi, Yann Ylavic, Rüdiger Plum, Rainer Jung.
+ Alessandro Bianchi, Yann Ylavic, Ruediger Pluem, Rainer Jung.
  
 ## Versions and Releases
 
