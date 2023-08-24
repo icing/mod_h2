@@ -1,3 +1,5 @@
+v2.0.22
+--------------------------------------------------------------------------------
  * Added support for bootstrapping WebSockets via HTTP/2, as described in
    RFC 8441.
  * A new directive 'H2WebSockets on|off' has been added. The feature is
