@@ -150,7 +150,7 @@ class HttpdConf(object):
     def add_vhost_cgi(self, proxy_self=False, h2proxy_self=False):
         domain = f"cgi.{self.env.http_tld}"
         if proxy_self:
-            self.add(["ProxyStatus on", "ProxyTimeout 30",
+            self.add(["ProxyStatus on", "ProxyTimeout 5",
                       "SSLProxyEngine on", "SSLProxyVerify none"])
         if h2proxy_self:
             self.add(["SSLProxyEngine on", "SSLProxyCheckPeerName off"])
