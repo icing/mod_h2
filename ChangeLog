@@ -1,3 +1,6 @@
+  * mod_proxy_http2: fix `X-Forward-Host` header to carry the correct value.
+    refs https://bz.apache.org/bugzilla/show_bug.cgi?id=66752.
+
 v2.0.22
 --------------------------------------------------------------------------------
  * Added support for bootstrapping WebSockets via HTTP/2, as described in
