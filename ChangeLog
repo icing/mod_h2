@@ -1,3 +1,9 @@
+v2.0.24
+--------------------------------------------------------------------------------
+ * fixed a compile time issue for Windows builds.
+
+v2.0.23
+--------------------------------------------------------------------------------
   * Improved timeout handling for streams that are sending response data.
   * mod_proxy_http2: fix `X-Forward-Host` header to carry the correct value.
     refs https://bz.apache.org/bugzilla/show_bug.cgi?id=66752.
