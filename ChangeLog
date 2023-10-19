@@ -1,3 +1,9 @@
+ * Fixed a bug that prevented immediate memory release of reset streams
+   on rare occasions. Memory was reclaimed instead at connection close.
+   This could be exploited, unless nghttp2 v1.57.0 is used, in a variation
+   of the Rapid Reset attack. Apache httpd issued CVE-2023-45802 for this.
+ * Synchronized with Apache httpd svn trunk
+
 v2.0.24
 --------------------------------------------------------------------------------
  * fixed a compile time issue for Windows builds.
