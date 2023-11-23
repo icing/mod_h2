@@ -88,7 +88,7 @@ class Nghttp:
             if len(l) == 0:
                 body += '\n'
                 continue
-            m = re.match(r'(.*)\[.*] recv \(stream_id=(\d+)\) (\S+): (\S*)', l)
+            m = re.match(r'(.*)\[.*] recv \(stream_id=(\d+)\) (\S+): (.*)', l)
             if m:
                 body += m.group(1)
                 s = self.get_stream(streams, m.group(2))
