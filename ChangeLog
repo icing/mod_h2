@@ -1,3 +1,5 @@
+ * Fixed `Date` header on requests upgraded from HTTP/1.1 (h2c). Fixes #272.
+
 v2.0.25
 --------------------------------------------------------------------------------
  * Fixed a bug that prevented immediate memory release of reset streams
