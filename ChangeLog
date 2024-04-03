@@ -1,3 +1,9 @@
+v2.0.26
+--------------------------------------------------------------------------------
+ * Added `cmake` support provided by @jfclere. Many thanks.
+ * Improved handling of excess request headers to lead to an early
+   stream reset.
+
 v2.0.25
 --------------------------------------------------------------------------------
  * Fixed `Date` header on requests upgraded from HTTP/1.1 (h2c). Fixes #272.
