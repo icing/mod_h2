@@ -40,3 +40,4 @@ test/gen/
 test/pyhttpd/config.ini
 test/.pytest_cache
 .idea
+issues
