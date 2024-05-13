@@ -1762,12 +1762,22 @@ static void unblock_c1_out(h2_session *session) {
     }
 }
 
-apr_status_t h2_session_process(h2_session *session, int async)
+static int h2_send_flow_blocked(h2_session *session)
+{
+    /* We are completely send blocked if either the connection window
+     * is 0 or all stream flow windows are 0. */
+    return ((nghttp2_session_get_remote_window_size(session->ngh2) <= 0) ||
+             h2_mplx_c1_all_streams_send_win_exhausted(session->mplx));
+}
+
+apr_status_t h2_session_process(h2_session *session, int async,
+                                int *pkeepalive)
 {
     apr_status_t status = APR_SUCCESS;
     conn_rec *c = session->c1;
     int rv, mpm_state, trace = APLOGctrace3(c);
 
+    *pkeepalive = 0;
     if (trace) {
         ap_log_cerror( APLOG_MARK, APLOG_TRACE3, status, c,
                       H2_SSSN_MSG(session, "process start, async=%d"), async);
@@ -1922,6 +1932,14 @@ apr_status_t h2_session_process(h2_session *session, int async)
             break;
 
         case H2_SESSION_ST_WAIT:
+            /* In this state, we might have returned processing to the MPM
+             * before. On a connection socket event, we are invoked again and
+             * need to process any input before proceeding. */
+            h2_c1_read(session);
+            if (session->state != H2_SESSION_ST_WAIT) {
+                break;
+            }
+
             status = h2_c1_io_assure_flushed(&session->io);
             if (APR_SUCCESS != status) {
                 h2_session_dispatch_event(session, H2_SESSION_EV_CONN_ERROR, status, NULL);
@@ -1934,8 +1952,15 @@ apr_status_t h2_session_process(h2_session *session, int async)
                     break;
                 }
             }
-            /* No IO happening and input is exhausted. Make sure we have
-             * flushed any possibly pending output and then wait with
+            else if (async && h2_send_flow_blocked(session)) {
+                /* return to mpm c1 monitoring, so that we
+                 * do not block a thread waiting on data */
+                ap_log_cerror(APLOG_MARK, APLOG_DEBUG, status, c,
+                              H2_SSSN_LOG(APLOGNO(), session,
+                              "BLOCKED, return to mpm c1 monitoring"));
+                goto leaving;
+            }
+            /* No IO happening and input is exhausted. Wait with
              * the c1 connection timeout for sth to happen in our c1/c2 sockets/pipes */
             ap_log_cerror(APLOG_MARK, APLOG_TRACE2, status, c,
                           H2_SSSN_MSG(session, "polling timeout=%d, open_streams=%d"),
@@ -1976,9 +2001,13 @@ apr_status_t h2_session_process(h2_session *session, int async)
     }
 
 leaving:
+    /* entering KeepAlive timing when we have no more open streams AND
+     * we have processed at least one stream. */
+    *pkeepalive = (session->open_streams == 0 && session->remote.emitted_count);
     if (trace) {
-        ap_log_cerror( APLOG_MARK, APLOG_TRACE3, status, c,
-                      H2_SSSN_MSG(session, "process returns")); 
+        ap_log_cerror(APLOG_MARK, APLOG_TRACE3, status, c,
+                      H2_SSSN_MSG(session, "process returns, keepalive=%d"),
+                      *pkeepalive);
     }
     h2_mplx_c1_going_keepalive(session->mplx);
 

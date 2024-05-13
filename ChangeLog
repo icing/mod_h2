@@ -1,3 +1,7 @@
+ * When flow control to the client blocks, needing a WINDOW_UPDATE to make
+   further progress, HTTP/2 connection processing returns to the MPM.
+   If using "mpm_event", this will free a worker.
+
 v2.0.27
 --------------------------------------------------------------------------------
  * Added `cmake` support provided by @jfclere. Many thanks.
