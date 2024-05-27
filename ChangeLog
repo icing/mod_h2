@@ -1,6 +1,7 @@
- * When flow control to the client blocks, needing a WINDOW_UPDATE to make
-   further progress, HTTP/2 connection processing returns to the MPM.
-   If using "mpm_event", this will free a worker.
+ * On 2.5.x HTTPD versions, when flow control to the client blocks, needing
+   a WINDOW_UPDATE to make further progress, HTTP/2 connection processing
+   returns to the MPM. This improves parallel connection handling with
+   "slow" clients in the event MPM.
 
 v2.0.27
 --------------------------------------------------------------------------------
