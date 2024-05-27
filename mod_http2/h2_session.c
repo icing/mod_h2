@@ -324,7 +324,7 @@ static int on_header_cb(nghttp2_session *ngh2, const nghttp2_frame *frame,
          stream->rtmp->http_status == H2_HTTP_STATUS_UNSET ||
          /* We accept a certain amount of failures in order to reply
           * with an informative HTTP error response like 413. But of the
-          * client is too wrong, we fail the request an RESET the stream */
+          * client is too wrong, we RESET the stream */
          stream->request_headers_failed > 100)) {
         return NGHTTP2_ERR_TEMPORAL_CALLBACK_FAILURE;
     }
@@ -1952,14 +1952,19 @@ apr_status_t h2_session_process(h2_session *session, int async,
                     break;
                 }
             }
+#if AP_MODULE_MAGIC_AT_LEAST(20211221, 19)
             else if (async && h2_send_flow_blocked(session)) {
-                /* return to mpm c1 monitoring, so that we
-                 * do not block a thread waiting on data */
+                /* On a recent HTTPD, we can return to mpm c1 monitoring,
+                 * as it does not treat all connections as having KeepAlive
+                 * timing and being purgeable on load.
+                 * By returning to the MPM, we do not block a worker
+                 * and async wait for the client send window updates. */
                 ap_log_cerror(APLOG_MARK, APLOG_DEBUG, status, c,
                               H2_SSSN_LOG(APLOGNO(), session,
                               "BLOCKED, return to mpm c1 monitoring"));
                 goto leaving;
             }
+#endif
             /* No IO happening and input is exhausted. Wait with
              * the c1 connection timeout for sth to happen in our c1/c2 sockets/pipes */
             ap_log_cerror(APLOG_MARK, APLOG_TRACE2, status, c,

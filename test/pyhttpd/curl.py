@@ -112,11 +112,11 @@ class CurlPiper:
         recv_times = []
         for line in "".join(recv_err).split('\n'):
             m = re.match(r'^\s*(\d+:\d+:\d+(\.\d+)?) <= Recv data, (\d+) bytes.*', line)
-            if m:
+            if m and int(m.group(3)) > 0:
                 recv_times.append(datetime.time.fromisoformat(m.group(1)))
         # received as many chunks as we sent
-        assert len(chunks) == len(recv_times), "received response not in {0} chunks, but {1}".format(
-            len(chunks), len(recv_times))
+        assert len(chunks) == len(recv_times), f"received response not in {len(chunks)} "\
+            f"chunks, but {len(recv_times)}: {recv_err}"
 
         def microsecs(tdelta):
             return ((tdelta.hour * 60 + tdelta.minute) * 60 + tdelta.second) * 1000000 + tdelta.microsecond
