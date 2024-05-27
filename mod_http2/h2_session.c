@@ -1960,7 +1960,7 @@ apr_status_t h2_session_process(h2_session *session, int async,
                  * By returning to the MPM, we do not block a worker
                  * and async wait for the client send window updates. */
                 ap_log_cerror(APLOG_MARK, APLOG_DEBUG, status, c,
-                              H2_SSSN_LOG(APLOGNO(), session,
+                              H2_SSSN_LOG(APLOGNO(10502), session,
                               "BLOCKED, return to mpm c1 monitoring"));
                 goto leaving;
             }

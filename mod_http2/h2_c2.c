@@ -371,7 +371,9 @@ static apr_status_t h2_c2_filter_out(ap_filter_t* f, apr_bucket_brigade* bb)
     apr_status_t rv;
 
     if (bb == NULL) {
+#if !AP_MODULE_MAGIC_AT_LEAST(20180720, 1)
         f->c->data_in_output_filters = 0;
+#endif
         return APR_SUCCESS;
     }
 
