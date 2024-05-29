@@ -16,6 +16,7 @@ class TestLoadGet:
         conf = H2Conf(env).add_vhost_cgi().add_vhost_test1()
         conf.add('LogLevel mpm_event:debug')
         conf.add(f"StartServers 1")
+        conf.add(f"MaxRequestWorkers 25")
         conf.install()
         assert env.apache_restart() == 0
 
@@ -79,6 +80,27 @@ class TestLoadGet:
         n = 200
         conns = 1
         parallel = 10
+        args = [
+            env.h2load,
+            '-n', f'{n}', '-t', '1',
+            '-c', f'{conns}', '-m', f'{parallel}',
+            '-W', f'{connbits}',  # connection window bits
+            '-w', f'{streambits}',  # stream window bits
+            f'--connect-to=localhost:{env.https_port}',
+            f'--base-uri={env.mkurl("https", "test1", "/")}',
+            "/data-100k"
+        ]
+        r = env.run(args)
+        self.check_h2load_ok(env, r, n)
+
+    # test window sizes and many connections
+    def test_h2_700_21(self, env):
+        assert env.is_live()
+        n = 2000
+        conns = 300
+        parallel = 5
+        connbits = 10
+        streambits = 30
         args = [
             env.h2load,
             '-n', f'{n}', '-t', '1',

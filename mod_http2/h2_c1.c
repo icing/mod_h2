@@ -113,9 +113,9 @@ cleanup:
     return rv;
 }
 
-apr_status_t h2_c1_run(conn_rec *c)
+int h2_c1_run(conn_rec *c)
 {
-    apr_status_t status;
+    apr_status_t status, rc = OK;
     int mpm_state = 0, keepalive = 0;
     h2_conn_ctx_t *conn_ctx = h2_conn_ctx_get(c);
     
@@ -152,14 +152,24 @@ apr_status_t h2_c1_run(conn_rec *c)
             case H2_SESSION_ST_IDLE:
             case H2_SESSION_ST_BUSY:
             case H2_SESSION_ST_WAIT:
+#ifdef AGAIN
+                if (!keepalive) {
+                    c->cs->state = CONN_STATE_PROCESS;
+                    rc = AGAIN;
+                }
+                else {
+                   c->cs->state = CONN_STATE_KEEPALIVE;
+                }
+#else
                 c->cs->state = CONN_STATE_WRITE_COMPLETION;
                 if (!keepalive) {
                     /* let the MPM know that we are not done and want
                      * the Timeout behaviour instead of a KeepAliveTimeout
-                     * See PR 63534. 
+                     * See PR 63534.
                      */
                     c->cs->sense = CONN_SENSE_WANT_READ;
                 }
+#endif
                 break;
             case H2_SESSION_ST_CLEANUP:
             case H2_SESSION_ST_DONE:
@@ -169,7 +179,7 @@ apr_status_t h2_c1_run(conn_rec *c)
         }
     }
 
-    return APR_SUCCESS;
+    return rc;
 }
 
 apr_status_t h2_c1_pre_close(struct h2_conn_ctx_t *ctx, conn_rec *c)
@@ -275,8 +285,7 @@ static int h2_c1_hook_process_connection(conn_rec* c)
             return !OK;
         }
     }
-    h2_c1_run(c);
-    return OK;
+    return h2_c1_run(c);
 
 declined:
     ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, c, "h2_h2, declined");
