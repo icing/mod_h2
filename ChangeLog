@@ -1,3 +1,8 @@
+v2.0.29
+--------------------------------------------------------------------------------
+  * fixed a compiler warning about an unused static var when AP_MPMQ_CAN_WAITIO
+    is not defined.
+
 v2.0.28
 --------------------------------------------------------------------------------
  * When HTTP/2 flow controls blocks further writes, return processing to an

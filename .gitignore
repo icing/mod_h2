@@ -18,6 +18,7 @@ config.h
 config.h.in
 config.h.in~
 configure
+configure~
 configure.scan
 depcomp
 install-sh
