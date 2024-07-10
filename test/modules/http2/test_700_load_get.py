@@ -68,6 +68,7 @@ class TestLoadGet:
         [10, 30],  # 1k connection window, huge stream windows
         [30, 8],  # huge conn window, 256 bytes stream windows
     ])
+    @pytest.mark.skip('awaiting mpm_event improvements')
     def test_h2_700_20(self, env, connbits, streambits):
         if not env.httpd_is_at_least("2.5.0"):
             pytest.skip(f'need at least httpd 2.5.0 for this')
