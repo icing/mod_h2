@@ -1952,19 +1952,15 @@ apr_status_t h2_session_process(h2_session *session, int async,
                     break;
                 }
             }
-#if AP_MODULE_MAGIC_AT_LEAST(20211221, 19)
             else if (async && h2_send_flow_blocked(session)) {
-                /* On a recent HTTPD, we can return to mpm c1 monitoring,
-                 * as it does not treat all connections as having KeepAlive
-                 * timing and being purgeable on load.
-                 * By returning to the MPM, we do not block a worker
+                /* By returning to the MPM, we do not block a worker
                  * and async wait for the client send window updates. */
                 ap_log_cerror(APLOG_MARK, APLOG_DEBUG, status, c,
                               H2_SSSN_LOG(APLOGNO(10502), session,
                               "BLOCKED, return to mpm c1 monitoring"));
                 goto leaving;
             }
-#endif
+
             /* No IO happening and input is exhausted. Wait with
              * the c1 connection timeout for sth to happen in our c1/c2 sockets/pipes */
             ap_log_cerror(APLOG_MARK, APLOG_TRACE2, status, c,
