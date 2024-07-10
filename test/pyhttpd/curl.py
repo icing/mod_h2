@@ -115,8 +115,8 @@ class CurlPiper:
             if m and int(m.group(3)) > 0:
                 recv_times.append(datetime.time.fromisoformat(m.group(1)))
         # received as many chunks as we sent
-        assert len(chunks) == len(recv_times), f"received response not in {len(chunks)} "\
-            f"chunks, but {len(recv_times)}: {recv_err}"
+        assert len(chunks) == len(recv_times), "received response not in {0} chunks, but {1}".format(
+            len(chunks), len(recv_times))
 
         def microsecs(tdelta):
             return ((tdelta.hour * 60 + tdelta.minute) * 60 + tdelta.second) * 1000000 + tdelta.microsecond
@@ -131,8 +131,6 @@ class CurlPiper:
             recv_deltas.append(datetime.timedelta(microseconds=delta_mics))
             last_mics = mics
         stutter_td = datetime.timedelta(seconds=stutter.total_seconds() * 0.75)  # 25% leeway
-        # TODO: the first two chunks are often close together, it seems
-        # there still is a little buffering delay going on
         for idx, td in enumerate(recv_deltas[1:]):
             assert stutter_td < td, \
                 f"chunk {idx} arrived too early \n{recv_deltas}\nafter {td}\n{recv_err}"

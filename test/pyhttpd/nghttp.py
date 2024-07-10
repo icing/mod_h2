@@ -88,7 +88,7 @@ class Nghttp:
             if len(l) == 0:
                 body += '\n'
                 continue
-            m = re.match(r'(.*)\[.*] recv \(stream_id=(\d+)\) (\S+): (.*)', l)
+            m = re.match(r'(.*)\[.*] recv \(stream_id=(\d+)\) (\S+): (\S*)', l)
             if m:
                 body += m.group(1)
                 s = self.get_stream(streams, m.group(2))
@@ -224,7 +224,7 @@ class Nghttp:
         if 0 == r.exit_code:
             lines = re.findall(r'[^\n]*\n', r.stdout, re.MULTILINE)
             for lidx, l in enumerate(lines):
-                m = re.match(r'\s*(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+/(.*)', l)
+                m = re.match(r'\s*(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+/*(/.*)', l)
                 if m:
                     assets.append({
                         "path": m.group(7),
