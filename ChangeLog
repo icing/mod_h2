@@ -1,7 +1,11 @@
- * On 2.5.x HTTPD versions, when flow control to the client blocks, needing
-   a WINDOW_UPDATE to make further progress, HTTP/2 connection processing
-   returns to the MPM. This improves parallel connection handling with
-   "slow" clients in the event MPM.
+v2.0.28
+--------------------------------------------------------------------------------
+ * When HTTP/2 flow controls blocks further writes, return processing to an
+   async mpm to free a worker thread. The connection needs window updates from
+   the client in such a case and can leave monitoring the socket to the mpm.
+   So far, only effective on Apache httpd 2.5.0 (trunk).
+   [ylavic, icing]
+ * Backport fix of CVE-2024-36387 from Apache 2.4.60.
 
 v2.0.27
 --------------------------------------------------------------------------------
