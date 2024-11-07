@@ -761,6 +761,11 @@ apr_status_t h2_stream_add_header(h2_stream *stream,
     }
     else if (H2_SS_IDLE == stream->state) {
         if (!stream->rtmp) {
+            if (H2_STREAM_CLIENT_INITIATED(stream->id)) {
+                ++stream->session->remote.emitted_count;
+              if (stream->id > stream->session->remote.emitted_max)
+                  session->remote.emitted_max = stream->id;
+            }
             stream->rtmp = h2_request_create(stream->id, stream->pool,
                                              NULL, NULL, NULL, NULL, NULL);
         }

@@ -326,6 +326,10 @@ static int on_header_cb(nghttp2_session *ngh2, const nghttp2_frame *frame,
           * with an informative HTTP error response like 413. But of the
           * client is too wrong, we RESET the stream */
          stream->request_headers_failed > 100)) {
+        ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, session->c1,
+                      H2_SSSN_STRM_MSG(session, frame->hd.stream_id,
+                      "RST stream, header failures: %d"),
+                      (int)stream->request_headers_failed);
         return NGHTTP2_ERR_TEMPORAL_CALLBACK_FAILURE;
     }
     return 0;
@@ -1498,7 +1502,8 @@ static void h2_session_ev_conn_error(h2_session *session, int arg, const char *m
         default:
             ap_log_cerror(APLOG_MARK, APLOG_DEBUG, 0, session->c1,
                           H2_SSSN_LOG(APLOGNO(03401), session, 
-                          "conn error -> shutdown"));
+                          "conn error -> shutdown, remote.emitted=%d"),
+                          (int)session->remote.emitted_count);
             h2_session_shutdown(session, arg, msg, 0);
             break;
     }
@@ -1591,9 +1596,7 @@ static void ev_stream_created(h2_session *session, h2_stream *stream)
 static void ev_stream_open(h2_session *session, h2_stream *stream)
 {
     if (H2_STREAM_CLIENT_INITIATED(stream->id)) {
-        ++session->remote.emitted_count;
-        if (stream->id > session->remote.emitted_max) {
-            session->remote.emitted_max = stream->id;
+        if (stream->id > session->remote.accepted_max) {
             session->local.accepted_max = stream->id;
         }
     }
@@ -1890,7 +1893,8 @@ apr_status_t h2_session_process(h2_session *session, int async,
                         /* Not an async mpm, we must continue waiting
                          * for client data to arrive until the configured
                          * server Timeout/KeepAliveTimeout happens */
-                        apr_time_t timeout = (session->open_streams == 0)?
+                        apr_time_t timeout = ((session->open_streams == 0) &&
+                                              session->remote.emitted_count)?
                             session->s->keep_alive_timeout :
                             session->s->timeout;
                         ap_log_cerror(APLOG_MARK, APLOG_TRACE2, status, c,

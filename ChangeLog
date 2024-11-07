@@ -1,3 +1,6 @@
+  * Fixed handling of Timeout vs. KeepAliveTimeout when first request on a
+    connection was reset.
+
 v2.0.29
 --------------------------------------------------------------------------------
   * fixed a compiler warning about an unused static var when AP_MPMQ_CAN_WAITIO
