@@ -63,6 +63,9 @@ AC_ARG_ENABLE([poll-streams],
                     [Disable polling of h2 streams, even if available.])],
     [poll_streams=$enableval], [poll_streams=yes])
 
+AC_ARG_WITH([openssl], [AS_HELP_STRING([--with-openssl], [Use openssl from this prefix])],
+    [request_openssl=$withval], [request_openssl=check])
+
 # Checks for programs.
 AC_PROG_CC
 
@@ -84,6 +87,12 @@ AC_SUBST(APR)
 prefix="$($APXS -q prefix)"
 prefix="${prefix:-/usr}"
 AC_SUBST(prefix)
+
+if test x"$request_openssl" != "xcheck"; then
+    LDFLAGS="$LDFLAGS -L$request_openssl/lib";
+    CFLAGS="$CFLAGS -I$request_openssl/include";
+    CPPFLAGS="$CPPFLAGS -I$request_openssl/include";
+fi
 
 exec_prefix="$($APXS -q exec_prefix)"
 AC_SUBST(exec_prefix)
