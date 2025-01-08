@@ -238,6 +238,13 @@ content-type: text/html
         assert 'date' in r.response['header']
         assert 'server' in r.response['header']
 
+    # Test that we handle a 'TE: gzip' request header
+    def test_h2_003_61(self, env):
+        url = env.mkurl("https", "test1", "/index.html")
+        r = env.curl_get(url, options=['-H', 'TE: gzip'])
+        # such a request headers is not allowed in HTTP/2
+        assert r.exit_code == 92, r
+
     # lets do some error tests
     def test_h2_003_70(self, env):
         url = env.mkurl("https", "cgi", "/h2test/error?status=500")
