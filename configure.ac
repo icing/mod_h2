@@ -115,21 +115,39 @@ CPPFLAGS="-I$($APXS -q includedir) -I$($APXS -q APR_INCLUDEDIR) $($APXS -q EXTRA
 HTTPD_VERSION="$($APXS -q HTTPD_VERSION)"
 AC_SUBST(HTTPD_VERSION)
 
-APACHECTL="$sbindir/apachectl"
-if test ! -x "$APACHECTL"; then
-    # rogue distros rename things! =)
-    APACHECTL="$sbindir/apache2ctl"
+HTTPD="$sbindir/httpd"
+if test -x "$HTTPD"; then
+  :  # all fine
+else
+  HTTPD="$sbindir/apache2"
+  if test -x "$HTTPD"; then
+    :  # all fine
+  else
+    HTTPD=""
+    AC_PATH_PROG([HTTPD], [httpd])
+    if test -x "$HTTPD"; then
+      :  # ok
+    else
+      HTTPD=""
+      AC_PATH_PROG([HTTPD], [apache2])
+      if test -x "$HTTPD"; then
+        :  # ok
+      else
+        AC_MSG_ERROR([httpd/apache2 not in PATH])
+      fi
+    fi
+  fi
 fi
-AC_SUBST(APACHECTL)
+AC_SUBST(HTTPD)
 
-if test -x "$APACHECTL"; then
-    DSO_MODULES="$($APACHECTL -t -D DUMP_MODULES | fgrep '(shared)'| sed 's/_module.*//g'|tr -d \\n)"
+if test -x "$HTTPD"; then
+    DSO_MODULES="$($HTTPD -t -D DUMP_MODULES | fgrep '(shared)'| sed 's/_module.*//g'|tr -d \\n)"
     AC_SUBST(DSO_MODULES)
-    STATIC_MODULES="$($APACHECTL -t -D DUMP_MODULES | fgrep '(static)'| sed 's/_module.*//g'|tr -d \\n)"
+    STATIC_MODULES="$($HTTPD -t -D DUMP_MODULES | fgrep '(static)'| sed 's/_module.*//g'|tr -d \\n)"
     AC_SUBST(STATIC_MODULES)
 else
-    AC_MSG_WARN("apachectl not found in '$BINDIR', test suite will not work!")
-    APACHECTL=""
+    AC_MSG_WARN("httpd/apache2 not found in '$BINDIR', test suite will not work!")
+    HTTPD=""
 fi
 AC_SUBST(LOAD_LOG_CONFIG)
 AC_SUBST(LOAD_LOGIO)
@@ -390,5 +408,5 @@ AC_MSG_NOTICE([summary of build options:
     Libnghttp2:     ${LIBNGHTTP2_VERSION} (CFLAGS='${LIBNGHTTP2_CFLAGS}' LIBS='${LIBNGHTTP2_LIBS}')
     nghttp          ${NGHTTP:--}
     h2load          ${H2LOAD:--}
-    apachectl       ${APACHECTL:--}
+    httpd           ${HTTPD:--}
 ])

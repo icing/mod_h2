@@ -1,8 +1,9 @@
 ServerName localhost
 ServerRoot "${server_dir}"
 
-DefaultRuntimeDir logs
-PidFile httpd.pid
+# not in 2.4.x
+#DefaultRuntimeDir logs
+PidFile "${server_dir}/logs/httpd.pid"
 
 Include "conf/modules.conf"
 
