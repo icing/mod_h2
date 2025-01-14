@@ -18,5 +18,6 @@ cryptography
 filelock
 multipart
 psutil
+requests
 tqdm
 websockets
