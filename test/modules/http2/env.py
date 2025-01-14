@@ -17,7 +17,9 @@ class H2TestSetup(HttpdTestSetup):
     def __init__(self, env: 'HttpdTestEnv'):
         super().__init__(env=env)
         self.add_source_dir(os.path.dirname(inspect.getfile(H2TestSetup)))
-        self.add_modules(["http2", "proxy_http2", "cgid", "autoindex", "ssl", "include"])
+        self.add_modules(["cgid", "autoindex", "ssl", "include"])
+        self.add_local_module("http2", "mod_http2/.libs/mod_http2.so")
+        self.add_local_module("proxy_http2", "mod_http2/.libs/mod_proxy_http2.so")
 
     def make(self):
         super().make()

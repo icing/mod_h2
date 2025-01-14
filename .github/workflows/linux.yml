@@ -72,8 +72,6 @@ jobs:
       - name: 'install test prereqs'
         run: |
           [ -x "$HOME/venv/bin/activate" ] && source $HOME/venv/bin/activate
-          # sudo apt-get install -y --no-install-suggests --no-install-recommends \
-          #  python3-multipart
           python3 -m pip install -r test/requirements.txt
 
       - name: 'configure'
@@ -93,4 +91,4 @@ jobs:
         run: |
           export PATH=$PATH:$HOME/go/bin
           [ -x "$HOME/venv/bin/activate" ] && source $HOME/venv/bin/activate
-          pytest -vv -k test_h2_200_17
+          pytest -v
