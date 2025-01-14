@@ -18,3 +18,4 @@ cryptography
 filelock
 multipart
 psutil
+tqdm

@@ -40,7 +40,7 @@ env:
 
 jobs:
   linux:
-    name: ${{ matrix.name }}
+    name: ${{ matrix.build.name }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
