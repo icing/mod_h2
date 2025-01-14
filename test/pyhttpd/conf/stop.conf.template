@@ -8,6 +8,7 @@ ServerRoot "${server_dir}"
 # not in 2.4.x
 #DefaultRuntimeDir logs
 PidFile "${server_dir}/logs/httpd.pid"
+ScriptSock "${server_dir}/logs/cgid.sock"
 
 Include "conf/modules.conf"
 
