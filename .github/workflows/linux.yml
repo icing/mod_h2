@@ -91,4 +91,4 @@ jobs:
         run: |
           export PATH=$PATH:$HOME/go/bin
           [ -x "$HOME/venv/bin/activate" ] && source $HOME/venv/bin/activate
-          pytest -vvv -k test_h2_003_01
+          pytest -v
