@@ -1,8 +1,10 @@
+import logging
 import re
 import pytest
 
 from .env import H2Conf, H2TestEnv
 
+log = logging.getLogger(__name__)
 
 @pytest.mark.skipif(condition=H2TestEnv.is_unsupported, reason="mod_http2 not supported here")
 class TestGet:
@@ -20,7 +22,7 @@ class TestGet:
     def test_h2_003_01(self, env):
         url = env.mkurl("https", "cgi", "/hello.py")
         r = env.curl_get(url, 5, options=["--tlsv1.2"])
-        assert r.response["status"] == 200
+        assert r.response["status"] == 200, f'{r}, {env.httpd_error_log.dump(log)}'
         assert r.response["json"]["protocol"] == "HTTP/2.0"
         assert r.response["json"]["https"] == "on"
         tls_version = r.response["json"]["ssl_protocol"]
