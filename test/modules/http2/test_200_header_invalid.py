@@ -1,7 +1,10 @@
+import logging
 import re
 import pytest
 
 from .env import H2Conf, H2TestEnv
+
+log = logging.getLogger(__name__)
 
 
 @pytest.mark.skipif(condition=H2TestEnv.is_unsupported, reason="mod_http2 not supported here")
@@ -251,7 +254,7 @@ class TestInvalidHeaders:
         r = env.curl_get(url, options=opt)
         assert r.response
         assert r.response["status"] == 431
-        assert env.httpd_error_log.scan_recent(re_emitted)
+        assert env.httpd_error_log.scan_recent(re_emitted), f'{env.httpd_error_log.dump(log)}'
 
     # test too many failed headers, should give RST
     def test_h2_200_18(self, env):
@@ -270,7 +273,7 @@ class TestInvalidHeaders:
             opt += ["-H", f"x{i}: 012345678901234567890123456789"]
         r = env.curl_get(url, options=opt)
         assert r.response is None
-        assert env.httpd_error_log.scan_recent(re_emitted)
+        assert env.httpd_error_log.scan_recent(re_emitted), f'{env.httpd_error_log.dump(log)}'
 
     # test header 10 invalid headers, should trigger stream RST
     def test_h2_200_19(self, env):
