@@ -19,3 +19,4 @@ filelock
 multipart
 psutil
 tqdm
+websockets
