@@ -72,6 +72,8 @@ jobs:
       - name: 'install test prereqs'
         run: |
           [ -x "$HOME/venv/bin/activate" ] && source $HOME/venv/bin/activate
+          sudo apt-get install -y --no-install-suggests --no-install-recommends \
+            python3-multipart
           python3 -m pip install -r test/requirements.txt
 
       - name: 'configure'
