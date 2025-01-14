@@ -16,6 +16,7 @@
 pytest
 cryptography
 filelock
+python-multipart
 psutil
 requests
 tqdm
