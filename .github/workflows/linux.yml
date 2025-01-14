@@ -50,12 +50,12 @@ jobs:
           - name: mpm_event
             install_packages:
             install_steps: pytest pebble
-            mpm: mpm_event
+            mpm: event
 
           - name: mpm_worker
             install_packages:
             install_steps: pytest pebble
-            mpm: mpm_worker
+            mpm: worker
 
     steps:
       - name: 'install prereqs'
