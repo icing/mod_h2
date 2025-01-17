@@ -363,9 +363,11 @@ static int on_frame_recv_cb(nghttp2_session *ng2s,
         else {
             ap_log_cerror(APLOG_MARK, APLOG_DEBUG, 0, session->c1,
                           H2_SSSN_LOG(APLOGNO(03066), session,
-                          "recv FRAME[%s], frames=%ld/%ld (r/s)"),
+                          "recv FRAME[%s], frames=%ld/%ld (r/s), "
+                          "remote.emitted=%d"),
                           buffer, (long)session->frames_received,
-                         (long)session->frames_sent);
+                         (long)session->frames_sent,
+                         (int)session->remote.emitted_count);
         }
     }
 
