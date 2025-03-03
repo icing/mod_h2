@@ -287,3 +287,34 @@ class TestInvalidHeaders:
         r = env.curl_get(url, options=opt)
         assert r.response is None
 
+    # check long response headers
+    def test_h2_200_20(self, env):
+        url = env.mkurl("https", "cgi", f'/h2test/tweak?x-hd={48 * 1024}')
+        r = env.curl_get(url, options=['-vvv'])
+        assert r.exit_code == 0, f'{r}'
+
+    # check response headers longer then nghttp2 header block len default
+    def test_h2_200_21(self, env):
+        conf = H2Conf(env=env, extras={
+            'base': [
+                'H2MaxHeaderBlockLen 0',
+            ],
+        })
+        conf.add_vhost_cgi().install()
+        assert env.apache_restart() == 0
+        url = env.mkurl("https", "cgi", f'/h2test/tweak?x-hd={64 * 1024}')
+        r = env.curl_get(url, options=['-vvv'])
+        assert r.exit_code != 0, f'{r}'
+
+    # check response headers with new block len set
+    def test_h2_200_22(self, env):
+        conf = H2Conf(env=env, extras={
+            'base': [
+                f'H2MaxHeaderBlockLen {96 * 1024}',
+            ],
+        })
+        conf.add_vhost_cgi().install()
+        assert env.apache_restart() == 0
+        url = env.mkurl("https", "cgi", f'/h2test/tweak?x-hd={64 * 1024}')
+        r = env.curl_get(url, options=['-vvv'])
+        assert r.exit_code == 0, f'{r}'

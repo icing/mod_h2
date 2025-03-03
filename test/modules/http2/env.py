@@ -113,6 +113,9 @@ class H2Conf(HttpdConf):
                 "<Location \"/h2test/error\">",
                 "    SetHandler h2test-error",
                 "</Location>",
+                "<Location \"/h2test/tweak\">",
+                "    SetHandler h2test-tweak",
+                "</Location>",
             ]
         }))
 
