@@ -12,7 +12,7 @@
 #
 
 AC_PREREQ([2.69])
-AC_INIT([mod_http2], [2.0.29], [stefan@eissing.org])
+AC_INIT([mod_http2], [2.0.30], [stefan@eissing.org])
 
 LT_PREREQ([2.2.6])
 LT_INIT()
