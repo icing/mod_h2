@@ -563,6 +563,241 @@ cleanup:
     return AP_FILTER_ERROR;
 }
 
+static int h2test_tweak_handler(request_rec *r)
+{
+  conn_rec *c = r->connection;
+  apr_bucket_brigade *bb;
+  apr_bucket *b;
+  apr_status_t rv;
+  char buffer[16*1024];
+  int i, chunks = 3, error_bucket = 1;
+  size_t chunk_size = sizeof(buffer);
+  const char *request_id = "none";
+  apr_time_t delay = 0, chunk_delay = 0, close_delay = 0;
+  apr_array_header_t *args = NULL;
+  int http_status = 200;
+  apr_status_t error = APR_SUCCESS, body_error = APR_SUCCESS;
+  int close_conn = 0, with_cl = 0;
+  int x_hd_len = 0, x_hd1_len = 0;
+
+  if(strcmp(r->handler, "h2test-tweak")) {
+    return DECLINED;
+  }
+  if(r->method_number == M_DELETE) {
+    http_status = 204;
+    chunks = 0;
+  }
+  else if(r->method_number != M_GET && r->method_number != M_POST) {
+    return DECLINED;
+  }
+
+  if(r->args) {
+    args = apr_cstr_split(r->args, "&", 1, r->pool);
+    for(i = 0; i < args->nelts; ++i) {
+      char *s, *val, *arg = APR_ARRAY_IDX(args, i, char *);
+      s = strchr(arg, '=');
+      if(s) {
+        *s = '\0';
+        val = s + 1;
+        if(!strcmp("status", arg)) {
+          http_status = (int)apr_atoi64(val);
+          if(http_status > 0) {
+            continue;
+          }
+        }
+        else if(!strcmp("chunks", arg)) {
+          chunks = (int)apr_atoi64(val);
+          if(chunks >= 0) {
+            continue;
+          }
+        }
+        else if(!strcmp("chunk_size", arg)) {
+          chunk_size = (int)apr_atoi64(val);
+          if(chunk_size >= 0) {
+            if(chunk_size > sizeof(buffer)) {
+              ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+                            "chunk_size %zu too large", chunk_size);
+              ap_die(HTTP_BAD_REQUEST, r);
+              return OK;
+            }
+            continue;
+          }
+        }
+        else if(!strcmp("id", arg)) {
+          /* just an id for repeated requests with curl's url globbing */
+          request_id = val;
+          continue;
+        }
+        else if(!strcmp("error", arg)) {
+          if(status_from_str(val, &error)) {
+            continue;
+          }
+        }
+        else if(!strcmp("error_bucket", arg)) {
+          error_bucket = (int)apr_atoi64(val);
+          if(error_bucket >= 0) {
+            continue;
+          }
+        }
+        else if(!strcmp("body_error", arg)) {
+          if(status_from_str(val, &body_error)) {
+            continue;
+          }
+        }
+        else if(!strcmp("delay", arg)) {
+          rv = duration_parse(&delay, val, "s");
+          if(APR_SUCCESS == rv) {
+            continue;
+          }
+        }
+        else if(!strcmp("chunk_delay", arg)) {
+          rv = duration_parse(&chunk_delay, val, "s");
+          if(APR_SUCCESS == rv) {
+            continue;
+          }
+        }
+        else if(!strcmp("close_delay", arg)) {
+          rv = duration_parse(&close_delay, val, "s");
+          if(APR_SUCCESS == rv) {
+            continue;
+          }
+        }
+        else if(!strcmp("x-hd", arg)) {
+          x_hd_len = (int)apr_atoi64(val);
+          continue;
+        }
+        else if(!strcmp("x-hd1", arg)) {
+          x_hd1_len = (int)apr_atoi64(val);
+          continue;
+        }
+      }
+      else if(!strcmp("close", arg)) {
+        /* we are asked to close the connection */
+        close_conn = 1;
+        continue;
+      }
+      else if(!strcmp("with_cl", arg)) {
+        with_cl = 1;
+        continue;
+      }
+      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "query parameter not "
+                    "understood: '%s' in %s",
+                    arg, r->args);
+      ap_die(HTTP_BAD_REQUEST, r);
+      return OK;
+    }
+  }
+
+  ap_log_rerror(APLOG_MARK, APLOG_TRACE1, 0, r, "error_handler: processing "
+                "request, %s", r->args? r->args : "(no args)");
+  r->status = http_status;
+  r->clength = with_cl ? (chunks * chunk_size) : -1;
+  r->chunked = (r->proto_num >= HTTP_VERSION(1, 1)) && !with_cl;
+  apr_table_setn(r->headers_out, "request-id", request_id);
+  if(r->clength >= 0) {
+    apr_table_set(r->headers_out, "Content-Length",
+                  apr_ltoa(r->pool, (long)r->clength));
+  }
+  else
+    apr_table_unset(r->headers_out, "Content-Length");
+  /* Discourage content-encodings */
+  apr_table_unset(r->headers_out, "Content-Encoding");
+  if(x_hd_len > 0) {
+    int i, hd_len = (16 * 1024);
+    int n = (x_hd_len / hd_len);
+    char *hd_val = apr_palloc(r->pool, x_hd_len);
+    memset(hd_val, 'X', hd_len);
+    hd_val[hd_len - 1] = 0;
+    for(i = 0; i < n; ++i) {
+      apr_table_setn(r->headers_out, apr_psprintf(r->pool, "X-Header-%d", i), hd_val);
+    }
+    if(x_hd_len % hd_len) {
+      hd_val[(x_hd_len % hd_len)] = 0;
+      apr_table_setn(r->headers_out, apr_psprintf(r->pool, "X-Header-%d", i), hd_val);
+    }
+  }
+  if(x_hd1_len > 0) {
+    char *hd_val = apr_palloc(r->pool, x_hd1_len);
+    memset(hd_val, 'Y', x_hd1_len);
+    hd_val[x_hd1_len - 1] = 0;
+    apr_table_setn(r->headers_out, "X-Mega-Header", hd_val);
+  }
+
+  apr_table_setn(r->subprocess_env, "no-brotli", "1");
+  apr_table_setn(r->subprocess_env, "no-gzip", "1");
+  ap_set_content_type(r, "application/octet-stream");
+  bb = apr_brigade_create(r->pool, c->bucket_alloc);
+
+  if(delay) {
+    apr_sleep(delay);
+  }
+  if(error != APR_SUCCESS) {
+    return ap_map_http_request_error(error, HTTP_BAD_REQUEST);
+  }
+  /* flush response */
+  b = apr_bucket_flush_create(c->bucket_alloc);
+  APR_BRIGADE_INSERT_TAIL(bb, b);
+  rv = ap_pass_brigade(r->output_filters, bb);
+  if(APR_SUCCESS != rv)
+    goto cleanup;
+
+  memset(buffer, 'X', sizeof(buffer));
+  for(i = 0; i < chunks; ++i) {
+    if(chunk_delay) {
+      apr_sleep(chunk_delay);
+    }
+    rv = apr_brigade_write(bb, NULL, NULL, buffer, chunk_size);
+    if(APR_SUCCESS != rv)
+      goto cleanup;
+    rv = ap_pass_brigade(r->output_filters, bb);
+    if(APR_SUCCESS != rv)
+      goto cleanup;
+    ap_log_rerror(APLOG_MARK, APLOG_TRACE1, 0, r,
+                  "error_handler: passed %lu bytes as response body",
+                  (unsigned long)chunk_size);
+    if(body_error != APR_SUCCESS) {
+      rv = body_error;
+      goto cleanup;
+    }
+  }
+  /* we are done */
+  b = apr_bucket_eos_create(c->bucket_alloc);
+  APR_BRIGADE_INSERT_TAIL(bb, b);
+  rv = ap_pass_brigade(r->output_filters, bb);
+  apr_brigade_cleanup(bb);
+  ap_log_rerror(APLOG_MARK, APLOG_TRACE1, rv, r,
+                "error_handler: response passed");
+
+cleanup:
+  if(close_conn) {
+    if(close_delay) {
+      b = apr_bucket_flush_create(c->bucket_alloc);
+      APR_BRIGADE_INSERT_TAIL(bb, b);
+      rv = ap_pass_brigade(r->output_filters, bb);
+      apr_brigade_cleanup(bb);
+      apr_sleep(close_delay);
+    }
+    r->connection->keepalive = AP_CONN_CLOSE;
+  }
+  ap_log_rerror(APLOG_MARK, APLOG_TRACE1, rv, r,
+                "error_handler: request cleanup, r->status=%d, aborted=%d, "
+                "close=%d", r->status, c->aborted, close_conn);
+  if(rv == APR_SUCCESS) {
+    return OK;
+  }
+  if(error_bucket) {
+    http_status = ap_map_http_request_error(rv, HTTP_BAD_REQUEST);
+    b = ap_bucket_error_create(http_status, NULL, r->pool, c->bucket_alloc);
+    ap_log_rerror(APLOG_MARK, APLOG_TRACE1, rv, r,
+                  "error_handler: passing error bucket, status=%d",
+                  http_status);
+    APR_BRIGADE_INSERT_TAIL(bb, b);
+    ap_pass_brigade(r->output_filters, bb);
+  }
+  return AP_FILTER_ERROR;
+}
+
+
 /* Install this module into the apache2 infrastructure.
  */
 static void h2test_hooks(apr_pool_t *pool)
@@ -584,5 +819,6 @@ static void h2test_hooks(apr_pool_t *pool)
     ap_hook_handler(h2test_delay_handler, NULL, NULL, APR_HOOK_MIDDLE);
     ap_hook_handler(h2test_trailer_handler, NULL, NULL, APR_HOOK_MIDDLE);
     ap_hook_handler(h2test_error_handler, NULL, NULL, APR_HOOK_MIDDLE);
+    ap_hook_handler(h2test_tweak_handler, NULL, NULL, APR_HOOK_MIDDLE);
 }
 

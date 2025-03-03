@@ -135,6 +135,7 @@ The following configuration directives are available:
   * [H2EarlyHint](#h2earlyhint)
   * [H2EarlyHints](#h2earlyhints)
   * [H2MaxDataFrameLen](#h2maxdataframelen)
+  * [H2MaxHeaderBlockLen](#h2maxheaderblocklen)
   * [H2MaxSessionStreams](#h2maxsessionstreams)
   * [H2MaxWorkerIdleSeconds](#h2maxworkeridleseconds)
   * [H2MaxWorkers](#h2maxworkers)
@@ -224,6 +225,14 @@ Context: server config, virtual host
 H2MaxDataFrameLen limits the maximum amount of response body bytes placed into a single HTTP/2 DATA frame. Setting this to 0 places no limit (but the max size allowed by the protocol is observed).
 
 The module, by default, tries to use the maximum size possible, which is somewhat around 16KB. This sets the maximum. When less response data is available, smaller frames will be sent.
+
+### H2MaxHeaderBlockLen
+```
+Syntax:  H2MaxHeaderBlockLen n
+Default: H2MaxHeaderBlockLen 0
+Context: server config, virtual host
+```
+H2MaxHeaderBlockLen set the limit on the maximum size of the uncompressed headers of a response. This is the accumulated size of all headers in a response. Setting this to 0 means the nghttp2 default of 64 KB applies.
 
 ### H2MaxSessionStreams
 
