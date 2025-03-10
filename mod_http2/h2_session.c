@@ -637,7 +637,7 @@ static int on_frame_not_send_cb(nghttp2_session *ngh2,
     stream = get_stream(session, stream_id);
     h2_util_frame_print(frame, buffer, sizeof(buffer)/sizeof(buffer[0]));
     ap_log_cerror(APLOG_MARK, APLOG_ERR, 0, session->c1,
-                  H2_SSSN_LOG(APLOGNO(), session,
+                  H2_SSSN_LOG(APLOGNO(10509), session,
                   "not sent FRAME[%s], error %d: %s"),
                   buffer, ngh2_err, nghttp2_strerror(ngh2_err));
     if(stream) {

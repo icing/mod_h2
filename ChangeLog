@@ -1,3 +1,5 @@
+  * Fix issue with handling 304 responses from mod_cache. PR69580.
+
 v2.0.30
 --------------------------------------------------------------------------------
   * Fixed bug in handling over long response headers. When the 64 KB limit
