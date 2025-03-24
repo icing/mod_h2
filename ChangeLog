@@ -1,3 +1,6 @@
+  * mod_proxy_http2: revert r1912193 for detecting broken backend connections
+    as this interferes with backend selection who a node is unresponsive.
+    PR69624.
   * Fix issue with handling 304 responses from mod_cache. PR69580.
 
 v2.0.30
