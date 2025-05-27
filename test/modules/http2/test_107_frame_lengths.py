@@ -49,3 +49,21 @@ class TestFrameLengths:
             assert len(r.results["data_lengths"]) > 0, f'{r}'
             too_large = [ x for x in r.results["data_lengths"] if x > data_frame_len]
             assert len(too_large) == 0, f'{p}: {r.results["data_lengths"]}'
+
+    @pytest.mark.parametrize("win_size", [
+        32*1024, 10*1024, 1024
+    ])
+    def test_h2_107_02_win_size(self, env, win_size):
+        conf = H2Conf(env, extras={
+            f'cgi.{env.http_tld}': [
+                f'H2WindowSize {win_size}',
+            ]
+        })
+        conf.add_vhost_cgi()
+        conf.install()
+        assert env.apache_restart() == 0
+        url = env.mkurl("https", "cgi", self.URI_PATHS[0])
+        r = env.nghttp().get(url, options=[
+            '--header=Accept-Encoding: none',
+        ])
+        assert r.response["status"] == 200
