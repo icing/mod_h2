@@ -1,3 +1,5 @@
+v2.0.32
+--------------------------------------------------------------------------------
   * The connection window size was set wrong, preventing `H2WindowSize`
     to work. Fixed #300.
 
