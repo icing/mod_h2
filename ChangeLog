@@ -1,3 +1,13 @@
+v2.0.33
+--------------------------------------------------------------------------------
+  * Fixes CVE-2025-53020 (https://www.cve.org/CVERecord?id=CVE-2025-53020)
+    where a client can increase memory consumption for a HTTP/2 connection
+    via repeated request header names,leading to denial of service.
+  * Fixes CVE-2025-49630 (https://www.cve.org/CVERecord?id=CVE-2025-49630)
+    where in certain proxy configurations whith mod_proxy_http2 as the
+    backend, an assertion can be triggered by certain requests, leading
+    to denial of service.
+
 v2.0.32
 --------------------------------------------------------------------------------
   * The connection window size was set wrong, preventing `H2WindowSize`
