@@ -32,7 +32,7 @@
 #include "h2_util.h"
 
 /* h2_log2(n) iff n is a power of 2 */
-unsigned char h2_log2(int n)
+unsigned char h2_log2(unsigned int n)
 {
     int lz = 0;
     if (!n) {
