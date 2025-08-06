@@ -1,3 +1,5 @@
+v2.0.34
+--------------------------------------------------------------------------------
   * Added support for "ProxyErrorOverride" directive in mod_proxy_http2.
   * Fix a bug in calculating the log2 value of integers, used in push
     diaries and proxy window size calculations. Apache PR69741.
