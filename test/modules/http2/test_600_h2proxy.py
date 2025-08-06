@@ -198,3 +198,27 @@ class TestH2Proxy:
         # stream (exit_code != 0) or give a 503 response.
         if r.exit_code == 0:
             assert r.response['status'] in [502, 503]
+
+    # produce a HTTP error on the proxied end, check we see orig error doc
+    def test_h2_600_33(self, env, repeat):
+        conf = H2Conf(env)
+        conf.add_vhost_cgi(h2proxy_self=True)
+        conf.install()
+        assert env.apache_restart() == 0
+        url = env.mkurl("https", "cgi", "/h2proxy/h2test/error?status=406")
+        r = env.curl_get(url)
+        assert r.exit_code == 0
+        assert r.response['status'] == 406, f'{r}'
+        assert r.stdout == '*not acceptable*', f'{r}'
+
+    # produce a HTTP error on the proxied end, check that ProxyErrorOverride works
+    def test_h2_600_34(self, env, repeat):
+        conf = H2Conf(env)
+        conf.add_vhost_cgi(h2proxy_self=True)
+        conf.install()
+        assert env.apache_restart() == 0
+        url = env.mkurl("https", "cgi", "/h2proxy/h2test/error?status=405")
+        r = env.curl_get(url)
+        assert r.exit_code == 0
+        assert r.response['status'] == 405, f'{r}'
+        assert r.stdout == '*h2proxy waggles finger*', f'{r}'

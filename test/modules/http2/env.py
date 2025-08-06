@@ -116,6 +116,16 @@ class H2Conf(HttpdConf):
                 "<Location \"/h2test/tweak\">",
                 "    SetHandler h2test-tweak",
                 "</Location>",
+                'ErrorDocument 405 "*waggles finger*"',
+                'ErrorDocument 406 "*not acceptable*"',
+                '<Location "/proxy/">',
+                '    ErrorDocument 405 "*proxy waggles finger*"',
+                '    ProxyErrorOverride  On 405',
+                '</Location>',
+                '<Location "/h2proxy/">',
+                '    ErrorDocument 405 "*h2proxy waggles finger*"',
+                '    ProxyErrorOverride  On 405',
+                '</Location>',
             ]
         }))
 
