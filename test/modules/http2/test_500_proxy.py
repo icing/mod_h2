@@ -167,3 +167,11 @@ class TestProxy:
                 "AH01110"   # Network error reading response
             ]
         )
+
+    # produce a HTTP error on the proxied end, check that ProxyErrorOverride works
+    def test_h2_500_33(self, env, repeat):
+        url = env.mkurl("https", "cgi", "/proxy/h2test/error?status=405")
+        r = env.curl_get(url)
+        assert r.exit_code == 0
+        assert r.response['status'] == 405, f'{r}'
+        assert r.stdout == '*proxy waggles finger*', f'{r}'

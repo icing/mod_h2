@@ -517,6 +517,13 @@ static int h2test_error_handler(request_rec *r)
     if (error != APR_SUCCESS) {
         return ap_map_http_request_error(error, HTTP_BAD_REQUEST);
     }
+    if (r->status >= 400) {
+        b = ap_bucket_error_create(r->status, NULL, r->pool, c->bucket_alloc);
+        APR_BRIGADE_INSERT_TAIL(bb, b);
+        ap_pass_brigade(r->output_filters, bb);
+        return OK;
+    }
+
     /* flush response */
     b = apr_bucket_flush_create(c->bucket_alloc);
     APR_BRIGADE_INSERT_TAIL(bb, b);
