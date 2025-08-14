@@ -396,6 +396,7 @@ static void h2_srv_config_seti(h2_config *conf, h2_config_var_t var, int val)
             break;
         case H2_CONF_MAX_HEADER_BLOCK_LEN:
             H2_CONFIG_SET(conf, max_hd_block_len, val);
+            break;
         case H2_CONF_MAX_STREAM_ERRORS:
             H2_CONFIG_SET(conf, max_stream_errors, val);
         default:
