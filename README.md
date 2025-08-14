@@ -250,7 +250,11 @@ Syntax:  H2MaxStreamErrors n
 Default: H2MaxStreamErrors 8
 Context: server config, virtual host
 ```
-H2MaxStreamErrors set maxmimum amount of tolerated HTTP/2 stream errors caused by the client. When exceeding this limit, the connection will be closed. Stream errors are protocol violations on an individual HTTP/2 stream that do not necessitate a connection close by the protocol specification, but can be a sign of malicious activity by a client.
+H2MaxStreamErrors set maxmimum amount of tolerated HTTP/2 stream errors
+caused by the client. When exceeding this limit, the connection will be closed.
+Stream errors are protocol violations on an individual HTTP/2 stream that
+do not necessitate a connection close by the protocol specification, but
+can be a sign of malicious activity by a client.
 
 Set to 0 to tolerate faulty clients.
 
