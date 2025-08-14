@@ -137,6 +137,7 @@ The following configuration directives are available:
   * [H2MaxDataFrameLen](#h2maxdataframelen)
   * [H2MaxHeaderBlockLen](#h2maxheaderblocklen)
   * [H2MaxSessionStreams](#h2maxsessionstreams)
+  * [H2MaxStreamErrors](#h2maxstreamerrors)
   * [H2MaxWorkerIdleSeconds](#h2maxworkeridleseconds)
   * [H2MaxWorkers](#h2maxworkers)
   * [H2MinWorkers](#h2minworkers)
@@ -242,6 +243,20 @@ Default: H2MaxSessionStreams 100
 Context: server config, virtual host
 ```
 This directive sets the maximum number of active streams per HTTP/2 session (e.g. connection) that the server allows. A stream is active if it is not idle or closed according to RFC 7540.
+
+### H2MaxStreamErrors
+```
+Syntax:  H2MaxStreamErrors n
+Default: H2MaxStreamErrors 8
+Context: server config, virtual host
+```
+H2MaxStreamErrors set maxmimum amount of tolerated HTTP/2 stream errors
+caused by the client. When exceeding this limit, the connection will be closed.
+Stream errors are protocol violations on an individual HTTP/2 stream that
+do not necessitate a connection close by the protocol specification, but
+can be a sign of malicious activity by a client.
+
+Set to 0 to tolerate faulty clients.
 
 ### H2MaxWorkerIdleSeconds
 ```
