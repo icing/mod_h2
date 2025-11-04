@@ -1,3 +1,5 @@
+  * Hardening: use nghttp2 supplied length when checking trailers.
+
 v2.0.35
 --------------------------------------------------------------------------------
   * New directive `H2MaxStreamErrors` to control how much bad behaviour
