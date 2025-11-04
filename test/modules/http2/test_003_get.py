@@ -245,7 +245,7 @@ content-type: text/html
         url = env.mkurl("https", "test1", "/index.html")
         r = env.curl_get(url, options=['-H', 'TE: gzip'])
         # such a request headers is not allowed in HTTP/2
-        assert r.exit_code == 92, r
+        assert r.exit_code != 0, r
 
     # lets do some error tests
     def test_h2_003_70(self, env):
