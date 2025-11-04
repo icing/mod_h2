@@ -490,7 +490,7 @@ static int h2_session_on_frame_recv(nghttp2_session *ngh2,
                                     const nghttp2_frame *frame,
                                     void *user_data)
 {
-    (void)user_data;
+    struct h2_session *session = user_data;
 
     switch (frame->hd.type) {
     case NGHTTP2_HEADERS:
@@ -511,6 +511,8 @@ static int h2_session_on_frame_recv(nghttp2_session *ngh2,
         break;
     case NGHTTP2_GOAWAY:
         log_infof("frame recv", "FRAME[GOAWAY]");
+        fprintf(stdout, "[%d] GOAWAY\n", frame->hd.stream_id);
+        session->aborted = 1;
         break;
     }
     return 0;
@@ -743,6 +745,9 @@ static nfds_t h2_session_set_poll(struct h2_session *session,
     nfds_t n = 0;
     int want_read, want_write;
     struct h2_stream *stream;
+
+    if(session->aborted)
+      return 0;
 
     want_read = (nghttp2_session_want_read(session->ngh2) ||
                  session->want_io == IO_WANT_READ);
