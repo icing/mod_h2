@@ -1,3 +1,5 @@
+  * Revert change from v2.0.33 that gave streams their own memory
+    allocator after report of problems in PR 69899.
   * Hardening: use nghttp2 supplied length when checking trailers.
 
 v2.0.35
