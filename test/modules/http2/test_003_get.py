@@ -242,6 +242,8 @@ content-type: text/html
 
     # Test that we handle a 'TE: gzip' request header
     def test_h2_003_61(self, env):
+        if env.curl_is_at_least('8.14.0'):
+            pytest.skip(f'newer curl ignores TE headers on h2')
         url = env.mkurl("https", "test1", "/index.html")
         r = env.curl_get(url, options=['-H', 'TE: gzip'])
         # such a request headers is not allowed in HTTP/2
