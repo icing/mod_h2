@@ -1,3 +1,8 @@
+v2.0.37
+--------------------------------------------------------------------------------
+  * Prevent double purge of a stream, resulting in a double free.
+  * Restore use of streams own memory allocator.
+
 v2.0.36
 --------------------------------------------------------------------------------
   * Revert change from v2.0.33 that gave streams their own memory
