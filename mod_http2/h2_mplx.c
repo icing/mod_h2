@@ -1099,7 +1099,7 @@ static void s_mplx_be_happy(h2_mplx *m, conn_rec *c, h2_conn_ctx_t *conn_ctx)
             m->last_mood_change = now;
             m->irritations_since = 0;
             ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, c,
-                          H2_MPLX_MSG(m, "mood update, increasing worker limit"
+                          H2_MPLX_MSG(m, "mood update, increasing worker limit "
                           "to %d, processing %d right now"),
                           m->processing_limit, m->processing_count);
         }
@@ -1263,7 +1263,7 @@ static apr_status_t mplx_pollset_poll(h2_mplx *m, apr_interval_time_t timeout,
         if (APR_SUCCESS != rv) {
             if (APR_STATUS_IS_TIMEUP(rv)) {
                 ap_log_cerror(APLOG_MARK, APLOG_TRACE2, 0, m->c1,
-                              H2_MPLX_MSG(m, "polling timed out "));
+                              H2_MPLX_MSG(m, "polling timed out"));
             }
             else {
                 ap_log_cerror(APLOG_MARK, APLOG_ERR, rv, m->c1, APLOGNO(10310) \
