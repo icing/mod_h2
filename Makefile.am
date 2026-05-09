@@ -21,7 +21,9 @@ EXTRA_DIST     = \
     test/Makefile.am \
 	test/clients \
 	test/modules \
-	test/pyhttpd
+	test/pyhttpd \
+	test/conftest.py \
+	test/load_test.py
 
 
 dist_doc_DATA   = README README.md LICENSE
