@@ -1,3 +1,8 @@
+  * Fix error handling on upload requests when server runs out of file
+    handles that left beam bucket callbacks in place, potentially using
+    no longer valid references. Only applies on platforms with pipes
+    and file descriptor limits not healthy for a network server.
+
 v2.0.39
 --------------------------------------------------------------------------------
   * Remove streams own memory allocator after reports of memory problems
