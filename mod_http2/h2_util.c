@@ -1719,6 +1719,8 @@ static apr_status_t req_add_header(apr_table_t *headers, apr_pool_t *pool,
             apr_table_setn(headers, "Cookie",
                            apr_psprintf(pool, "%s; %.*s", existing,
                                         (int)nv->valuelen, nv->value));
+            /* Treat the merge as an "add" to not escape LimitRequestFields */
+            *pwas_added = 1;
             return APR_SUCCESS;
         }
     }
